@@ -90,6 +90,7 @@ def main(spec, n):
 
 
 if __name__ == "__main__":
-    spec = sys.argv[1] if len(sys.argv) > 1 else "policy:data/c8.bin"
+    spec = (sys.argv[1] if len(sys.argv) > 1
+            else "policy:data/champion.bin:0:20")
     n = int(sys.argv[2]) if len(sys.argv) > 2 else 40
     sys.exit(main(spec, n))

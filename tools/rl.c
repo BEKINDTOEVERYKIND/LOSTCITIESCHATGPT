@@ -318,7 +318,7 @@ static void grad_accumulate(Net *dst, Net *const *src, int n)
 int main(int argc, char **argv)
 {
     const char *out_path = "data/rl.bin";
-    const char *init_path = "data/c8.bin";
+    const char *init_path = "data/champion.bin";
     const char *ref_spec = "heur";
     int iters = 30, games = 4000, nthread = 4, batch = 512, epochs = 2;
     int eval_pairs = 400, eval_every = 1;
@@ -361,11 +361,16 @@ int main(int argc, char **argv)
         fprintf(stderr, "--temp must be finite and greater than zero\n");
         return 1;
     }
+    if (rounds < 1 || rounds > MATCH_ROUNDS) {
+        fprintf(stderr, "--rounds must be between 1 and %d\n", MATCH_ROUNDS);
+        return 1;
+    }
 
     Net *net = (Net *)malloc(sizeof(Net));
     Net *frozen = (Net *)malloc(sizeof(Net));
     Adam *adam = (Adam *)calloc(1, sizeof(Adam));
     if (net_load(net, init_path) != 0) { fprintf(stderr, "cannot load %s\n", init_path); return 1; }
+    net_project_wager_symmetry(net);
     printf("initialised from %s\n", init_path);
 
     Agent ref;
@@ -474,6 +479,7 @@ int main(int argc, char **argv)
                 for (int i = 0; i < nt; i++) pthread_join(tt[i], NULL);
                 for (int i = 0; i < nt; i++) { pl += tj[i].ploss; vl += tj[i].vloss; bl += tj[i].bloss; pn += tj[i].pn; bcnt += tj[i].bn; cl += tj[i].clipped; }
                 grad_accumulate(grads[0], grads, nt);
+                net_tie_wager_gradients(grads[0]);
                 net_adam_step(net, grads[0], adam, lr, 1.0f / (float)batch, wd);
                 steps++;
             }

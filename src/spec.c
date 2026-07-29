@@ -62,13 +62,16 @@ void spec_parse(const char *spec, Agent *a)
             if ((v = strtok_r(NULL, ":", &save))) a->override_k = (float)atof(v);
             if ((v = strtok_r(NULL, ":", &save))) a->override_min = (float)atof(v);
             if ((v = strtok_r(NULL, ":", &save))) a->playout_sample = atoi(v);
+            if ((v = strtok_r(NULL, ":", &save))) a->symmetries = atoi(v);
         } else if (is_policy) {
             if ((v = strtok_r(NULL, ":", &save))) a->temp = (float)atof(v);
+            if ((v = strtok_r(NULL, ":", &save))) a->symmetries = atoi(v);
         } else if (is_mcts) {
             if ((v = strtok_r(NULL, ":", &save))) a->dets = atoi(v);
             if ((v = strtok_r(NULL, ":", &save))) a->sims = atoi(v);
             if ((v = strtok_r(NULL, ":", &save))) a->root_width = atoi(v);
             if ((v = strtok_r(NULL, ":", &save))) a->node_width = atoi(v);
+            if ((v = strtok_r(NULL, ":", &save))) a->symmetries = atoi(v);
         } else {
             if ((v = strtok_r(NULL, ":", &save))) a->draw_samples = atoi(v);
         }

@@ -46,7 +46,12 @@ static int new_node(Tree *t)
 static float terminal_value(const State *s)
 {
     int p = s->turn;
-    return (float)(lc_score(s, p) - lc_score(s, p ^ 1)) / VAL_SCALE;
+    float value = (float)rollout_terminal_objective(s, p, 2);
+    /* Earlier-round terminal values remain round margin.  A fully consistent
+     * earlier-round MCTS needs a separate round-margin value head or an
+     * explicit continuation through the remaining deals; the shipped value
+     * head predicts full-match return, so MCTS remains experimental there. */
+    return value / VAL_SCALE;
 }
 
 /* Fill a node from a set of moves and their priors, keeping the best `width`. */
@@ -140,7 +145,8 @@ Move search_move(const struct Agent *a, const State *st, Rng *rng,
     Move rmv[MAX_MOVES];
     float rprob[MAX_MOVES];
     float rvalue = 0.0f;
-    int rn = policy_probs(a->net, st, rmv, rprob, &rvalue);
+    int rn = policy_probs_sym(a->net, st, rmv, rprob, &rvalue,
+                              a->symmetries);
     if (rn <= 1) {
         if (out_value) *out_value = rvalue;
         if (stats) {

@@ -130,7 +130,7 @@ static void print_cells(const char *title, Cell *row, int stride, int nrow,
 
 int main(int argc, char **argv)
 {
-    const char *net_path = "data/c8.bin";
+    const char *net_path = "data/champion.bin";
     int matches = 40, nthread = 4, worlds = 96, cands = 5;
     uint64_t seed = 424242;
     for (int i = 1; i < argc; i++) {

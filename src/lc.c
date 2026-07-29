@@ -56,9 +56,18 @@ int lc_moves(const State *st, Move *out)
         if (st->pile_n[s] > 0) src[nsrc++] = (uint8_t)(s + 1);
 
     int n = 0;
+    uint8_t wager_seen[NSUIT] = { 0 };
     for (int i = 0; i < nc; i++) {
         uint8_t c = cards[i];
         int suit = CARD_SUIT(c);
+        /* The three wagers of a suit are one rules-level card type.  Offering
+         * three copies of the same turn wastes policy/search capacity and
+         * makes sampling depend on how many arbitrary physical IDs happen to
+         * be held.  The lowest held ID is a canonical representative. */
+        if (CARD_IS_WAGER(c)) {
+            if (wager_seen[suit]) continue;
+            wager_seen[suit] = 1;
+        }
         int val = CARD_VALUE(c);
         int playable = CARD_IS_WAGER(c) ? (st->exp_top[p][suit] == 0)
                                         : (val > st->exp_top[p][suit]);
@@ -78,6 +87,60 @@ int lc_moves(const State *st, Move *out)
          * fresh card may not be taken back, so no extra source appears */
     }
     return n;
+}
+
+uint8_t lc_permute_card(uint8_t card, const uint8_t perm[NSUIT])
+{
+    return (uint8_t)CARD_MAKE(perm[CARD_SUIT(card)], CARD_RANK(card));
+}
+
+static uint64_t permute_mask(uint64_t mask, const uint8_t perm[NSUIT])
+{
+    uint64_t out = 0;
+    while (mask) {
+        int card = __builtin_ctzll(mask);
+        mask &= mask - 1;
+        out |= 1ULL << lc_permute_card((uint8_t)card, perm);
+    }
+    return out;
+}
+
+Move lc_permute_move(Move m, const uint8_t perm[NSUIT])
+{
+    m.card = lc_permute_card(m.card, perm);
+    if (m.draw > 0) m.draw = (uint8_t)(perm[m.draw - 1] + 1);
+    return m;
+}
+
+void lc_permute_suits(const State *src, State *dst,
+                      const uint8_t perm[NSUIT])
+{
+    State copy;
+    if (src == dst) {
+        copy = *src;
+        src = &copy;
+    }
+    *dst = *src;
+    for (int i = 0; i < NCARD; i++)
+        dst->deck[i] = lc_permute_card(src->deck[i], perm);
+    for (int p = 0; p < 2; p++) {
+        dst->hand[p] = permute_mask(src->hand[p], perm);
+        dst->played[p] = permute_mask(src->played[p], perm);
+        dst->known[p] = permute_mask(src->known[p], perm);
+    }
+    dst->discarded = permute_mask(src->discarded, perm);
+    for (int s = 0; s < NSUIT; s++) {
+        int q = perm[s];
+        dst->pile_n[q] = src->pile_n[s];
+        for (int i = 0; i < NRANK; i++)
+            dst->pile[q][i] = lc_permute_card(src->pile[s][i], perm);
+        for (int p = 0; p < 2; p++) {
+            dst->exp_wager[p][q] = src->exp_wager[p][s];
+            dst->exp_top[p][q] = src->exp_top[p][s];
+            dst->exp_n[p][q] = src->exp_n[p][s];
+            dst->exp_sum[p][q] = src->exp_sum[p][s];
+        }
+    }
 }
 
 void lc_apply_play(State *st, Move m)

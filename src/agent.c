@@ -11,6 +11,7 @@ void agent_default(Agent *a, AgentKind k, const Net *net)
     a->draw_samples = 6;
     a->temp = 0.0f;
     a->eps = 0.0f;
+    a->symmetries = 1;
     a->dets = 16;
     a->sims = 160;
     a->root_width = 14;
@@ -190,7 +191,8 @@ float move_value_heur(const State *st, Move m, const DrawSamples *ds)
     return sum / (float)ds->n;
 }
 
-int policy_probs(const Net *net, const State *st, Move *mv, float *prob, float *value)
+static int policy_probs_raw(const Net *net, const State *st, Move *mv,
+                            float *prob, float *value)
 {
     int n = lc_moves(st, mv);
     if (n == 0) return 0;
@@ -210,6 +212,87 @@ int policy_probs(const Net *net, const State *st, Move *mv, float *prob, float *
     float inv = 1.0f / sum;
     for (int i = 0; i < n; i++) prob[i] *= inv;
     return n;
+}
+
+/* Return an exact subgroup of the 120 suit permutations.  The 20-element
+ * affine group s -> a*s+b (mod 5) is 2-transitive, so every ordered pair of
+ * suits visits every pair of network slots equally often at one sixth of the
+ * cost of the full group. */
+static int suit_permutations(int requested, uint8_t out[120][NSUIT])
+{
+    if (requested != 5 && requested != 10 &&
+        requested != 20 && requested != 120) {
+        for (int s = 0; s < NSUIT; s++) out[0][s] = (uint8_t)s;
+        return 1;
+    }
+    if (requested != 120) {
+        static const int mult5[4] = { 1, 4, 2, 3 };
+        int na = requested == 5 ? 1 : (requested == 10 ? 2 : 4);
+        int n = 0;
+        for (int ai = 0; ai < na; ai++)
+            for (int b = 0; b < NSUIT; b++) {
+                for (int s = 0; s < NSUIT; s++)
+                    out[n][s] = (uint8_t)((mult5[ai] * s + b) % NSUIT);
+                n++;
+            }
+        return n;
+    }
+
+    int n = 0;
+    for (int a = 0; a < NSUIT; a++)
+    for (int b = 0; b < NSUIT; b++) if (b != a)
+    for (int c = 0; c < NSUIT; c++) if (c != a && c != b)
+    for (int d = 0; d < NSUIT; d++) if (d != a && d != b && d != c)
+    for (int e = 0; e < NSUIT; e++) if (e != a && e != b && e != c && e != d) {
+        out[n][0] = (uint8_t)a; out[n][1] = (uint8_t)b;
+        out[n][2] = (uint8_t)c; out[n][3] = (uint8_t)d;
+        out[n][4] = (uint8_t)e;
+        n++;
+    }
+    return n;
+}
+
+int policy_probs_sym(const Net *net, const State *st, Move *mv, float *prob,
+                     float *value, int symmetries)
+{
+    if (symmetries <= 1)
+        return policy_probs_raw(net, st, mv, prob, value);
+
+    int n = lc_moves(st, mv);
+    if (n == 0) return 0;
+    for (int i = 0; i < n; i++) prob[i] = 0.0f;
+    float value_sum = 0.0f;
+
+    uint8_t perms[120][NSUIT];
+    int nsym = suit_permutations(symmetries, perms);
+    for (int k = 0; k < nsym; k++) {
+        State ps;
+        lc_permute_suits(st, &ps, perms[k]);
+        Move pmv[MAX_MOVES];
+        float pp[MAX_MOVES], pv = 0.0f;
+        int pn = policy_probs_raw(net, &ps, pmv, pp, value ? &pv : NULL);
+
+        int by_pack[MOVE_NPACK];
+        for (int i = 0; i < MOVE_NPACK; i++) by_pack[i] = -1;
+        for (int i = 0; i < pn; i++) by_pack[MOVE_PACK(pmv[i])] = i;
+        for (int i = 0; i < n; i++) {
+            Move mapped = lc_permute_move(mv[i], perms[k]);
+            int j = by_pack[MOVE_PACK(mapped)];
+            if (j >= 0) prob[i] += pp[j];
+        }
+        value_sum += pv;
+    }
+
+    float inv = 1.0f / (float)nsym;
+    for (int i = 0; i < n; i++) prob[i] *= inv;
+    if (value) *value = value_sum * inv;
+    return n;
+}
+
+int policy_probs(const Net *net, const State *st, Move *mv, float *prob,
+                 float *value)
+{
+    return policy_probs_raw(net, st, mv, prob, value);
 }
 
 int sample_index(const float *w, int n, Rng *rng)
@@ -300,7 +383,8 @@ Move agent_move(const Agent *a, const State *st, Rng *rng)
     if (a->kind == AG_ROLLOUT) return rollout_move(a, st, rng, NULL, NULL);
     if (a->kind == AG_POLICY) {
         float prob[MAX_MOVES];
-        int n = policy_probs(a->net, st, mv, prob, NULL);
+        int n = policy_probs_sym(a->net, st, mv, prob, NULL,
+                                 a->symmetries);
         if (a->eps > 0.0f && rng_float(rng) < a->eps) return mv[rng_below(rng, (uint32_t)n)];
         if (a->temp > 0.0f) {
             if (a->temp != 1.0f)

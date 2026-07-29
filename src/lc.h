@@ -151,6 +151,12 @@ uint64_t lc_dead_cards(const State *st);            /* unplayable by anyone  */
 int  lc_discard_dominated(const State *st, Move m, uint64_t dead);
 int  lc_score(const State *st, int p);
 int  lc_hand_cards(const State *st, int p, uint8_t *out);
+/* Exact suit-renaming automorphism.  perm[s] is the new name of old suit s.
+ * The caller must supply a permutation of 0..NSUIT-1. */
+uint8_t lc_permute_card(uint8_t card, const uint8_t perm[NSUIT]);
+Move lc_permute_move(Move m, const uint8_t perm[NSUIT]);
+void lc_permute_suits(const State *src, State *dst,
+                      const uint8_t perm[NSUIT]);
 /* Cards whose location p cannot pin down: not in p's hand, not public, and
  * not known-held by the opponent.  This is the sampling pool for the unknown
  * part of the opponent's hand and the deck. */

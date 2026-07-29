@@ -15,7 +15,7 @@
  * disagrees with the policy's argmax; training mixes these with plain
  * self-policy anchor games so the rest of the policy stays put.
  *
- *   ./bin/mine --net data/c8.bin --games 400 --threads 4 \
+ *   ./bin/mine --net data/champion.bin --games 400 --threads 4 \
  *              --out data/corr.smp [--dets 256] [--dup 4]
  */
 #include "../src/lc.h"
@@ -145,7 +145,9 @@ static void *worker(void *arg)
     lab.root_width = 5;
     lab.gate = 0.0f;
     lab.eval_cand = 4;
-    lab.override_k = 3.0f;      /* override_min 4 and prune_dom on by default */
+    lab.override_k = 3.0f;
+    lab.override_min = 4.0f;
+    lab.prune_dom = 1;          /* explicit for this validated labeler only */
     lab.playout_sample = 1;
 
     Features f;
@@ -256,7 +258,12 @@ static int filter_mode(const Net *net, const char *inp, const char *outp)
         int tb = 0;
         for (int i = 1; i < s.npi; i++) if (s.ppr[i] > s.ppr[tb]) tb = i;
         int tcard = s.pmv[tb] % 60, tdisc = (s.pmv[tb] / 60) % 2;
-        if (tcard != mv[top].card || tdisc != mv[top].discard) {
+        int pcard = mv[top].card;
+        if (CARD_IS_WAGER(tcard))
+            tcard = CARD_MAKE(CARD_SUIT(tcard), 0);
+        if (CARD_IS_WAGER(pcard))
+            pcard = CARD_MAKE(CARD_SUIT(pcard), 0);
+        if (tcard != pcard || tdisc != mv[top].discard) {
             fwrite(&s, sizeof s, 1, fo);
             kept++;
         }
@@ -308,7 +315,7 @@ static int selftarget_mode(const Net *net, const char *inp, const char *outp)
 
 int main(int argc, char **argv)
 {
-    const char *netpath = "data/c8.bin", *outpath = "data/corr.smp";
+    const char *netpath = "data/champion.bin", *outpath = "data/corr.smp";
     const char *filter_in = NULL, *filter_out = NULL, *self_in = NULL, *self_out = NULL;
     int games = 200, nthread = 4, dets = 256, dup = 4;
     uint64_t seed = 20260729;

@@ -2,8 +2,9 @@
  *
  * Input  : FEAT_DIM features (FEAT_BIN sparse binary + FEAT_DENSE scalars)
  * Trunk  : NET_H1 -> NET_H2, ReLU
- * Value  : one scalar, the expected final score margin of the perspective
- *          player, in units of VAL_SCALE points.
+ * Value  : one scalar continuation return for the perspective player, in
+ *          units of VAL_SCALE. Finishing checkpoints use
+ *          0.05 * match margin + 50 * signed match result.
  * Policy : a move is (card, play-or-discard, draw source).  The head retains
  *          the sample-efficient additive decomposition and adds a learned
  *          residual for the complete combination:
@@ -73,6 +74,13 @@ typedef struct {
 
 void  net_init(Net *n, uint64_t seed);
 void  net_zero(Net *n);
+/* Project every parameter that refers to one physical wager copy onto the
+ * exact three-copy symmetry.  The cards are indistinguishable under the
+ * rules; tying these rows removes arbitrary ID-specific behaviour. */
+void  net_project_wager_symmetry(Net *n);
+/* Convert ordinary per-row gradients into the gradient of the tied wager
+ * parameter: sum the three copies, then give every copy that same update. */
+void  net_tie_wager_gradients(Net *g);
 
 /* trunk only; fills act */
 void  net_trunk(const Net *n, const Features *f, NetAct *act);

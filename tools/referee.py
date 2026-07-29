@@ -118,8 +118,13 @@ class State:
             if len(self.pile[s]) > 0:
                 src.append(s + 1)
         out = []
+        wager_seen = [False] * NSUIT
         for c in cards:
             suit = card_suit(c)
+            if card_is_wager(c):
+                if wager_seen[suit]:
+                    continue
+                wager_seen[suit] = True
             val = card_value(c)
             if card_is_wager(c):
                 playable = self.exp_top[p][suit] == 0

@@ -3,14 +3,17 @@
  *   random
  *   heur
  *   net:PATH[:draw_samples]
- *   policy:PATH[:temperature]
+ *   policy:PATH[:temperature[:symmetries]]
  *   hrollout[:worlds[:candidates]]     (no network: heuristic + PIMC)
- *   rollout:PATH[:worlds[:candidates[:policy_floor[:gate]]]]
- *                                      (gate: skip search when the policy's
- *                                       top probability is already >= gate)
+ *   rollout:PATH[:worlds[:candidates[:policy_floor[:gate[:min_candidates
+ *            [:ply_lo[:ply_hi[:eval_candidates[:objective[:prune
+ *            [:override_k[:override_min[:sample[:symmetries]]]]]]]]]]]]]]
+ *                 objective: 0 margin; 1 final match result; 2 final hybrid
+ *                 symmetries: 1, 5, 10, 20, or 120 exact suit relabellings
  *   rolloutu:PATH[...]                 (same, but uniform world sampling: the
  *                                       ablation for the learned hand beliefs)
- *   mcts:PATH[:dets[:sims[:root_width[:node_width]]]]
+ *   mcts:PATH[:dets[:sims[:root_width[:node_width[:symmetries]]]]]
+ *                                      (symmetry averaging is root-only)
  */
 #ifndef SPEC_H
 #define SPEC_H

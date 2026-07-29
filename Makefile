@@ -4,6 +4,7 @@ LDFLAGS ?= -lm -pthread
 
 BIN     := bin
 SRC     := src
+DATA    := data
 
 HDRS    := $(wildcard $(SRC)/*.h)
 CORE    := $(SRC)/lc.c $(SRC)/features.c $(SRC)/net.c $(SRC)/heuristic.c \
@@ -12,7 +13,7 @@ CORE    := $(SRC)/lc.c $(SRC)/features.c $(SRC)/net.c $(SRC)/heuristic.c \
 all: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/arena $(BIN)/train \
 	$(BIN)/bench $(BIN)/probe $(BIN)/rl $(BIN)/ladder $(BIN)/play \
 	$(BIN)/showgame $(BIN)/dumpfeat $(BIN)/analyze $(BIN)/searchcmp \
-	$(BIN)/qpair $(BIN)/mine
+	$(BIN)/qpair $(BIN)/mine $(BIN)/symmetrize $(DATA)/champion.bin
 
 $(BIN):
 	mkdir -p $(BIN)
@@ -32,12 +33,13 @@ $(BIN)/train: tools/train.c $(CORE) $(HDRS) | $(BIN)
 $(BIN)/bench: tools/bench.c $(CORE) $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
 
-test: $(BIN)/test_engine $(BIN)/test_runtime
+test: $(BIN)/test_engine $(BIN)/test_runtime $(DATA)/champion.bin
 	./$(BIN)/test_engine
 	./$(BIN)/test_runtime
 
 clean:
 	rm -rf $(BIN)
+	rm -f $(DATA)/champion.bin
 
 .PHONY: all test clean
 
@@ -70,3 +72,10 @@ $(BIN)/qpair: tools/qpair.c $(CORE) $(HDRS) | $(BIN)
 
 $(BIN)/mine: tools/mine.c $(CORE) $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
+
+$(BIN)/symmetrize: tools/symmetrize.c $(SRC)/net.c $(SRC)/features.c \
+	$(SRC)/lc.c $(HDRS) | $(BIN)
+	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
+
+$(DATA)/champion.bin: $(DATA)/c8.bin $(BIN)/symmetrize
+	./$(BIN)/symmetrize $< $@

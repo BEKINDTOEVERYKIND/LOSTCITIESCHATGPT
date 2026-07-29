@@ -11,21 +11,36 @@ unchanged.
 
 ## Current status
 
-Use `data/c8.bin` as the inherited champion. The upstream repository still
-named an older checkpoint `best.bin`, but two independent evaluations with
-the corrected pair-clustered statistics found `c8.bin` stronger:
+Use `data/champion.bin`, normally through
+`policy:data/champion.bin:0:20`. It combines an exactly wager-symmetric
+projection of the strongest inherited checkpoint with probability averaging
+over 20 exact suit relabellings. It decisively beat the old raw `c8.bin`
+policy on two fresh holdouts:
 
 | holdout | paired matches | margin/match | match score |
 | --- | ---: | ---: | ---: |
-| seed 94004 | 2,000 | +1.80 ± 0.77 SE | 51.3% ± 0.6% SE |
-| seed 95005 | 5,000 | +2.03 ± 0.51 SE | 51.2% ± 0.4% SE |
+| seed 180018 | 2,000 | **+21.24 ± 1.02 SE** | **61.4% ± 0.7% SE** |
+| seed 190019 | 5,000 | **+19.81 ± 0.64 SE** | **60.5% ± 0.5% SE** |
 
-Version-6 networks can additionally learn full card/action × draw-source
-interactions and the complete public order of each discard pile. Loading a
-legacy v3/v4 model zero-initializes only these additions and preserves its old
-outputs exactly. A small exploratory v6 fine-tune improved point margin but
-did not clear the promotion bar on match wins, so it is deliberately not
-shipped as a new champion.
+Combined across 7,000 mirrored pairs, the direct result is approximately
++20.22 points per match and a 60.7% match score.
+
+The wager projection alone measured approximately +1.20 ± 0.18 points and
+50.62% over 35,000 pairs. The 20-way suit ensemble supplies most of the
+remaining gain by averaging away arbitrary suit-slot preferences. Exhaustive
+120-way averaging was only +0.70 ± 1.34 over the 20-way mode in a 500-pair
+screen while costing about six times as much, so it was not made the default.
+
+No newly trained checkpoint cleared the promotion bar. In particular, three
+attempts to distil the 20-way ensemble back into one fast network all became
+weaker as imitation progressed. Those negative candidates are not shipped.
+
+Version-6 networks can learn full card/action × draw-source interactions and
+the complete public order of each discard pile. Loading a legacy v3/v4 model
+zero-initializes only these additions and preserves its old outputs exactly.
+`make` deterministically regenerates `data/champion.bin` from the tracked
+`data/c8.bin`; its expected SHA-256 is
+`af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417`.
 
 See [`IMPROVEMENTS.md`](IMPROVEMENTS.md) for implemented fixes, validation,
 and remaining research work.
@@ -102,6 +117,24 @@ and the finishing phase switches to `0.05 x margin + 50 x match result`
 (--mw / --winbonus in tools/rl.c) so that winning is nearly all that matters.
 Being 40 up in round three genuinely changes what the policy optimises:
 protect the win rather than maximise expectation, and gamble when behind.
+Only actual round index 2 switches to the explicit win-dominated rollout
+objective; one- and two-round diagnostic configurations intentionally retain
+their historical semantics.
+
+**Exact game symmetries.** The three wagers in a suit are one observable card
+type, despite having separate physical IDs in the 60-card engine. Legal move
+generation now emits one semantic wager action; checkpoint parameters and
+training gradients for the three copies are tied exactly. The five suit names
+are also strategically interchangeable. At inference, `:5`, `:10`, `:20`,
+or `:120` after a policy spec averages probabilities over increasingly large
+exact suit-permutation groups. The default 20-element affine group is
+2-transitive and captures nearly all of the measured benefit at one-sixth the
+cost of all 120 permutations. These are rules-preserving transformations, not
+heuristic augmentations. The 20-way mode is invariant to that affine subgroup,
+while only the 120-way mode is invariant to every possible suit permutation.
+For rollout and MCTS, averaging is applied to the root policy/value only;
+rollout continuations and MCTS interior nodes keep raw single-network
+evaluations to avoid multiplying the full search cost.
 
 **Stalling.** Drawing a useless card from a pile to deny the opponent a turn
 of deck progress is in the action space, and nothing hand-crafted decides it:
@@ -137,7 +170,9 @@ All numbers are 3-round paired matches (each triple of deals played twice with
 seats swapped) unless stated. Margins are total match points; "wins" are match
 wins with draws counting half. The table and discussion below are retained as
 upstream experiment history; unlike the current-status table above, many used
-the older leg-level win-rate error estimate.
+the older leg-level win-rate error estimate. In this section, “champion” and
+“shipped model” refer to the inherited upstream `c8.bin`, not the new
+symmetry-ensemble configuration.
 
 | comparison | margin/match | match wins |
 | --- | ---: | ---: |
@@ -211,7 +246,7 @@ replayed position made this concrete: the policy put 100% on a discard, and a
 paired re-evaluation (tools/qpair.c, 4000 shared worlds) showed a wager it
 had written off was better -- +2.9 ± 0.6 with the net that played the game
 (robust to sampled playouts and to search-driven continuations). The leak
-family recurs, smaller, in the current champion: in the analogous position
+family recurs, smaller, in the inherited champion: in the analogous position
 of the embedded game its written-off wager play measures +0.6 to +1.0 over
 the 100%-prior discard under three estimators -- real, but below what a
 96-world play-time search can resolve, which makes it a training target,
@@ -314,19 +349,20 @@ the full config: 49.4% ± 2.0% over 300 pairs -- a tie.  Unbiased
 continuations cost nothing in strength, so analysis and training labels
 use them; match play keeps argmax with the sampled confirmation gate.
 
-Recommended settings: **maximum strength**
-`rollout:NET:96:5:0.02:0:1:14:0:4:0:1:3` (search from ply 14, four
-candidates evaluated, dominated discards pruned, 3-SE advisory override);
-**gate 0.85 for real-time play**; raw policy for bulk generation.
-Analysis uses `rollout:NET:512:5:0.02:0:1:0:0:4:0:1:3` -- the same
-selection rules at 512 worlds, searched at every ply for display.
+The strongest newly validated default is the 20-way policy ensemble:
+`policy:data/champion.bin:0:20`. Rollout remains available for slower
+analysis and play. Objective mode `2` uses round margin in rounds 0/1 and the
+champion's `0.05 × final match margin + 50 × result` return only in real round
+index 2. A high-compute analysis spec is
+`rollout:data/champion.bin:512:5:0.02:0:1:0:0:4:2:1:3:4:0:20`.
 
 ## Reproducing
 
 ```
 # 1. imitation start (heuristic plays the rounds; ~15 min on 4 cores)
 ./bin/train --gen heur --gen-switch 99 --rounds 3 --iters 4 --games 2500 \
-            --steps 15000 --batch 512 --lr 1e-3 --tau 0.5 --out data/m0.bin
+            --steps 15000 --batch 512 --lr 1e-3 --tau 0.5 --suit-augment \
+            --out data/m0.bin
 
 # 2. PPO over full matches with belief learning (~2 h on 4 cores)
 ./bin/rl --init data/m0.bin --ref policy:data/m0.bin --rounds 3 --winbonus 15 \
@@ -342,14 +378,14 @@ selection rules at 512 worlds, searched at every ply for display.
 ## Playing, analysing, measuring
 
 ```
-./bin/play -a rollout:data/c8.bin:128:4            # play against the agent
-./bin/showgame -a policy:data/c8.bin -r 3          # full match transcript
+./bin/play                                         # champion, 20-way ensemble
+./bin/showgame -a policy:data/champion.bin:0:20 -r 3
 python3 tools/verify_transcript.py <transcript>    # independent rules audit
-./bin/analyze -a rollout:data/c8.bin:512:5:0.02:0:1:0:0:4 -r 3 > data/analysis.json
-./bin/arena -a policy:data/c8.bin -b heur -n 300 -r 3
+./bin/analyze -r 3 > data/analysis.json
+./bin/arena -a policy:data/champion.bin:0:20 -b heur -n 300 -r 3
 python3 tools/referee.py match NETA NETB --pairs 400 --rounds 3
 # what was move X worth at ply N of an analysed game? (paired, with SE)
-./bin/qpair -n data/c8.bin -s SEED -f moves.txt -p N -w 4000 \
+./bin/qpair -n data/champion.bin -s SEED -f moves.txt -p N -w 4000 \
             -c "Y2 d deck" -c "W4 p deck"
 ```
 
@@ -359,11 +395,14 @@ distribution, rollout Q values per candidate, the network's belief about the
 opponent's hidden hand next to the omniscient truth, and the value trajectory
 across all three rounds.
 
-Agent specs: `random`, `heur`, `policy:PATH[:temp]`,
-`rollout:PATH[:worlds[:cands[:floor[:gate[:minc[:plylo[:plyhi[:evalc[:winq]]]]]]]]]`
-(strongest), `rolloutu:...` (uniform-world
-ablation of the belief sampler), `mcts:PATH[...]`, `net:PATH` (kept as the
-negative result it is).
+Agent specs include `random`, `heur`,
+`policy:PATH[:temperature[:symmetries]]`, `rolloutu:...` (uniform-world
+belief ablation), `mcts:PATH[...]`, and `net:PATH`. The complete rollout tail
+is `worlds:candidates:floor:gate:min_candidates:ply_lo:ply_hi:eval_candidates:`
+`objective:prune:override_k:override_min:sample:symmetries`; objective is
+`0` for round margin, `1` for pure final-round match result, or `2` for the
+champion hybrid. Supported symmetry modes are `1`, `5`, `10`, `20`, and
+`120`.
 
 All matches are paired: every deal (all three of them, in match mode) is
 played twice with the seats swapped, so deal luck cancels.

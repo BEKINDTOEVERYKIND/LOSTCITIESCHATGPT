@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+static void net_copy_wager_symmetry(Net *n);
+
 static float gauss(Rng *r)
 {
     float u1 = rng_float(r) + 1e-7f, u2 = rng_float(r);
@@ -43,6 +45,10 @@ void net_init(Net *n, uint64_t seed)
         for (int h = 0; h < NET_H2; h++) n->wcomb[i][h] = 0.0f;
         n->bcomb[i] = 0.0f;
     }
+    /* Physical wager IDs are not observable card types.  Randomly
+     * initializing three separate rows needlessly breaks an exact symmetry
+     * before the first sample; copy one correctly-scaled draw instead. */
+    net_copy_wager_symmetry(n);
 }
 
 /* random-init only the belief head (for upgrading older files) */
@@ -59,6 +65,89 @@ static void net_init_belief(Net *n, uint64_t seed)
 void net_zero(Net *n)
 {
     memset(n, 0, sizeof(*n));
+}
+
+static void tie_three_rows(float *a, size_t stride, int i0, int i1, int i2)
+{
+    float *r0 = a + (size_t)i0 * stride;
+    float *r1 = a + (size_t)i1 * stride;
+    float *r2 = a + (size_t)i2 * stride;
+    for (size_t j = 0; j < stride; j++) {
+        if (r0[j] == r1[j] && r0[j] == r2[j]) continue;
+        float mean = (r0[j] + r1[j] + r2[j]) * (1.0f / 3.0f);
+        r0[j] = mean;
+        r1[j] = mean;
+        r2[j] = mean;
+    }
+}
+
+static void copy_three_rows(float *a, size_t stride, int i0, int i1, int i2)
+{
+    float *r0 = a + (size_t)i0 * stride;
+    float *r1 = a + (size_t)i1 * stride;
+    float *r2 = a + (size_t)i2 * stride;
+    memcpy(r1, r0, stride * sizeof(float));
+    memcpy(r2, r0, stride * sizeof(float));
+}
+
+static void sum_three_rows(float *a, size_t stride, int i0, int i1, int i2)
+{
+    float *r0 = a + (size_t)i0 * stride;
+    float *r1 = a + (size_t)i1 * stride;
+    float *r2 = a + (size_t)i2 * stride;
+    for (size_t j = 0; j < stride; j++) {
+        float sum = r0[j] + r1[j] + r2[j];
+        r0[j] = sum;
+        r1[j] = sum;
+        r2[j] = sum;
+    }
+}
+
+typedef void (*row_op)(float *, size_t, int, int, int);
+
+static void wager_row_groups(Net *n, row_op op)
+{
+    for (int plane = 0; plane < FEAT_PLANES; plane++)
+        for (int s = 0; s < NSUIT; s++) {
+            int base = plane * NCARD + s * NRANK;
+            op(&n->w1[0][0], NET_H1, base, base + 1, base + 2);
+        }
+
+    for (int s = 0; s < NSUIT; s++) {
+        int card = s * NRANK;
+        for (int discard = 0; discard < 2; discard++) {
+            int p0 = card * 2 + discard;
+            int p1 = (card + 1) * 2 + discard;
+            int p2 = (card + 2) * 2 + discard;
+            op(&n->wplay[0][0], NET_H2, p0, p1, p2);
+            op(n->bplay, 1, p0, p1, p2);
+
+            for (int draw = 0; draw < NET_NDRAW; draw++) {
+                int c0 = p0 * NET_NDRAW + draw;
+                int c1 = p1 * NET_NDRAW + draw;
+                int c2 = p2 * NET_NDRAW + draw;
+                op(&n->wcomb[0][0], NET_H2, c0, c1, c2);
+                op(n->bcomb, 1, c0, c1, c2);
+            }
+        }
+        op(&n->wbel[0][0], NET_H2, card, card + 1, card + 2);
+        op(n->bbel, 1, card, card + 1, card + 2);
+    }
+}
+
+static void net_copy_wager_symmetry(Net *n)
+{
+    wager_row_groups(n, copy_three_rows);
+}
+
+void net_project_wager_symmetry(Net *n)
+{
+    wager_row_groups(n, tie_three_rows);
+}
+
+void net_tie_wager_gradients(Net *g)
+{
+    wager_row_groups(g, sum_three_rows);
 }
 
 void net_trunk(const Net *n, const Features *f, NetAct *act)

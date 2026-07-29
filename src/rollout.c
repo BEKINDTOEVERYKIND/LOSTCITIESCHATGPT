@@ -85,6 +85,27 @@ static int playout(const Net *net, State *s, int p, int prune, Rng *srng,
     return sp - so;
 }
 
+/* Objective used to compare completed playouts.  Modes:
+ *   0: round margin (historical default)
+ *   1: pure match result in real round index 2
+ *   2: 0.05 * final match margin + 50 * signed match result
+ * Rounds 0 and 1 always retain margin semantics, independent of mode.  Mode 2
+ * matches the strongest checkpoint's finishing reward while preserving the
+ * intentional last-round-only switch to match-winning play. */
+double rollout_terminal_objective(const State *terminal, int p, int mode)
+{
+    int round_margin = lc_score(terminal, p) - lc_score(terminal, p ^ 1);
+    if (terminal->round != MATCH_ROUNDS - 1 || mode <= 0)
+        return (double)round_margin;
+
+    int total_margin = (int)terminal->cum[p] - (int)terminal->cum[p ^ 1]
+                     + round_margin;
+    int result = (total_margin > 0) - (total_margin < 0);
+    if (mode == 1)
+        return 50.0 * (double)result;
+    return 0.05 * (double)total_margin + 50.0 * (double)result;
+}
+
 Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
                   float *out_value, SearchStats *stats)
 {
@@ -93,7 +114,8 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
     float value = 0.0f;
     int n;
     if (a->net) {
-        n = policy_probs(a->net, st, mv, prob, &value);
+        n = policy_probs_sym(a->net, st, mv, prob, &value,
+                             a->symmetries);
     } else {
         DrawSamples ds;
         draw_samples_init(st, st->turn, rng, 6, &ds);
@@ -206,8 +228,12 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
         }
     }
 
-    double sum[MAX_CAND], sumw[MAX_CAND];
-    for (int i = 0; i < neval; i++) { sum[i] = 0.0; sumw[i] = 0.0; }
+    double sum[MAX_CAND], sumw[MAX_CAND], sumobj[MAX_CAND];
+    for (int i = 0; i < neval; i++) {
+        sum[i] = 0.0;
+        sumw[i] = 0.0;
+        sumobj[i] = 0.0;
+    }
     const int p = st->turn;
     int reps = a->dets > 0 ? a->dets : 1;
     int lastround = st->round == MATCH_ROUNDS - 1;
@@ -225,22 +251,21 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
             if (a->playout_sample) rng_seed(&pr, wseed);   /* same seed per world */
             int m = playout(a->net, &s, p, a->prune_dom,
                             a->playout_sample ? &pr : NULL, &w);
-            if (val) val[(size_t)c * reps + d] = m;
+            double obj = rollout_terminal_objective(&s, p, a->win_q);
+            if (val) val[(size_t)c * reps + d] = obj;
             sum[c] += m;
             if (w >= 0.0) sumw[c] += w;
+            sumobj[c] += obj;
         }
     }
 
-    /* In the final round the playouts decide the match, so pick by match
-     * wins with margin as the tiebreak -- a 5% shot at stealing the match
-     * outranks a certain narrow loss regardless of expected points.  In
-     * earlier rounds margin is all a round-end playout can know. */
-    int usew = lastround && a->win_q;
+    /* Every downstream selection and confidence calculation uses the same
+     * objective.  Margin remains a deterministic tiebreak. */
     int best = 0;
     for (int c = 1; c < ncand; c++) {
-        if (usew ? (sumw[c] > sumw[best] ||
-                    (sumw[c] == sumw[best] && sum[c] > sum[best]))
-                 : (sum[c] > sum[best])) best = c;
+        if (sumobj[c] > sumobj[best] ||
+            (sumobj[c] == sumobj[best] && sum[c] > sum[best]))
+            best = c;
     }
     /* significance-gated override: an advisory candidate may take the move
      * only when its lead over the eligible best exceeds override_k paired
@@ -253,7 +278,7 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
     if (a->override_k > 0.0f && val && reps > 1) {
         int elig = best;
         for (int c = ncand; c < neval; c++) {
-            double dm = (sum[c] - sum[elig]) / reps;
+            double dm = (sumobj[c] - sumobj[elig]) / reps;
             if (dm <= 0.0) continue;
             double v2 = 0.0;
             for (int d = 0; d < reps; d++) {
@@ -262,7 +287,7 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
             }
             double sed = sqrt(v2 / (reps - 1) / reps);
             if (dm > a->override_k * sed && dm > a->override_min &&
-                sum[c] > sum[best]) best = c;
+                sumobj[c] > sumobj[best]) best = c;
         }
         /* sampled confirmation: a qualifying gap must survive stochastic
          * continuations at half the floor, or it was determinism bias --
@@ -281,23 +306,26 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
                 State sa = world, sb = world;
                 lc_apply(&sa, mv[order[best]]);
                 lc_apply(&sb, mv[order[elig]]);
-                ds += playout(a->net, &sa, p, a->prune_dom, &r1, NULL)
-                    - playout(a->net, &sb, p, a->prune_dom, &r2, NULL);
+                (void)playout(a->net, &sa, p, a->prune_dom, &r1, NULL);
+                (void)playout(a->net, &sb, p, a->prune_dom, &r2, NULL);
+                ds += rollout_terminal_objective(&sa, p, a->win_q)
+                    - rollout_terminal_objective(&sb, p, a->win_q);
             }
             if (ds / reps < 0.5 * a->override_min) best = elig;
         }
     }
-    float bestq = (float)(sum[best] / reps);
+    float bestq = (float)(sumobj[best] / reps);
     if (stats) {
         stats->n = neval;
         for (int c = 0; c < neval; c++) {
             stats->mv[c] = mv[order[c]];
             stats->visits[c] = reps;
-            stats->q[c] = sum[c] / reps;
+            stats->q[c] = sumobj[c] / reps;
             stats->qw[c] = lastround ? sumw[c] / reps : -1.0;
             double v = 0.0;
             if (val && reps > 1) {
-                double mean = (sum[c] - (c == best ? 0.0 : sum[best])) / reps;
+                double mean =
+                    (sumobj[c] - (c == best ? 0.0 : sumobj[best])) / reps;
                 for (int d = 0; d < reps; d++) {
                     double x = val[(size_t)c * reps + d]
                              - (c == best ? 0.0 : val[(size_t)best * reps + d]);
@@ -310,6 +338,9 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
         stats->value = bestq;
     }
     free(val);
-    if (out_value) *out_value = bestq;
+    /* Keep out_value on one stable scale across searched and skipped moves:
+     * it is always the policy-network continuation value (ensemble-averaged
+     * when enabled). SearchStats.value/q carry the rollout objective. */
+    if (out_value) *out_value = value;
     return mv[order[best]];
 }

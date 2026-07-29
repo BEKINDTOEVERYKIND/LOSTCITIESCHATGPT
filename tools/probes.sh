@@ -5,7 +5,7 @@
 # Q difference of the known-better move over the known-worse one (positive =
 # net agrees with the human).  The last column is the policy prior the net
 # puts on the better move -- the leak is fixed when that rises.
-NET=${1:-data/c8.bin}
+NET=${1:-data/champion.bin}
 W=${2:-4000}
 DIR=$(dirname "$0")/../data/probes
 printf "%-16s %10s %12s\n" probe "diff+-se" "prior(better)"

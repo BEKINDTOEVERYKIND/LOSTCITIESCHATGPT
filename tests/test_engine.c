@@ -7,6 +7,13 @@ static int failures = 0;
 #define CHECK(cond, ...) do { if (!(cond)) { \
     printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); failures++; } } while (0)
 
+static uint16_t semantic_move_key(Move m)
+{
+    if (CARD_IS_WAGER(m.card))
+        m.card = (uint8_t)CARD_MAKE(CARD_SUIT(m.card), 0);
+    return MOVE_PACK(m);
+}
+
 static void test_cards(void)
 {
     int nwager = 0, nnum = 0, sum = 0;
@@ -135,9 +142,14 @@ static void test_playouts(void)
             int n = lc_moves(&st, mv);
             CHECK(n > 0, "no legal moves at ply %d", st.nply);
             if (n == 0) break;
+            uint8_t move_seen[MOVE_NPACK] = { 0 };
             /* verify legality of a sample of moves */
             for (int i = 0; i < n; i++) {
                 Move m = mv[i];
+                uint16_t key = semantic_move_key(m);
+                CHECK(!move_seen[key], "duplicate semantic move %u",
+                      (unsigned)key);
+                move_seen[key] = 1;
                 CHECK((st.hand[st.turn] >> m.card) & 1ULL, "move uses card not in hand");
                 if (!m.discard) {
                     int suit = CARD_SUIT(m.card);
@@ -157,6 +169,17 @@ static void test_playouts(void)
             CHECK(st.turn != prev_turn, "turn must alternate");
             CHECK(st.hand_n[prev_turn] == 8, "hand size restored");
             check_state(&st, __LINE__);
+            if (g == 0 && st.nply == 20) {
+                const uint8_t perm[NSUIT] = { 2, 4, 1, 0, 3 };
+                uint8_t inverse[NSUIT];
+                for (int s = 0; s < NSUIT; s++) inverse[perm[s]] = (uint8_t)s;
+                State renamed, restored;
+                lc_permute_suits(&st, &renamed, perm);
+                lc_permute_suits(&renamed, &restored, inverse);
+                CHECK(memcmp(&st, &restored, sizeof st) == 0,
+                      "suit permutation did not round-trip");
+                check_state(&renamed, __LINE__);
+            }
         }
         CHECK(st.deck_left == 0, "game ended with cards left");
         total_plies += st.nply;
@@ -181,9 +204,10 @@ static void test_rules_detail(void)
 
     Move mv[MAX_MOVES];
     int n = lc_moves(&st, mv);
-    /* all 8 cards playable (wagers with empty expedition, numbers ascending),
-     * only draw source is the deck since all piles are empty */
-    CHECK(n == 8 + 8, "expected 16 opening moves, got %d", n);
+    /* The three same-suit wager copies collapse to one semantic action.  Along
+     * with five number cards, all six card types can be played or discarded;
+     * the only draw source is the deck because all piles are empty. */
+    CHECK(n == 6 + 6, "expected 12 semantic opening moves, got %d", n);
 
     /* discard a suit-0 card, then the suit-0 pile must not be drawable */
     Move d = { 3, 1, 0 }; /* discard card 3 = suit0 value2, draw deck */

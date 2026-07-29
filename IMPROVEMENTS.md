@@ -39,13 +39,23 @@ take Yellow.”
 
 - Fully initialize every MCTS node, including the root `visits` count. The
   former implementation read uninitialized stack memory inside PUCT.
+- At a real final-round terminal, MCTS now includes the carried cumulative
+  score and uses the checkpoint's hybrid match return. It can no longer call a
+  won match a loss merely because the last round was lost narrowly.
 - Harden weighted sampling so zero, negative, NaN, or overflowed weights cannot
   select a zero-probability action or produce an invalid index.
 - Treat identical wager copies correctly when public knowledge is updated.
   Playing any same-suit wager now removes one publicly known wager guarantee,
   rather than leaking which unobservable physical copy moved.
+- Emit one legal action for identical same-suit wagers. This removes duplicate
+  policy mass and prevents equivalent moves from occupying multiple search
+  candidate slots.
 - Keep the optional dead-discard pruning heuristic off by default because it is
   not true state dominance.
+- Add rollout objective mode 2: round margin in rounds 0/1, then
+  `0.05 * final match margin + 50 * result` only in actual round index 2.
+  Candidate choice, uncertainty gates, sampled confirmation, reported Q, and
+  expert targets all use the same objective.
 
 ### Network representation
 
@@ -59,6 +69,11 @@ take Yellow.”
   The shipped v3 and v4 models produce exactly their previous outputs after
   migration.
 - Updated the independent NumPy referee for v6 features and policy logits.
+- Added exact wager-parameter projection across input, policy, interaction, and
+  belief rows. New networks start tied, and both trainers sum and tie the
+  corresponding gradients before Adam so the symmetry cannot drift.
+- Added policy averaging over 5, 10, 20, or all 120 exact suit relabellings.
+  The 20-way affine group is the measured default.
 
 ### Training correctness
 
@@ -75,6 +90,15 @@ take Yellow.”
 - Preserve exact cumulative match totals in training, analysis, mining,
   qpair, and the Python referee. Independent ±320 clipping previously changed
   the actual score lead.
+- Canonicalize legacy physical-wager targets when samples are loaded, summing
+  duplicate target mass instead of dropping it.
+- Add exact random suit relabelling to the imitation/expert trainer with
+  `--suit-augment`, plus `--gen-sym` for symmetry-ensemble teachers.
+- Validate `--rounds` before fixed-size trajectory buffers are used, and add
+  `--margin-weight` so rollout mode-2 values can match the finishing return.
+- Keep search Q as a policy target only. Lambda returns now bootstrap from the
+  network value instead of mixing skipped-search network values, round-margin
+  Q, and final-round hybrid Q in one trajectory.
 
 ### Evaluation and tooling
 
@@ -89,7 +113,8 @@ take Yellow.”
   loss, top-hand-size recall, calibration error, and baseline lift.
 - Build all maintained tools from `make`; add cross-module regression tests
   and GCC/Clang plus sanitizer CI.
-- Updated working defaults to `data/c8.bin`.
+- Updated working defaults to `data/champion.bin`; interactive policy defaults
+  use its 20-way suit ensemble.
 
 Configured one- and two-round diagnostic matches retain their existing round
 semantics intentionally. Only real round index 2 is treated as the deciding
@@ -97,8 +122,8 @@ round by the match-trained policy/search options.
 
 ## Champion selection
 
-The inherited `c8.bin` checkpoint consistently beat the file previously named
-`best.bin` under the corrected runner:
+The first audit established that inherited `c8.bin` consistently beat the file
+previously named `best.bin`:
 
 | seed | pairs | margin/match | match score |
 | ---: | ---: | ---: | ---: |
@@ -115,19 +140,64 @@ win objective consistently:
 | 110011 | 10,000 | +0.26 ± 0.30 SE | 50.23% ± 0.25% SE |
 | 120012 | 20,000 | +0.48 ± 0.21 SE | 49.98% ± 0.18% SE |
 
-It was therefore not promoted. `c8.bin` remains the champion until a
-multi-seed v6 run wins on a locked match-score holdout.
+It was therefore not promoted.
+
+The new `data/champion.bin` is a v6-compatible, exactly wager-symmetric
+projection of `c8.bin`. Projection alone was positive on three independent
+holdouts:
+
+| pairs | margin/match | match score |
+| ---: | ---: | ---: |
+| 5,000 | +1.32 ± 0.47 SE | 50.9% ± 0.4% SE |
+| 10,000 | +1.44 ± 0.33 SE | 50.7% ± 0.3% SE |
+| 20,000 | +1.05 ± 0.24 SE | 50.5% ± 0.2% SE |
+
+At play time, averaging the champion's policy over the 20-element exact
+affine suit group produces the main strength gain. The complete practical
+configuration beat raw `c8.bin` directly on two fresh holdouts:
+
+| seed | pairs | margin/match | match score |
+| ---: | ---: | ---: | ---: |
+| 180018 | 2,000 | **+21.24 ± 1.02 SE** | **61.4% ± 0.7% SE** |
+| 190019 | 5,000 | **+19.81 ± 0.64 SE** | **60.5% ± 0.5% SE** |
+
+The combined 7,000-pair result is approximately +20.22 points and 60.7%
+match score.
+
+Five-way averaging alone scored +15.41 ± 0.66 and 58.4% ± 0.5% over 5,000
+pairs. Ten-way then beat five-way by +1.56 ± 0.80, and 20-way beat ten-way by
++1.79 ± 0.75 in 2,000-pair screens. Full 120-way averaging was only
++0.70 ± 1.34 / 51.6% ± 1.2% over 20-way in 500 pairs and costs roughly six
+times more, so 20-way is the default.
+
+Three policy-only attempts to distil a 141,500-position 20-way teacher dataset
+back into one network were all weaker over 2,000-pair holdouts:
+
+| learning rate | margin/match | match score |
+| ---: | ---: | ---: |
+| 3e-6 | -3.09 ± 0.85 SE | 48.81% ± 0.66% SE |
+| 1e-5 | -6.95 ± 0.95 SE | 46.22% ± 0.71% SE |
+| 3e-5 | -17.50 ± 0.99 SE | 40.65% ± 0.71% SE |
+
+They were rejected rather than presenting lower imitation loss as playing
+strength.
+
+Rollout hybrid objective mode 2 is implemented but remains opt-in. At the full
+96-world configuration it scored +1.11 ± 3.65 points and 51.0% ± 3.1% over
+100 mirrored pairs against margin mode 0. Two cheaper independent screens
+were directionally similar, but the full result is much too noisy to count as
+a strength claim; a 1,500–2,000-pair locked comparison is still needed.
 
 ## Remaining high-value work
 
-1. Canonicalize or aggregate identical wager actions throughout policy
-   training, serialization, and replay. The public-knowledge leak is fixed,
-   but equivalent physical moves still split policy capacity.
-2. Give MCTS one consistent full-match utility. Network leaves represent a
-   match-trained objective while current-round terminal nodes still use round
-   margin.
-3. Replace current-round rollout utility in early rounds with either remaining
+1. Give earlier-round MCTS one consistent utility. Final-round terminals are
+   now exact, but rounds 0/1 still mix match-trained network leaves with
+   current-round terminal margins. A separate round-margin value head or an
+   explicit continuation through future deals is required.
+2. Replace current-round rollout utility in early rounds with either remaining
    match simulation or a learned round-end continuation table.
+3. Add frozen-champion/opponent-population PPO. The existing `--ref` is
+   evaluation-only; self-play never anchors against a fixed opponent.
 4. Train v6 over several independent seeds, select on fixed validation deals,
    and report only once on a locked final set.
 5. Calibrate the belief head on held-out games, then evaluate a
@@ -147,10 +217,12 @@ The current snapshot passes:
 ```text
 make
 make test
-python3 tools/referee.py --selftest data/c8.bin 424242 --dumpfeat bin/dumpfeat
+python3 tools/referee.py --selftest data/champion.bin 424242 --dumpfeat bin/dumpfeat
 python3 tools/verify_transcript.py data/game.txt
 ```
 
-The tests include randomized card-conservation play, wager knowledge,
-pile-order distinguishability, v4-to-v6 migration, interaction-head isolation,
-model round trips, robust sampling, and one-versus-four-thread match identity.
+The tests include randomized card conservation, unique semantic moves, suit
+permutation round trips and ensemble equivariance, wager knowledge and
+parameter/gradient tying, pile-order distinguishability, v4-to-v6 migration,
+interaction-head isolation, model round trips, hybrid final-round utility,
+robust sampling, and one-versus-four-thread match identity.

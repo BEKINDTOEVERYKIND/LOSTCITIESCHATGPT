@@ -54,7 +54,7 @@ static void show(const State *st, int me)
 
 int main(int argc, char **argv)
 {
-    const char *spec = "rollout:data/c8.bin:96:5:0.02:0.85";
+    const char *spec = "policy:data/champion.bin:0:20";
     uint64_t seed = 0;
     int human_first = 1;
     for (int i = 1; i < argc; i++) {

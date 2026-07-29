@@ -17,7 +17,7 @@ typedef struct {
     int n;
     Move mv[MAX_MOVES];
     double visits[MAX_MOVES];
-    double q[MAX_MOVES];   /* mean value in points, mover's view */
+    double q[MAX_MOVES];   /* mean selection objective, mover's view */
     double se[MAX_MOVES];  /* rollout only: standard error of the *paired
                               difference* against the selected move (the
                               selected move's entry is the SE of its own
@@ -32,7 +32,11 @@ typedef struct {
 Move search_move(const struct Agent *a, const State *st, Rng *rng,
                  float *out_value, SearchStats *stats);
 /* Policy improvement by paired playouts from sampled worlds (rollout.c). */
+/* out_value is the policy-network continuation value; stats->value/q use the
+ * configured rollout selection objective. */
 Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
                   float *out_value, SearchStats *stats);
+/* Exact terminal objective used by rollout mode 0/1/2. */
+double rollout_terminal_objective(const State *terminal, int p, int mode);
 
 #endif

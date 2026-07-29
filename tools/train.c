@@ -27,6 +27,15 @@
 
 #define PI_K 12   /* policy target entries kept per sample */
 
+static uint16_t semantic_move_key(uint16_t packed)
+{
+    uint8_t card = MOVE_CARD(packed);
+    if (CARD_IS_WAGER(card))
+        card = (uint8_t)CARD_MAKE(CARD_SUIT(card), 0);
+    Move m = { card, MOVE_DISC(packed), MOVE_DRAW(packed) };
+    return MOVE_PACK(m);
+}
+
 typedef struct {
     State st;
     float target;        /* value target, points, perspective player's view */
@@ -78,6 +87,7 @@ typedef struct {
     float lambda;
     float tau;           /* softmax temperature for value-based experts */
     float winbonus;      /* terminal bonus for winning the match, points */
+    float margin_weight; /* multiplier on the full-match terminal margin */
     int sample_plies;    /* sample below this ply within each round */
     int rounds;
     const Net *net;
@@ -121,7 +131,7 @@ static void topk(const Move *mv, const float *pr, int n, uint16_t *omv, float *o
     for (int i = 0; i < k; i++) sum += pr[idx[i]];
     if (sum <= 0.0f) sum = 1.0f;
     for (int i = 0; i < k; i++) {
-        omv[i] = MOVE_PACK(mv[idx[i]]);
+        omv[i] = semantic_move_key(MOVE_PACK(mv[idx[i]]));
         opr[i] = pr[idx[i]] / sum;
     }
     for (int i = k; i < PI_K; i++) { omv[i] = 0; opr[i] = 0.0f; }
@@ -166,8 +176,6 @@ static _Thread_local State chain[CHAIN_MAX];
 static _Thread_local uint16_t chain_pmv[CHAIN_MAX][PI_K];
 static _Thread_local float chain_ppr[CHAIN_MAX][PI_K];
 static _Thread_local uint8_t chain_npi[CHAIN_MAX];
-static _Thread_local float chain_sval[CHAIN_MAX];
-static _Thread_local uint8_t chain_hasv[CHAIN_MAX];
 
 static void *gen_worker(void *arg)
 {
@@ -196,12 +204,10 @@ static void *gen_worker(void *arg)
             int n = 0;
             Move played = { 0, 0, 0 };
             int expert_chose = 0;
-            chain_hasv[T] = 0;
 
             if (j->agent.kind == AG_ROLLOUT) {
                 SearchStats ss;
-                float sv = 0.0f;
-                played = rollout_move(&j->agent, &st, &rng, &sv, &ss);
+                played = rollout_move(&j->agent, &st, &rng, NULL, &ss);
                 expert_chose = 1;
                 n = ss.n;
                 /* The rollout values are margins in points, so the softmax
@@ -215,11 +221,9 @@ static void *gen_worker(void *arg)
                           ? (float)exp((ss.q[i] - mx) / j->tau)
                           : (ss.q[i] == mx ? 1.0f : 0.0f);
                 }
-                chain_sval[T] = sv; chain_hasv[T] = 1;
             } else if (j->agent.kind == AG_MCTS) {
                 SearchStats ss;
-                float sv = 0.0f;
-                played = search_move(&j->agent, &st, &rng, &sv, &ss);
+                played = search_move(&j->agent, &st, &rng, NULL, &ss);
                 expert_chose = 1;
                 n = ss.n;
                 double tot = 0.0;
@@ -228,9 +232,9 @@ static void *gen_worker(void *arg)
                     mv[i] = ss.mv[i];
                     pr[i] = tot > 0 ? (float)(ss.visits[i] / tot) : 1.0f / (float)n;
                 }
-                chain_sval[T] = sv; chain_hasv[T] = 1;
             } else if (j->agent.kind == AG_POLICY) {
-                n = policy_probs(j->net, &st, mv, pr, NULL);
+                n = policy_probs_sym(j->net, &st, mv, pr, NULL,
+                                     j->agent.symmetries);
             } else {
                 float val[MAX_MOVES];
                 n = agent_move_values(&j->agent, &st, &rng, mv, val);
@@ -280,18 +284,17 @@ static void *gen_worker(void *arg)
         int score[2] = { cum[0], cum[1] };
 
         for (int p = 0; p < 2; p++) {
-            float G = (float)(score[p] - score[p ^ 1]);
+            float G = j->margin_weight * (float)(score[p] - score[p ^ 1]);
             if (score[p] > score[p ^ 1]) G += j->winbonus;
             else if (score[p] < score[p ^ 1]) G -= j->winbonus;
             for (int t = T - 1; t >= 0; t--) {
                 if (t < T - 1 && j->lambda < 0.999f) {
-                    float vnext;
-                    if (chain_hasv[t + 1]) {
-                        vnext = (chain[t + 1].turn == p) ? chain_sval[t + 1] : -chain_sval[t + 1];
-                    } else {
-                        feat_extract(&chain[t + 1], p, &f);
-                        vnext = net_value(j->net, &f) * VAL_SCALE;
-                    }
+                    /* Search Q changes scale by objective and by whether a
+                     * confidence/ply gate skipped search.  It is a policy
+                     * target, not a value bootstrap.  The network value keeps
+                     * lambda returns on one consistent continuation scale. */
+                    feat_extract(&chain[t + 1], p, &f);
+                    float vnext = net_value(j->net, &f) * VAL_SCALE;
                     G = (1.0f - j->lambda) * vnext + j->lambda * G;
                 }
                 Sample s = { 0 };
@@ -331,9 +334,34 @@ typedef struct {
     float bw;            /* belief BCE weight (rl.c trains this head too;
                             without it a fine-tune drifts the shared trunk
                             out from under the belief head) */
+    int suit_augment;    /* train on an exact random renaming of all suits */
+    uint64_t augment_seed;
     double vloss, ploss;
     int pn;
 } TrainJob;
+
+static uint64_t mix64(uint64_t x)
+{
+    x ^= x >> 30;
+    x *= UINT64_C(0xBF58476D1CE4E5B9);
+    x ^= x >> 27;
+    x *= UINT64_C(0x94D049BB133111EB);
+    return x ^ (x >> 31);
+}
+
+static void sample_suit_permutation(uint64_t key, uint8_t perm[NSUIT])
+{
+    uint8_t left[NSUIT];
+    for (int s = 0; s < NSUIT; s++) left[s] = (uint8_t)s;
+    uint64_t code = mix64(key) % 120u;
+    for (int s = 0; s < NSUIT; s++) {
+        int nleft = NSUIT - s;
+        int pick = (int)(code % (uint64_t)nleft);
+        code /= (uint64_t)nleft;
+        perm[s] = left[pick];
+        for (int j = pick; j + 1 < nleft; j++) left[j] = left[j + 1];
+    }
+}
 
 static void *train_worker(void *arg)
 {
@@ -351,6 +379,24 @@ static void *train_worker(void *arg)
 
     for (int i = t->from; i < t->to; i++) {
         const Sample *s = &t->rp->buf[t->idx[i]];
+        Sample augmented;
+        if (t->suit_augment) {
+            uint8_t perm[NSUIT];
+            sample_suit_permutation(t->augment_seed
+                                    ^ ((uint64_t)t->idx[i]
+                                       * UINT64_C(0x9E3779B97F4A7C15))
+                                    ^ (uint64_t)i, perm);
+            augmented = *s;
+            lc_permute_suits(&s->st, &augmented.st, perm);
+            for (int a = 0; a < s->npi; a++) {
+                uint16_t packed = s->pmv[a];
+                Move m = { MOVE_CARD(packed), MOVE_DISC(packed),
+                           MOVE_DRAW(packed) };
+                augmented.pmv[a] =
+                    semantic_move_key(MOVE_PACK(lc_permute_move(m, perm)));
+            }
+            s = &augmented;
+        }
         feat_extract(&s->st, s->persp, &f);
         net_trunk(t->net, &f, &act);
 
@@ -362,10 +408,19 @@ static void *train_worker(void *arg)
         int n = 0;
         if (s->npi > 0) {
             n = lc_moves(&s->st, mv);
-            for (int k = 0; k < n; k++) { pk[k] = MOVE_PACK(mv[k]); tgt[k] = 0.0f; }
+            for (int k = 0; k < n; k++) {
+                pk[k] = MOVE_PACK(mv[k]);
+                tgt[k] = 0.0f;
+            }
             for (int a = 0; a < s->npi; a++)
                 for (int k = 0; k < n; k++)
-                    if (pk[k] == s->pmv[a]) { tgt[k] = s->ppr[a]; break; }
+                    if (semantic_move_key(pk[k]) ==
+                        semantic_move_key(s->pmv[a])) {
+                        /* Old sample files may contain several physical wager
+                         * copies.  They are one semantic target now. */
+                        tgt[k] += s->ppr[a];
+                        break;
+                    }
             net_policy_act(t->net, &act, pk, n, logit);
             float mx = logit[0];
             for (int k = 1; k < n; k++) if (logit[k] > mx) mx = logit[k];
@@ -434,8 +489,11 @@ int main(int argc, char **argv)
     size_t bufcap = 800000;
     float lr = 1e-3f, wd = 1e-7f, tau = 1.0f, pw = 1.0f, lambda = 0.75f, bw = 1.0f, vw = 1.0f;
     float winbonus = 15.0f;
+    float margin_weight = 1.0f;
     int rounds = MATCH_ROUNDS;
     int sample_plies = 24;
+    int gen_symmetries = 0;
+    int suit_augment = 0;
     uint64_t seed = 1, eval_seed = 777;
     int keep_lr_flat = 0;
     int gen_switch = 1;
@@ -465,6 +523,7 @@ int main(int argc, char **argv)
         else if (ARG("--lambda")) lambda = (float)atof(argv[++i]);
         else if (ARG("--sample-plies")) sample_plies = atoi(argv[++i]);
         else if (ARG("--winbonus")) winbonus = (float)atof(argv[++i]);
+        else if (ARG("--margin-weight")) margin_weight = (float)atof(argv[++i]);
         else if (ARG("--rounds")) rounds = atoi(argv[++i]);
         else if (ARG("--eval")) eval_pairs = atoi(argv[++i]);
         else if (ARG("--seed")) seed = strtoull(argv[++i], NULL, 10);
@@ -474,12 +533,18 @@ int main(int argc, char **argv)
         else if (ARG("--gen-sims")) gen_sims = atoi(argv[++i]);
         else if (ARG("--gen-rw")) gen_rw = atoi(argv[++i]);
         else if (ARG("--gen-nw")) gen_nw = atoi(argv[++i]);
+        else if (ARG("--gen-sym")) gen_symmetries = atoi(argv[++i]);
+        else if (!strcmp(k, "--suit-augment")) suit_augment = 1;
         else if (ARG("--dump")) dump_path = argv[++i];
         else if (ARG("--data")) data_path = argv[++i];
         else if (ARG("--bw")) bw = (float)atof(argv[++i]);
         else if (!strcmp(k, "--flat-lr")) keep_lr_flat = 1;
         else { fprintf(stderr, "unknown option %s\n", k); return 1; }
         #undef ARG
+    }
+    if (rounds < 1 || rounds > MATCH_ROUNDS) {
+        fprintf(stderr, "--rounds must be between 1 and %d\n", MATCH_ROUNDS);
+        return 1;
     }
 
     Net *net = (Net *)malloc(sizeof(Net));
@@ -490,6 +555,7 @@ int main(int argc, char **argv)
     } else {
         net_init(net, seed * 977 + 13);
     }
+    net_project_wager_symmetry(net);
 
     /* Sample files: header {magic, sizeof(Sample), PI_K, 0, count(u64)} then
      * raw samples.  States and targets are architecture independent, which is
@@ -579,10 +645,17 @@ int main(int argc, char **argv)
             if ((v = strtok_r(NULL, ":", &save))) gen.ply_lo = atoi(v);
             if ((v = strtok_r(NULL, ":", &save))) gen.ply_hi = atoi(v);
             if ((v = strtok_r(NULL, ":", &save))) gen.eval_cand = atoi(v);
+            if ((v = strtok_r(NULL, ":", &save))) gen.win_q = atoi(v);
+            if ((v = strtok_r(NULL, ":", &save))) gen.prune_dom = atoi(v);
+            if ((v = strtok_r(NULL, ":", &save))) gen.override_k = (float)atof(v);
+            if ((v = strtok_r(NULL, ":", &save))) gen.override_min = (float)atof(v);
+            if ((v = strtok_r(NULL, ":", &save))) gen.playout_sample = atoi(v);
+            if ((v = strtok_r(NULL, ":", &save))) gen.symmetries = atoi(v);
         } else {
             spec_parse(gen_spec, &gen);
             gen.net = net;
         }
+        if (gen_symmetries > 0) gen.symmetries = gen_symmetries;
 
         GenJob *jobs = (GenJob *)calloc((size_t)nthread, sizeof(GenJob));
         pthread_t *th = (pthread_t *)calloc((size_t)nthread, sizeof(pthread_t));
@@ -597,6 +670,7 @@ int main(int argc, char **argv)
             jobs[i].lambda = lambda;
             jobs[i].tau = tau;
             jobs[i].winbonus = winbonus;
+            jobs[i].margin_weight = margin_weight;
             jobs[i].rounds = rounds;
             jobs[i].sample_plies = sample_plies;
             jobs[i].net = net;
@@ -651,11 +725,16 @@ int main(int argc, char **argv)
                 tj[i].pw = pw;
                 tj[i].bw = bw;
                 tj[i].vw = vw;
+                tj[i].suit_augment = suit_augment;
+                tj[i].augment_seed = seed
+                    ^ ((uint64_t)it << 32)
+                    ^ (uint64_t)s * UINT64_C(0xD1B54A32D192ED03);
             }
             for (int i = 0; i < nt; i++) pthread_create(&tt[i], NULL, train_worker, &tj[i]);
             for (int i = 0; i < nt; i++) pthread_join(tt[i], NULL);
             for (int i = 0; i < nt; i++) { vl += tj[i].vloss; pl += tj[i].ploss; pnt += tj[i].pn; }
             grad_accumulate(grads[0], grads, nt);
+            net_tie_wager_gradients(grads[0]);
             float cur_lr = lr;
             if (!keep_lr_flat) {
                 float frac = (float)s / (float)steps;

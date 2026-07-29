@@ -25,6 +25,10 @@ typedef struct Agent {
     int draw_samples;   /* deck-draw samples per decision (AG_NET)         */
     float temp;         /* >0: sample instead of taking the best move      */
     float eps;          /* probability of a uniformly random legal move    */
+    int symmetries;     /* policy ensemble over exact suit relabellings:
+                           1 (off), 5 (rotations), 10 (dihedral),
+                           20 (affine), or 120 (all permutations).  Search
+                           applies this at the root only, where it is cheap. */
     /* AG_MCTS */
     int dets;           /* determinizations                                */
     int sims;           /* simulations per determinization                 */
@@ -47,17 +51,13 @@ typedef struct Agent {
                            gets Q values for written-off moves without the
                            measured strength cost of letting 96-world noise
                            overrule a near-certain policy (0 = off) */
-    int win_q;          /* AG_ROLLOUT: in the final round, select by match
-                           wins over the playouts (margin as tiebreak)
-                           instead of by margin.  Principled -- the last
-                           round's playouts decide the match exactly -- but
-                           measured NO BETTER than margin selection (48.0%
-                           +- 2.0% head-to-head, 300 pairs): decided finals
-                           tie on win%, close finals make a 96-world win
-                           fraction a noisy binomial, and the win-trained
-                           policy already carries the clutch behaviour.
-                           Default off; the win fraction is still computed
-                           and reported (SearchStats.qw) either way. */
+    int win_q;          /* AG_ROLLOUT objective: 0 = round margin; 1 = pure
+                           match result in real round index 2; 2 = champion
+                           hybrid (0.05 * final margin + 50 * result) there.
+                           Rounds 0/1 always use margin, preserving the
+                           intentional last-round-only win objective.
+                           Default 0; SearchStats.qw always reports the raw
+                           final-round win fraction. */
     int prune_dom;      /* AG_ROLLOUT: drop discards dominated by a dead-card
                            discard (lc_discard_dominated) from candidates and
                            playout argmax -- frees candidate slots and stops
@@ -111,6 +111,8 @@ void agent_default(Agent *a, AgentKind k, const Net *net);
 /* Policy head evaluated on st for the player to move.  Fills mv[] with the
  * legal moves and prob[] with the normalized policy; returns the count. */
 int  policy_probs(const Net *net, const State *st, Move *mv, float *prob, float *value);
+int  policy_probs_sym(const Net *net, const State *st, Move *mv, float *prob,
+                      float *value, int symmetries);
 
 /* Evaluate every legal move from st for the player to move.  Returns the
  * number of moves and fills mv[] and val[] (values in points, mover's view). */

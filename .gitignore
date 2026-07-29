@@ -4,6 +4,7 @@ __pycache__/
 *.py[cod]
 *.o
 data/*.bin.it*
+data/champion.bin
 data/*.log
 data/*.smp
 data/ignore.bin

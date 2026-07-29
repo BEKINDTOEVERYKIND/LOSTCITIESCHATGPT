@@ -25,7 +25,7 @@ jobs:
           make test CC=${{ matrix.compiler }} \
             CFLAGS="-O2 -Wall -Wextra -Werror -std=c11"
       - name: C/Python parity
-        run: python tools/referee.py --selftest data/c8.bin 424242 --dumpfeat bin/dumpfeat
+        run: python tools/referee.py --selftest data/champion.bin 424242 --dumpfeat bin/dumpfeat
       - name: Transcript verification
         run: python tools/verify_transcript.py data/game.txt
 

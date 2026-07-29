@@ -23,7 +23,7 @@ typedef struct {
 
 int main(int argc, char **argv)
 {
-    const char *net_path = "data/c8.bin";
+    const char *net_path = "data/champion.bin";
     const char *play_spec = "heur";
     int games = 200;
     for (int i = 1; i < argc; i++) {

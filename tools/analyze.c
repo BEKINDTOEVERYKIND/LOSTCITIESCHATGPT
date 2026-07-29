@@ -147,7 +147,8 @@ static int move_eq(Move a, Move b)
 
 int main(int argc, char **argv)
 {
-    const char *spec = "rollout:data/c8.bin:128:6";
+    const char *spec =
+        "rollout:data/champion.bin:128:6:0.02:0:1:0:0:6:2:1:3:4:0:20";
     uint64_t seed = 1;
     int rounds = MATCH_ROUNDS;
     for (int i = 1; i < argc; i++) {
@@ -279,7 +280,8 @@ int main(int argc, char **argv)
         /* policy head over all legal moves, best first, capped at 10 */
         Move pmv[MAX_MOVES];
         float prob[MAX_MOVES], pv;
-        int nleg = policy_probs(ag.net, &st, pmv, prob, &pv);
+        int nleg = policy_probs_sym(ag.net, &st, pmv, prob, &pv,
+                                    ag.symmetries);
         int ord[MAX_MOVES];
         for (int i = 0; i < nleg; i++) ord[i] = i;
         for (int i = 0; i < nleg; i++)
