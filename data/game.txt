@@ -1,0 +1,230 @@
+Lost Cities -- self-play, both seats policy:data/best.bin, deal seed 20260727, full match
+
+================ ROUND 1 (totals so far P1 +0, P2 +0; P1 starts) ================
+
+Player 1 hand:  Yx  Yx  Bx  G10 Rx  Rx  R3  R8  
+Player 2 hand:  Y4  B2  B4  B10 Wx  W2  W4  Gx  
+
+  #  who  action            draw
+  ---------------------------------------
+   1  P1   play    Rx    deck (R2)
+   2  P2   play    Wx    deck (R4)
+   3  P1   play    Rx    deck (G3)
+   4  P2   play    R4    deck (B3)
+   5  P1   discard Yx    deck (Wx)
+   6  P2   discard Y4    deck (Rx)
+   7  P1   discard Yx    deck (G4)
+   8  P2   discard Rx    deck (B7)
+   9  P1   play    R2    Red (Rx)
+  10  P2   play    W2    deck (Gx)
+  11  P1   play    R3    deck (Y8)
+  12  P2   play    W4    deck (Y9)
+  13  P1   discard Y8    deck (B5)
+  14  P2   discard Y9    deck (B6)
+  15  P1   discard Wx    deck (Y2)
+  16  P2   discard Gx    deck (W5)
+  17  P1   discard Y2    Green (Gx)
+  18  P2   play    W5    deck (R9)
+  19  P1   play    Gx    deck (W10)
+  20  P2   discard Gx    deck (W6)
+  21  P1   discard Rx    Green (Gx)
+  22  P2   play    W6    deck (Wx)
+  23  P1   play    Gx    deck (Yx)
+  24  P2   discard Wx    deck (R7)
+  25  P1   discard Yx    deck (G5)
+  26  P2   play    R7    deck (W8)
+  27  P1   play    G3    deck (W9)
+  28  P2   play    R9    deck (Bx)
+  29  P1   play    G4    deck (G9)
+  30  P2   play    Bx    deck (Y5)
+  31  P1   play    G5    deck (Bx)
+  32  P2   discard Y5    deck (Y10)
+  33  P1   play    R8    deck (R6)
+  34  P2   play    B2    deck (Y6)
+  35  P1   discard R6    deck (G8)
+  36  P2   play    B3    deck (R10)
+  37  P1   discard Bx    deck (Y3)
+  38  P2   play    B4    deck (W3)
+  39  P1   play    G8    deck (Y7)
+  40  P2   play    B6    deck (Gx)
+  41  P1   play    G9    deck (B9)
+  42  P2   play    B7    deck (G7)
+  43  P1   play    G10   deck (G6)
+  44  P2   play    B10   Red (R6)
+  45  P1   discard Bx    deck (R5)
+  46  P2   play    R10   Red (Rx)
+  47  P1   discard G6    deck (G2)
+  48  P2   play    W8    deck (W7)
+  49  P1   discard Y3    deck (B8)
+
+final expeditions
+  Player 1
+    Yellow  -
+    Blue    -
+    White   -
+    Green   Gx Gx G3 G4 G5 G8 G9 G10     (39-20) x 3 + 20 bonus = +77
+    Red     Rx Rx R2 R3 R8               (13-20) x 3 = -21
+    total +56
+  Player 2
+    Yellow  -
+    Blue    Bx B2 B3 B4 B6 B7 B10        (32-20) x 2 = +24
+    White   Wx W2 W4 W5 W6 W8            (25-20) x 2 = +10
+    Green   -
+    Red     R4 R7 R9 R10                 (30-20) x 1 = +10
+    total +44
+
+round score: Player 1 +56, Player 2 +44
+(49 plies this round; re-scored from the cards above and matches the engine)
+
+================ ROUND 2 (totals so far P1 +56, P2 +44; P2 starts) ================
+
+Player 1 hand:  Yx  Y2  Y8  Y10 G2  G3  R9  R10 
+Player 2 hand:  Yx  Y4  W3  W9  W10 R5  R7  R8  
+
+  #  who  action            draw
+  ---------------------------------------
+   1  P2   discard Yx    deck (W7)
+   2  P1   play    Yx    Yellow (Yx)
+   3  P2   play    R5    deck (G10)
+   4  P1   play    Yx    deck (W6)
+   5  P2   play    R7    deck (Gx)
+   6  P1   play    Y2    deck (B2)
+   7  P2   play    Gx    deck (Wx)
+   8  P1   discard B2    deck (Yx)
+   9  P2   play    Wx    deck (B7)
+  10  P1   play    G2    deck (Wx)
+  11  P2   play    R8    deck (W5)
+  12  P1   play    G3    deck (B4)
+  13  P2   play    Y4    deck (Y5)
+  14  P1   play    Y8    deck (G4)
+  15  P2   play    Y5    deck (Wx)
+  16  P1   discard Yx    deck (B10)
+  17  P2   play    Wx    deck (Bx)
+  18  P1   play    G4    deck (Gx)
+  19  P2   discard Bx    deck (Bx)
+  20  P1   play    Y10   deck (Rx)
+  21  P2   discard Bx    deck (Bx)
+  22  P1   play    Rx    deck (G5)
+  23  P2   discard Bx    deck (Y3)
+  24  P1   play    G5    deck (R6)
+  25  P2   discard Y3    deck (W2)
+  26  P1   discard Gx    deck (G7)
+  27  P2   play    W2    deck (B6)
+  28  P1   discard Wx    deck (Gx)
+  29  P2   play    W3    White (Wx)
+  30  P1   discard Gx    deck (Y6)
+  31  P2   play    W5    deck (R3)
+  32  P1   discard Y6    deck (Y7)
+  33  P2   discard R3    deck (G6)
+  34  P1   discard Y7    deck (G9)
+  35  P2   play    W7    deck (Rx)
+  36  P1   play    R6    deck (W8)
+  37  P2   play    G6    deck (B9)
+  38  P1   play    R9    deck (B8)
+  39  P2   play    W9    deck (B5)
+  40  P1   play    R10   deck (R2)
+  41  P2   play    B5    deck (Y9)
+  42  P1   play    G7    deck (R4)
+  43  P2   play    B7    Red (R3)
+  44  P1   play    G9    deck (B3)
+  45  P2   play    B9    Yellow (Y7)
+  46  P1   discard R2    deck (G8)
+  47  P2   play    W10   Red (R2)
+  48  P1   discard B4    deck (Rx)
+  49  P2   play    G10   Yellow (Y6)
+  50  P1   discard G8    deck (W4)
+
+final expeditions
+  Player 1
+    Yellow  Yx Yx Y2 Y8 Y10              (20-20) x 3 = +0
+    Blue    -
+    White   -
+    Green   G2 G3 G4 G5 G7 G9            (30-20) x 1 = +10
+    Red     Rx R6 R9 R10                 (25-20) x 2 = +10
+    total +20
+  Player 2
+    Yellow  Y4 Y5                        (9-20) x 1 = -11
+    Blue    B5 B7 B9                     (21-20) x 1 = +1
+    White   Wx Wx W2 W3 W5 W7 W9 W10     (36-20) x 3 + 20 bonus = +68
+    Green   Gx G6 G10                    (16-20) x 2 = -8
+    Red     R5 R7 R8                     (20-20) x 1 = +0
+    total +50
+
+round score: Player 1 +20, Player 2 +50
+(50 plies this round; re-scored from the cards above and matches the engine)
+
+================ ROUND 3 (totals so far P1 +76, P2 +94; P1 starts) ================
+
+Player 1 hand:  Y4  Y10 B3  B6  Wx  Gx  G8  R5  
+Player 2 hand:  Y3  B2  B8  W3  W7  W8  G7  R2  
+
+  #  who  action            draw
+  ---------------------------------------
+   1  P1   play    Gx    deck (Y7)
+   2  P2   discard R2    deck (B9)
+   3  P1   play    Y4    deck (B7)
+   4  P2   discard Y3    deck (W2)
+   5  P1   play    Y7    deck (Y2)
+   6  P2   play    W2    deck (Y5)
+   7  P1   discard Y2    deck (W6)
+   8  P2   play    W3    deck (W10)
+   9  P1   play    B3    deck (R6)
+  10  P2   discard Y5    deck (G9)
+  11  P1   play    B6    deck (Wx)
+  12  P2   discard B2    deck (Rx)
+  13  P1   play    B7    deck (G5)
+  14  P2   discard Rx    deck (R10)
+  15  P1   play    Y10   deck (Yx)
+  16  P2   play    W7    deck (Bx)
+  17  P1   discard Yx    deck (R7)
+  18  P2   play    Bx    deck (Wx)
+  19  P1   discard Wx    deck (B4)
+  20  P2   discard Wx    deck (Y8)
+  21  P1   discard Wx    deck (Bx)
+  22  P2   discard Y8    deck (G4)
+  23  P1   discard Bx    deck (W5)
+  24  P2   play    G4    deck (G6)
+  25  P1   discard B4    deck (Gx)
+  26  P2   play    G6    Blue (B4)
+  27  P1   play    Gx    deck (R9)
+  28  P2   play    G7    deck (W9)
+  29  P1   play    G5    Red (Rx)
+  30  P2   play    B4    deck (Yx)
+  31  P1   play    Rx    Red (R2)
+  32  P2   discard Yx    deck (B10)
+  33  P1   play    R2    deck (G10)
+  34  P2   play    B8    deck (Yx)
+  35  P1   play    R5    deck (Y9)
+  36  P2   play    B9    deck (R4)
+  37  P1   play    R6    deck (W4)
+  38  P2   play    W8    deck (B5)
+  39  P1   play    R7    deck (Rx)
+  40  P2   play    B10   deck (Gx)
+  41  P1   play    G8    deck (Bx)
+  42  P2   play    G9    deck (Rx)
+  43  P1   play    G10   deck (Y6)
+  44  P2   play    W9    deck (R3)
+  45  P1   play    R9    deck (R8)
+  46  P2   play    W10   deck (G2)
+  47  P1   discard Bx    deck (G3)
+
+final expeditions
+  Player 1
+    Yellow  Y4 Y7 Y10                    (21-20) x 1 = +1
+    Blue    B3 B6 B7                     (16-20) x 1 = -4
+    White   -
+    Green   Gx Gx G5 G8 G10              (23-20) x 3 = +9
+    Red     Rx R2 R5 R6 R7 R9            (29-20) x 2 = +18
+    total +24
+  Player 2
+    Yellow  -
+    Blue    Bx B4 B8 B9 B10              (31-20) x 2 = +22
+    White   W2 W3 W7 W8 W9 W10           (39-20) x 1 = +19
+    Green   G4 G6 G7 G9                  (26-20) x 1 = +6
+    Red     -
+    total +47
+
+round score: Player 1 +24, Player 2 +47
+(47 plies this round; re-scored from the cards above and matches the engine)
+
+================ MATCH RESULT: Player 1 +100, Player 2 +141 -- Player 2 wins the match ================

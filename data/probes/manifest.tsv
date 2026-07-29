@@ -1,0 +1,21 @@
+# name	moves_file	seed	ply	better	worse	note
+wager_open_w2	game_w2_seed11.moves	11	5	W4 p deck	Y2 d deck	open White with W4+W8 behind it beats the dead-yellow discard (w2-era leak, +2.9)
+wager_open_w3	game_w3_seed11.moves	11	5	W4 p deck	Yx d deck	same leak family in the current champion (+0.6..1.0)
+skip_cost_B8	game_w3_seed11.moves	11	26	B8 p deck	W7 p deck	B8 skips nothing (B7 is on opp expedition); W7 kills unseen W6 under x3 (+0.9)
+skip_cost_B10	game_w3_seed11.moves	11	30	B10 p deck	W7 p deck	policy had 94% on W7; B10 better by +1.36 at 15 sigma
+dead_discard	game_w3_seed11.moves	11	32	Wx d deck	W7 p deck	the provably dead wager discard beats the 99.5%-prior W7 (+1.64)
+gift_discard	game_w3_seed11.moves	11	36	Bx d deck	Y8 d deck	dominated discard: dead Bx in hand, Y8 could open Yellow for opponent
+stall_habit	game_w3_seed11.moves	11	39	G6 p deck	G6 p Y	pointless stall: nothing to deny, W10 22% in deck under x3, plays fit in remaining turns (habit-masked in same-policy playouts)
+suit_order_72	ply72.state	11	72	W4 p deck	B8 p deck	W4-first beats B8-first +1.8 (NOT B9 info-denial: edge same in no-B9 worlds; likely avoids own premature-B10 habit)
+premature_B10	ply74.state	11	74	W4 p deck	B10 p deck	banking B10 kills 27%-B9 equity under x2; policy had 97.5% on it (+2.7 at 10 sigma)
+bank_vs_wait_75	ply75.state	11	75	G10 p deck	B9 p deck	WATCH: search banks G10 (+0.6..1.1) pricing its own endgame execution risk; human+policy prefer waiting for G9 -- should flip if training fixes sequencing
+g424_policy_G5	g424_p10.state	424242	10	G5 p deck	R5 p deck	policy 70-84% on R5; G5 better by +4.8 -- the override's one clean win in game 424242
+g424_skip_B7	g424_p19.state	424242	19	B7 p deck	Y10 p deck	B7 risks only B5-draw (max 10); Y10 kills Y789 potential; policy 99.9% wrong (+0.97)
+g424_stall_38	g424_p38.state	424242	38	R6 p deck	R6 p W	deck beats the pile stall +1.75 even under same-policy playouts; policy split 45/32/2 against deck
+g424_stall_43	g424_p43.state	424242	43	Wx d deck	Wx d Y	6000w flips the in-game 512w Y-draw preference: deck +1.01; also exposes wager-id assignment noise
+g424_Y3_play	g424_p54.state	424242	54	Y3 p deck	Y3 d deck	the play variant was never a candidate; +1.70 over the 97%-prior discard
+g424_det_bias	g424_p93.state	424242	93	W9 p deck	R2 d deck	WATCH determinism artifact: argmax says R2 d +5.0 +- 0.14, sampled collapses it to +0.6 -- the override confirm-gate exists because of this ply
+g424_G10_111	g424_p111.state	424242	111	G10 p deck	Y5 d deck	G10 +1.23 over the 100%-prior discard into opponent Yx
+g424_drawY_112	g424_p112.state	424242	112	R4 p Y	R4 p deck	useful-pile-draw undervalued: +4.99 for taking the yellow; policy 0.01% on it
+g424_G8Y_118	g424_p118.state	424242	118	G8 p Y	Y7 p deck	the never-evaluated combo was +5.03 better; motivated draw-variant expansion
+g424_takeG6_126	g424_p126.state	424242	126	W6 p G	W6 p deck	drawing the just-discarded G6 is +8.61; combo was never a candidate pre-expansion

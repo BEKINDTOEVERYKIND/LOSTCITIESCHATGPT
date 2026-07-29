@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    strategy:
+      matrix:
+        compiler: [gcc, clang]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install numpy
+      - name: Build every tool
+        run: |
+          make -j2 CC=${{ matrix.compiler }} \
+            CFLAGS="-O2 -Wall -Wextra -Werror -std=c11"
+      - name: C regression tests
+        run: |
+          make test CC=${{ matrix.compiler }} \
+            CFLAGS="-O2 -Wall -Wextra -Werror -std=c11"
+      - name: C/Python parity
+        run: python tools/referee.py --selftest data/c8.bin 424242 --dumpfeat bin/dumpfeat
+      - name: Transcript verification
+        run: python tools/verify_transcript.py data/game.txt
+
+  sanitizers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Address and undefined behavior sanitizers
+        run: |
+          make test \
+            CC=clang \
+            CFLAGS="-O1 -g -Wall -Wextra -std=c11 -fno-omit-frame-pointer -fsanitize=address,undefined" \
+            LDFLAGS="-lm -pthread -fsanitize=address,undefined"
