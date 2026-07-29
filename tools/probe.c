@@ -98,7 +98,7 @@ int main(int argc, char **argv)
 
     /* --- move ranking versus the heuristic --- */
     int agree = 0, tot = 0;
-    double sxx = 0, sxy2 = 0, syy2 = 0, sx = 0, sy2 = 0;
+    double sxx = 0, sxy2 = 0, syy2 = 0;
     long deck_pref_net = 0, deck_pref_heur = 0, npick = 0;
     for (size_t i = 0; i < nrec && tot < 4000; i += 7) {
         const State *st = &recs[i].st;
@@ -124,7 +124,7 @@ int main(int argc, char **argv)
         mh /= nm; mn /= nm;
         for (int k = 0; k < nm; k++) {
             double a = vh[k] - mh, b = vn[k] - mn;
-            sxx += a * a; syy2 += b * b; sxy2 += a * b; sx += a; sy2 += b;
+            sxx += a * a; syy2 += b * b; sxy2 += a * b;
         }
         if (mv[bn].draw == 0) deck_pref_net++;
         if (mv[bh].draw == 0) deck_pref_heur++;
