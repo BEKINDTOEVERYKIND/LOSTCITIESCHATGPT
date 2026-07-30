@@ -13,7 +13,8 @@ CORE    := $(SRC)/lc.c $(SRC)/features.c $(SRC)/net.c $(SRC)/heuristic.c \
 all: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/arena $(BIN)/train \
 	$(BIN)/bench $(BIN)/probe $(BIN)/rl $(BIN)/ladder $(BIN)/play \
 	$(BIN)/showgame $(BIN)/dumpfeat $(BIN)/analyze $(BIN)/searchcmp \
-	$(BIN)/qpair $(BIN)/mine $(BIN)/symmetrize $(DATA)/champion.bin
+	$(BIN)/qpair $(BIN)/mine $(BIN)/robust_distill $(BIN)/symmetrize \
+	$(DATA)/champion.bin
 
 $(BIN):
 	mkdir -p $(BIN)
@@ -74,6 +75,9 @@ $(BIN)/qpair: tools/qpair.c $(CORE) $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
 
 $(BIN)/mine: tools/mine.c $(CORE) $(HDRS) | $(BIN)
+	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
+
+$(BIN)/robust_distill: tools/robust_distill.c $(CORE) $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
 
 $(BIN)/symmetrize: tools/symmetrize.c $(SRC)/net.c $(SRC)/features.c \

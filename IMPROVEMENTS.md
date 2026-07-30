@@ -196,19 +196,55 @@ instrument, not as a source of authoritative labels:
 - The actor, deals, and evaluator have independent deterministic RNG streams,
   so changing audit compute cannot change the recorded match.
 - Only the shortest top-policy prefix covering 99.5% mass is considered,
-  subject to a two-move minimum and eight-move cap. Near-zero draw variants
+  subject to a two-move minimum and four-move cap. Near-zero draw variants
   are never forced into the audit.
 - Hidden hands use the uniform card-count prior. The learned hand model is
   displayed separately and cannot bias Q.
-- Continuations use an exact deterministic policy ensemble at every decision
-  (five rotations in the static UI; full 20-way in the locked probes).
+- Fast continuation evaluation no longer conflates suit randomization with
+  full policy-action sampling. Each downstream decision draws one member of
+  the 20-way suit group and takes its greedy action. Repeated worlds therefore
+  approximate the champion cheaply without evaluating a high-entropy player.
+- Root candidates are never removed by the dead-discard focus used inside
+  continuation worlds. A separate guard can block an independently supported
+  but structurally questionable discard without concealing it from the audit.
 - Every candidate shares the same hidden worlds. The JSON reports Q's own
   standard error separately from the paired difference and its SE versus the
   policy leader.
-- Adaptive stopping uses a 3.5-SE family-wise guard. A challenger can only
-  displace the policy after it is the resolved leader against every audited
-  move and clears a practical one-point threshold. Otherwise the result is
-  explicitly `inconclusive`.
+- Adaptive stopping uses a 3.5-SE family-wise guard. Every challenger is
+  tested directly against the policy leader, so one biased numerical leader
+  cannot hide a smaller real correction. Every discovery that qualifies must
+  then repeat on 1,000 fresh hidden worlds at 99% confidence. Otherwise the
+  result is explicitly inconclusive or failed confirmation.
+
+The second human-reviewed match exposed the key distinction between variance
+and continuation-policy bias. Simply increasing the world count made several
+bad conclusions more certain. The corrected method instead (1) spends worlds
+only on the top four policy moves, (2) preserves a greedy continuation actor,
+(3) uses independent candidate-wise confirmation, and (4) keeps root and
+continuation pruning separate. At the locked positions, the green-start
+overrides at plies 21/23 disappear; low-prior green distractions at 25/29/31
+never enter the shortlist; and B10 at ply 36 is independently confirmed over
+Y10 (`+2.42 ± 0.34` discovery, `+1.48 ± 0.36` confirmation for the locked
+seed). Two additional seeds independently selected B10 as well.
+
+The corrected method was then tested as an actual player rather than inferred
+from individual positions. The locked configuration uses the raw 20-way policy
+before round ply 20, then 512 uniform hidden worlds over at most four
+policy-ranked moves, a 3.5-SE/two-point primary gate, and 512 freshly seeded
+random-symmetry-greedy confirmation worlds:
+
+```text
+rolloutu:data/champion.bin:512:4:0.02:0:1:20:0:0:0:0:3.5:2:2:20:0:0:20:1:0:512:1
+```
+
+Against `policy:data/champion.bin:0:20` on fresh seed 950005 it scored
+**+14.70 ± 1.53 SE points per match** and **56.5% ± 1.5% SE match score**
+over 200 mirrored pairs (225 wins, 173 losses, 2 draws). Approximate 95%
+intervals are +11.70 to +17.70 points and 53.6% to 59.4%. This is the basis
+for making rollout an actual late-round decision-maker. No early-round search
+is deployed: exploratory phase screens did not justify it, and the reviewed
+failures showed that increasing world count cannot repair a biased
+continuation policy.
 
 The original UI critique is preserved as fixed-state semantic regressions:
 
@@ -232,6 +268,45 @@ matches and 20 untouched validation matches. Twenty-way suit averaging with
 and log loss from 0.53272 to 0.49622. Its marginals and sampler now describe
 the same exact-K joint distribution. It remains labelled experimental and is
 not used by the decision audit.
+
+## Conservative correction distillation
+
+`tools/robust_distill.c` is a separate, fail-closed path for turning only
+independently confirmed search disagreements into policy training targets.
+The generated dataset is tied to the exact frozen-network hash and records the
+world counts, phase window, symmetry method, statistical gates, and lower
+confidence bound for every correction. Loading validates the complete hostile
+`State` payload, legal moves, label math, counts, file length, and every
+record's declared ply/deck phase before calling engine or feature code.
+
+Training changes only the previously zero card/action × draw-source residual
+head. It anchors the full legal distribution with KL, uses pairwise
+lower-confidence-bound targets for confirmed corrections, applies
+deterministic suit augmentation, and verifies that every pre-residual model
+byte is unchanged. Atomic, no-clobber output and canonical path checks prevent
+overwriting the frozen network or record file by alias.
+
+The locked generation run used seed 2026073003, 512 primary plus 512 fresh
+confirmation worlds, and produced 426 states: 28 confirmed corrections and
+398 KL anchors. The correction lower-confidence bounds averaged 1.785 points
+(range 0.059–9.310). Candidate checkpoints are promoted only by independent
+paired match play, never by training loss or correction accuracy.
+
+That promotion rule was applied rather than relaxed. Two finalists advanced
+from a 2,000-pair screen to a locked 20,000-pair holdout on fresh seed
+2026080201:
+
+| residual candidate | margin/match | exact match score | 2.24-SE score lower bound |
+| --- | ---: | ---: | ---: |
+| safe | +0.08 ± 0.08 SE | 50.04375% | 49.81975% |
+| balanced-a | +0.06 ± 0.11 SE | 50.06375% | 49.83975% |
+
+Neither score lower bound cleared 50%, so neither model was promoted. The
+unchanged champion plus the validated late-round search wrapper remains the
+strongest agent. This negative result is also useful: the confirmed
+corrections are a sounder training signal than the old noisy audit labels, but
+this small residual head did not turn them into a measurable net strength
+gain.
 
 ## Remaining high-value work
 
@@ -272,5 +347,6 @@ permutation round trips and ensemble equivariance, wager knowledge and
 parameter/gradient tying, pile-order distinguishability, v4-to-v6 migration,
 interaction-head isolation, model round trips, hybrid final-round utility,
 robust sampling, fixed-cardinality marginal/sampler agreement, exact
-policy-prefix selection, and one-versus-four-thread match identity. The slow
-suite locks the reviewed W2, R2, Y2/W7, and W3/W7 positions.
+policy-prefix selection, raw-policy phase gating, and one-versus-four-thread
+identity for both ordinary and rollout matches. The slow suite locks the
+reviewed W2, R2, Y2/W7, W3/W7, G5, B10/Y10, and discard-guard positions.

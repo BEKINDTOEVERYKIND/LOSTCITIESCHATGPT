@@ -36,7 +36,7 @@ static void print_hand(const State *st, int p)
 
 int main(int argc, char **argv)
 {
-    const char *spec = "policy:data/champion.bin:0:20";
+    const char *spec = LC_CHAMPION_AGENT_SPEC;
     uint64_t seed = 20260727;
     int rounds = 1;
     for (int i = 1; i < argc; i++) {

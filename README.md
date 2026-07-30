@@ -11,11 +11,33 @@ unchanged.
 
 ## Current status
 
-Use `data/champion.bin`, normally through
-`policy:data/champion.bin:0:20`. It combines an exactly wager-symmetric
-projection of the strongest inherited checkpoint with probability averaging
-over 20 exact suit relabellings. It decisively beat the old raw `c8.bin`
-policy on two fresh holdouts:
+The strongest validated playing agent uses the exact 20-way champion policy
+directly before round ply 20, then a conservative uniform-world rollout over
+only its top four policy moves:
+
+```text
+rolloutu:data/champion.bin:512:4:0.02:0:1:20:0:0:0:0:3.5:2:2:20:0:0:20:1:0:512:1
+```
+
+Against the policy alone on a fresh 200-pair holdout (400 complete
+three-round matches), this exact configuration scored **+14.70 ± 1.53 SE
+points per match** and **56.5% ± 1.5% SE match score** (225 wins, 173 losses,
+2 draws). Approximate 95% intervals are +11.70 to +17.70 points and 53.6% to
+59.4%. The comparison is expensive but comfortably clears both zero-margin
+and 50%-score baselines. `play`, `showgame`, `analyze`, and the replay
+generator now use this configuration by default.
+
+The [interactive match observatory](https://lost-cities-ai-match.juliandelphiki.chatgpt.site)
+contains one unscreened random self-play match from this exact agent (seed
+5726968372613385, generated once with no retry or result selection). It keeps
+the actual playing-search decision separate from a deeper post-game audit and
+shows the policy shortlist, paired uncertainty, independent confirmation,
+guard status, and experimental hand estimate at every move.
+
+Its underlying network, `data/champion.bin`, combines an exactly
+wager-symmetric projection of the strongest inherited checkpoint with
+probability averaging over 20 exact suit relabellings. The policy alone
+decisively beat the old raw `c8.bin` policy on two fresh holdouts:
 
 | holdout | paired matches | margin/match | match score |
 | --- | ---: | ---: | ---: |
@@ -33,7 +55,11 @@ screen while costing about six times as much, so it was not made the default.
 
 No newly trained checkpoint cleared the promotion bar. In particular, three
 attempts to distil the 20-way ensemble back into one fast network all became
-weaker as imitation progressed. Those negative candidates are not shipped.
+weaker as imitation progressed. A later conservative residual-only experiment
+also failed its predeclared locked gate: over 20,000 fresh mirrored pairs, its
+two finalists scored 50.04375% and 50.06375% against the unchanged champion,
+with lower confidence bounds below 50%. Those negative candidates are not
+shipped.
 
 Version-6 networks can learn full card/action × draw-source interactions and
 the complete public order of each discard pile. Loading a legacy v3/v4 model
@@ -73,6 +99,7 @@ tools/arena.c       head-to-head matches with error bars (-r 3 for full matches)
 tools/ladder.c      round robin with fitted Elo
 tools/analyze.c     per-ply JSON dump: state, values, policy, search, beliefs
 tools/qpair.c       paired rollout Q for any named moves at a replayed position
+tools/robust_distill.c conservative confirmed-correction residual trainer
 tools/referee.py    numpy port of engine+net, verified to ~1e-6 against the C
 tools/dumpfeat.c    parity reference dumper for the referee
 tools/verify_transcript.py  independent replay/audit of printed transcripts
@@ -136,10 +163,13 @@ cost of all 120 permutations. These are rules-preserving transformations, not
 heuristic augmentations. The 20-way mode is invariant to that affine subgroup,
 while only the 120-way mode is invariant to every possible suit permutation.
 MCTS averages only at the root. Rollout has a separate
-`playout_symmetries` setting and can apply an exact ensemble at every
-continuation decision. The static viewer uses the exact 20-way actor at the
-root and a deterministic five-rotation continuation to control offline audit
-cost; the locked human-reviewed probes use full 20-way continuations.
+`playout_symmetries` setting. It can either average that group exactly at
+every continuation decision, or cheaply draw one group member and take its
+greedy move. Policy-action sampling is a separate diagnostic mode; it is no
+longer accidentally coupled to random symmetry sampling. The maintained
+audit uses the exact 20-way actor at the root and random-member, greedy
+20-way continuations, which costs one forward pass per downstream decision
+without evaluating a high-entropy player.
 
 **Stalling.** Drawing a useless card from a pile to deny the opponent a turn
 of deck progress is in the action space, and nothing hand-crafted decides it:
@@ -213,41 +243,39 @@ inference already shapes every playout decision; making the sampled hands more
 realistic adds little on top.
 
 **Belief quality:** the historical analysis contained only the top 14
-predictions from one game, so it was selection-biased. A new all-card
-evaluation of `c8.bin` (seed 424) reports pooled AUC 0.703 and mean
-within-state AUC 0.622, but worse Brier score and log loss than the simple
-card-count prior, with ECE 0.098. The head contains ranking information but is
-overconfident; coupled with the null belief-sampling strength ablation, this
-remains a research component rather than an established source of strength.
+predictions from one game, so it was selection-biased. The replacement
+calibrated its temperature on 12 unscreened matches and evaluated every
+uncertain card on 20 separate matches. Twenty-way averaging with
+`alpha=1.15` improved Brier score from 0.17538 for the card-count prior to
+0.16194 and log loss from 0.53272 to 0.49622. That is useful evidence, but
+still a small validation set and not a demonstrated playing-strength gain.
+The UI therefore labels the hand estimate experimental, and authoritative
+rollout continues to use uniform fixed-card-count worlds.
 
 ## When to search, and when the policy alone is enough
 
-Instrumented over 6,697 self-play decisions (tools/searchcmp.c): when the
-policy's top move already carries >= 0.95 probability -- 59% of all decisions
--- rollout search disagrees with it only 3-7% of the time, for a mean gain of
-0.1-0.2 points; below 0.95 confidence, disagreement is 39-81% and the mean
-gain per decision is 1-5 points. Confidence is the dominant variable: the
-pattern barely moves across rounds, deck phase, or match closeness (low-
-confidence late-deck decisions have the largest tail, up to ~5 points).
+Early low-compute experiments established that policy confidence alone is not
+a reliable phase gate. The maintained agent instead uses a round-ply cutoff
+selected by direct match play: policy only for plies 0–19, rollout thereafter.
+At each searched position it admits only policy moves with at least 2% prior,
+with a hard cap of four. It spends 512 shared hidden worlds on the primary
+comparison. A challenger must clear a family-wise 3.5-SE test and a two-point
+practical floor, then repeat on 512 independently seeded worlds before it may
+replace the policy leader. A one-candidate shortlist skips continuation
+forwards entirely while consuming the same hidden-world RNG stream, so it
+cannot change later deals or decisions.
 
-The rollout agent therefore takes a gate parameter -- skip the search when the
-policy's confidence is already >= the gate (`rollout:NET:worlds:cands:floor:gate`).
-The maintained audit also uses the shortest cumulative policy-mass prefix
-(minimum two, maximum eight moves), never forces negligible draw variants into
-the list, and spends its paired worlds only on that shortlist.
-Measured (3-round paired matches vs the raw policy):
+The exact production configuration was locked before its fresh holdout:
 
-| configuration | margin/match | match wins | speed |
+| comparison | mirrored pairs | margin/match | match score |
 | --- | ---: | ---: | ---: |
-| full rollout, 96 worlds | **+30.0 ± 5.1** | **69.5%** (50 pairs) | 0.8 matches-games/s |
-| gate 0.85 (searches ~23% of plies) | +17.1 ± 3.9 | 57.5% (50 pairs) | 1.9 |
-| gate 0.95 (searches ~41% of plies) | +14.3 ± 4.6 | 60.5% (50 pairs) | 1.4 |
+| rollout from round ply 20 vs policy alone, seed 950005 | 200 | **+14.70 ± 1.53 SE** | **56.5% ± 1.5% SE** |
 
-Head-to-head, the 0.95 gate loses -3.6 ± 4.2 per match to the ungated search
-(43.8% over 40 pairs). The lesson cuts both ways: per *decision* the
-high-confidence searches look worthless, but there are ~40 of them per match
-per side and their 0.15-point slivers add up to most of the gap -- so gating
-is a compute trade, not a free lunch.
+This is why rollout is now an actual decision-maker late in each round, not
+merely a UI diagnostic. Search remains off in the early game: phase screens
+did not justify its compute there, the horizon is longest there, and the
+human-reviewed failures showed that more worlds can make a biased
+continuation estimate more confidently wrong.
 
 **The candidate floor cuts both ways.** Candidates come from the policy, and
 moves below a 2% prior are pruned -- so when the policy is *certain*, the
@@ -272,8 +300,9 @@ eligible, but the maintained viewer leaves it off: analysis compute is
 reserved for the top-policy prefix. Human questions about a written-off move
 belong in the locked `qpair` probe suite, not in every ply of the UI.
 
-**Where the search earns its keep: late, not early** (all vs the raw policy,
-3-round paired matches):
+**Where the search earns its keep: late, not early.** Earlier exploratory
+phase screens (using the older low-world method) showed the same qualitative
+pattern:
 
 | search window (plies of each round) | margin/match | match wins |
 | --- | ---: | ---: |
@@ -282,26 +311,18 @@ belong in the locked `qpair` probe suite, not in every ply of the UI.
 | only plies < 14 (200 pairs) | +4.6 ± 2.4 | 53.4% ± 2.5% |
 | only plies < 14, forced 3 candidates (200 pairs) | -4.7 ± 3.1 | 50.1% ± 2.5% |
 
-Restricting the search to the mid/late round loses nothing -- it matches or
-beats searching everywhere while skipping ~30% of the searched plies, and
-the direct head-to-head confirms it: late-only vs full search is a dead
-heat, +0.6 ± 3.0/match, 49.7% ± 2.9% (150 pairs). Early search contributes
-little, and *aggressive* early search (forced candidates) contributes
-nothing at all. The mechanism shows up clearly at the opening
-ply of the embedded game: three different first moves measure within ±0.5
-points of each other at 8000 worlds under three different estimators.
-Early-round moves are often near-equivalent in true value, so there is
-little for a rollout to find, and its noise can only hurt; late-round
-positions diverge sharply and have short, accurately-evaluated horizons.
-(An earlier 50-pair run put full search at +30.0 ± 5.1 / 69.5%; the
-run-to-run spread between that and the 150-pair number above is itself a
-caution about small evaluation batches.)
+Those runs are historical evidence, not the production strength claim. Their
+wide intervals motivated the larger world count, independent confirmation,
+corrected continuation policy, and stricter round-ply-20 deployment above.
+Early-round moves are often near-equivalent in true value, so there is little
+for rollout to find; late-round positions diverge more sharply and have much
+shorter, more accurately evaluated horizons.
 
-**The search reports its own noise.** Every reported Q carries the standard
-error of its paired difference against the chosen move -- a gap under ~2 of
-those is sampling noise, which at 96 worlds means most gaps under ~4-8
-points; the analysis dump uses 512 worlds to make the displayed numbers
-meaningful. In the final round the dump also reports each candidate's match
+**The search reports its own noise.** Every reported Q carries its own
+standard error plus the paired-difference standard error against the policy
+leader. The deep audit uses 1,000 primary worlds and runs a separate
+1,000-world confirmation only for a qualifying challenger; the playing agent
+uses 512 + optional 512. In the final round the dump also reports each candidate's match
 win fraction over the playouts (the last round decides the match exactly,
 so point EV stops being the objective there). Selecting by that win
 fraction is available (`win_q`) but off by default, because it measured no
@@ -341,7 +362,8 @@ against the previous maximum-strength config -- the first strength
 improvement since the shipped champion, at ~1.7x search compute.
 
 Expert review of an override-enabled game then exposed two further gates
-the SE test needs. (1) `override_min` points (default 4): the SE gate is
+the SE test needs. (1) `override_min` points (now 2 in the maintained agent):
+the SE gate is
 world-count-dependent in the wrong direction -- more worlds shrink noise
 but sharpen *bias*, so at 512 worlds a 3-SE gate fired on ~1-point stall-
 and discard-flavoured playout bias; in the reviewed game every override
@@ -355,17 +377,21 @@ Regenerating the reviewed game under the full gates removed every
 reviewer-graded blunder while keeping the overrides the reviewer agreed
 with.
 
-Sampled playouts (playout_sample, spec field 14) A/B'd against argmax at
-the full config: 49.4% ± 2.0% over 300 pairs -- a tie.  Unbiased
-continuations cost nothing in strength, so analysis and training labels
-use them; match play keeps argmax with the sampled confirmation gate.
+The old `playout_sample=1` mode sampled full policy actions and random suit
+symmetries together. That is retained only as a robustness ablation. Mode `2`
+separates the useful cheap symmetry approximation from action sampling:
+each downstream decision draws one requested symmetry and takes its greedy
+move. Independent confirmation uses this mode as well, so it perturbs
+symmetry-sensitive discontinuities without changing the evaluated player
+into a much weaker high-entropy policy.
 
-The strongest newly validated default is the 20-way policy ensemble:
-`policy:data/champion.bin:0:20`. Rollout remains available for slower
-analysis and play. Objective mode `2` uses round margin in rounds 0/1 and the
-champion's `0.05 × final match margin + 50 × result` return only in real round
-index 2. A high-compute analysis spec is
-`rollout:data/champion.bin:512:5:0.02:0:1:0:0:4:2:1:3:4:0:20`.
+The strongest validated default is the round-ply-20 rollout actor printed at
+the top of this README. Objective mode `2` remains available for research and
+uses round margin in rounds 0/1 plus the champion's `0.05 × final match margin
++ 50 × result` return only in real round index 2. The measured production
+actor uses objective mode `0`; changing the objective would require another
+locked strength test. The maintained high-compute post-hoc audit spec is
+printed into every analysis artifact by `tools/analyze`.
 
 ## Reproducing
 
@@ -389,8 +415,8 @@ index 2. A high-compute analysis spec is
 ## Playing, analysing, measuring
 
 ```
-./bin/play                                         # champion, 20-way ensemble
-./bin/showgame -a policy:data/champion.bin:0:20 -r 3
+./bin/play                                         # strongest validated actor
+./bin/showgame -r 3                                # same actor, self-play
 python3 tools/verify_transcript.py <transcript>    # independent rules audit
 ./bin/analyze -r 3 > data/analysis.json
 python3 tools/make_showcase.py --seed SEED --output /path/to/showcase.json
@@ -403,22 +429,26 @@ make audit-test   # slow locked checks for the reviewed UI positions
 ```
 
 The analysis console replays a match ply by ply: board, both hands (marked
-where publicly known), the policy distribution, post-hoc Q values for only the
-top-policy moves, the calibrated fixed-cardinality hand estimate next to
-omniscient truth, and the value trajectory. It distinguishes the numerical
-leader from a statistically resolved best move; unresolved gaps never receive
-an “audit pick” label. Recorded deck draws are explicitly marked as future
-information unavailable at decision time.
+where publicly known), the policy distribution, actual playing-search
+decision, independent post-hoc Q values for only the top four policy moves,
+the experimental fixed-cardinality hand estimate next to omniscient truth,
+and the value trajectory. It distinguishes the numerical
+leader from a supported policy correction. A correction must clear a
+family-wise discovery test and then repeat on 1,000 freshly seeded worlds;
+unresolved gaps never receive an “audit pick” label. Recorded deck draws are
+explicitly marked as future information unavailable at decision time.
 
 Agent specs include `random`, `heur`,
 `policy:PATH[:temperature[:symmetries]]`, `rolloutu:...` (uniform-world
 belief ablation), `mcts:PATH[...]`, and `net:PATH`. The complete rollout tail
 is `worlds:candidates:floor:gate:min_candidates:ply_lo:ply_hi:eval_candidates:`
 `objective:prune:override_k:override_min:sample:symmetries:policy_mass:`
-`batch_worlds:playout_symmetries`; objective is
+`batch_worlds:playout_symmetries:discard_guard:deck_max:confirm_worlds:`
+`playout_prune`; objective is
 `0` for round margin, `1` for pure final-round match result, or `2` for the
-champion hybrid. Supported symmetry modes are `1`, `5`, `10`, `20`, and
-`120`.
+champion hybrid. Continuation mode `0` is exact-group greedy, `1` is the
+random-group/full-policy-sampling ablation, and `2` is random-group greedy.
+Supported symmetry modes are `1`, `5`, `10`, `20`, and `120`.
 
 All matches are paired: every deal (all three of them, in match mode) is
 played twice with the seats swapped, so deal luck cancels.

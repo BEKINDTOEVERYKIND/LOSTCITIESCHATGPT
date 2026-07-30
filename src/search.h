@@ -13,6 +13,15 @@
 
 struct Agent;
 
+enum {
+    SEARCH_SKIP_NONE = 0,
+    SEARCH_SKIP_FORCED,
+    SEARCH_SKIP_PLY_WINDOW,
+    SEARCH_SKIP_DECK_PHASE,
+    SEARCH_SKIP_POLICY_CONFIDENCE,
+    SEARCH_SKIP_ROOT_FOCUS
+};
+
 typedef struct {
     int n;
     int nlegal;             /* legal moves before policy-shortlist filtering */
@@ -20,6 +29,10 @@ typedef struct {
     int max_worlds;         /* configured cap                                */
     int resolved;           /* highest mean clears the paired confidence bar */
     int raw_best;           /* index of highest mean in mv/q                 */
+    int skip_reason;        /* SEARCH_SKIP_* when worlds == 0                */
+    int confirmed;          /* a non-policy override passed an independent
+                               stochastic continuation check                  */
+    int confirm_worlds;     /* independent worlds used by confirmation        */
     double policy_mass;     /* policy probability covered by mv[]            */
     Move mv[MAX_MOVES];
     double visits[MAX_MOVES];
@@ -27,6 +40,11 @@ typedef struct {
     double se[MAX_MOVES];  /* standard error of each candidate's own mean */
     double delta[MAX_MOVES]; /* paired difference against policy candidate 0 */
     double dse[MAX_MOVES];   /* SE of that paired difference                 */
+    double cdelta[MAX_MOVES]; /* fresh stochastic paired difference vs policy */
+    double cdse[MAX_MOVES];   /* SE of cdelta                                 */
+    uint8_t pqualified[MAX_MOVES]; /* passed the primary significance gates   */
+    uint8_t csupported[MAX_MOVES]; /* candidate passed both independent gates */
+    uint8_t guard_rejected[MAX_MOVES]; /* supported but blocked structural risk */
     double prior[MAX_MOVES]; /* root policy probability                      */
     double qw[MAX_MOVES];  /* rollout, final round only: match wins as a
                               fraction of playouts (draws count half);

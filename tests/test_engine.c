@@ -343,14 +343,18 @@ static void test_dead_and_dominated(void)
     m.discard = 0;
     CHECK(!lc_discard_dominated(&st, m, dead), "plays are never pruned");
 
-    /* two dead cards: only the lowest id survives */
+    /* Dead discards in different suits remain distinct strategic choices.
+     * Choosing a single survivor by numeric card id would privilege whichever
+     * suit happens to have the lowest internal id and break suit symmetry. */
     st.exp_top[0][4] = 9; st.exp_top[1][4] = 9;
     dead = lc_dead_cards(&st);
     st.hand[0] = (1ULL << CARD_MAKE(1, 5)) | (1ULL << CARD_MAKE(4, 6));
     m.card = CARD_MAKE(4, 6); m.discard = 1; m.draw = 0;
-    CHECK(lc_discard_dominated(&st, m, dead), "dead R5 deduped against lower-id dead B4");
+    CHECK(!lc_discard_dominated(&st, m, dead),
+          "dead R5 kept alongside dead B4");
     m.card = CARD_MAKE(1, 5);
-    CHECK(!lc_discard_dominated(&st, m, dead), "canonical dead discard kept");
+    CHECK(!lc_discard_dominated(&st, m, dead),
+          "dead B4 kept alongside dead R5");
 }
 
 int main(void)

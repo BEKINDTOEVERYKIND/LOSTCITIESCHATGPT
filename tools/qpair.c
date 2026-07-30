@@ -21,6 +21,7 @@
 #include "../src/lc.h"
 #include "../src/agent.h"
 #include "../src/net.h"
+#include "../src/search.h"
 #include "../src/spec.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -194,7 +195,8 @@ static int playout(const Net *net, const Agent *cont, float temp,
 
 int main(int argc, char **argv)
 {
-    const char *netpath = NULL, *movespath = NULL, *contspec = NULL, *holdcard = NULL;
+    const char *netpath = NULL, *movespath = NULL, *contspec = NULL;
+    const char *evalspec = NULL, *holdcard = NULL;
     const char *statepath = NULL;
     uint64_t seed = 1;
     int target = 1, worlds = 2000;
@@ -211,6 +213,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "-w") && i + 1 < argc) worlds = atoi(argv[++i]);
         else if (!strcmp(argv[i], "-T") && i + 1 < argc) temp = (float)atof(argv[++i]);
         else if (!strcmp(argv[i], "-A") && i + 1 < argc) contspec = argv[++i];
+        else if (!strcmp(argv[i], "-E") && i + 1 < argc) evalspec = argv[++i];
         else if (!strcmp(argv[i], "-U")) uniform_worlds = 1;
         else if (!strcmp(argv[i], "-y") && i + 1 < argc)
             trajectory_symmetries = atoi(argv[++i]);
@@ -220,11 +223,16 @@ int main(int argc, char **argv)
             fprintf(stderr, "usage: %s -n NET -s SEED -f MOVES -p PLY "
                     "[-w WORLDS] [-T temp] [-A contspec] [-U] "
                     "[-y trajectory_symmetries] "
-                    "-c \"CARD p|d DRAW\" [-c ...]\n", argv[0]);
+                    "[-E rollout_spec | -c \"CARD p|d DRAW\" [-c ...]]\n",
+                    argv[0]);
             return 1;
         }
     }
-    if (!netpath || (!movespath && !statepath) || ncand == 0) { fprintf(stderr, "qpair: need -n, -f or -S, and at least one -c\n"); return 1; }
+    if (!netpath || (!movespath && !statepath) ||
+        (!evalspec && ncand == 0)) {
+        fprintf(stderr, "qpair: need -n, -f or -S, and -E or at least one -c\n");
+        return 1;
+    }
 
     Net *net = (Net *)malloc(sizeof(Net));
     if (!net || net_load(net, netpath)) { fprintf(stderr, "qpair: cannot load %s\n", netpath); return 1; }
@@ -279,6 +287,48 @@ int main(int argc, char **argv)
     int hn = lc_hand_cards(&st, p, hc);
     for (int i = 0; i < hn; i++) { lc_card_name(hc[i], b); printf(" %s", b); }
     printf("\n");
+
+    if (evalspec) {
+        Agent evaluator;
+        spec_parse(evalspec, &evaluator);
+        if (evaluator.kind != AG_ROLLOUT) {
+            fprintf(stderr, "qpair: -E requires a rollout evaluator\n");
+            return 1;
+        }
+        Rng erng;
+        rng_seed(&erng, seed);
+        SearchStats ss;
+        Move selected = rollout_move(&evaluator, &st, &erng, NULL, &ss);
+        printf("rollout evaluator: %s\n", evalspec);
+        printf("worlds: %d/%d  raw_resolved: %s  confirmation: %d worlds, %s\n",
+               ss.worlds, ss.max_worlds, ss.resolved ? "yes" : "no",
+               ss.confirm_worlds, ss.confirmed ? "passed" : "not passed");
+        printf("%-16s %8s %17s %8s %17s %8s %7s %8s\n",
+               "candidate", "prior", "primary delta", "p-pass",
+               "confirm delta", "c-pass", "guard", "selected");
+        for (int i = 0; i < ss.n; i++) {
+            char card[8], move[20], draw[8];
+            lc_card_name(ss.mv[i].card, card);
+            if (ss.mv[i].draw == 0) snprintf(draw, sizeof draw, "deck");
+            else {
+                static const char suit_ch[NSUIT + 1] = "YBWGR";
+                snprintf(draw, sizeof draw, "%c", suit_ch[ss.mv[i].draw - 1]);
+            }
+            snprintf(move, sizeof move, "%s %c %s", card,
+                     ss.mv[i].discard ? 'd' : 'p', draw);
+            printf("%-16s %8.4f %+7.2f +- %-6.2f %8s "
+                   "%+7.2f +- %-6.2f %8s %7s %8s\n",
+                   move, ss.prior[i], ss.delta[i], ss.dse[i],
+                   ss.pqualified[i] ? "yes" : "no",
+                   ss.cdelta[i], ss.cdse[i],
+                   ss.csupported[i] ? "yes" : "no",
+                   ss.guard_rejected[i] ? "blocked" : "-",
+                   MOVE_PACK(ss.mv[i]) == MOVE_PACK(selected) ? "yes" : "");
+        }
+        free((void *)evaluator.net);
+        free(net);
+        return 0;
+    }
 
     Move cand[MAXC];
     for (int c = 0; c < ncand; c++) {

@@ -49,6 +49,57 @@ CASES = (
          ("W3 d deck", "W7 p deck", "Wx d deck"), (1,), (2,)),
 )
 
+EVAL_SPEC = (
+    "rolloutu:data/champion.bin:1000:4:0.01:0.995:2:0:0:0:"
+    "2:0:1.96:1:2:20:0.995:250:20:1:0:1000:1"
+)
+
+
+@dataclass(frozen=True)
+class EvaluatorCase:
+    name: str
+    state: str
+    seed: int
+    selected: str
+    absent: tuple[str, ...] = ()
+    blocked: tuple[str, ...] = ()
+    not_blocked: tuple[str, ...] = ()
+
+
+# These exercise rollout_move itself, including the top-policy cap, cheap
+# random-symmetry/greedy world model, independent confirmation and structural
+# guard.  They are positions from the second human-reviewed UI match.
+EVALUATOR_CASES = (
+    EvaluatorCase(
+        "ply 29: do not spend worlds on the fifth-ranked G5",
+        "ui_seed725402798_p29.state",
+        990029,
+        "Y7 p deck",
+        absent=("G5 p deck", "G5 d deck"),
+    ),
+    EvaluatorCase(
+        "ply 36: independently confirm B10 over Y10",
+        "ui_seed725402798_p36.state",
+        990036,
+        "B10 p deck",
+    ),
+    EvaluatorCase(
+        "ply 40: block unsafe dead-discard replacements",
+        "ui_seed725402798_p40.state",
+        991588,
+        "Y2 d deck",
+        blocked=("W2 d deck",),
+        not_blocked=("R2 d deck",),
+    ),
+    EvaluatorCase(
+        "ply 31: do not admit the low-prior G5 discard",
+        "ui_seed725402798_p31.state",
+        991442,
+        "Y9 p deck",
+        absent=("G5 d deck",),
+    ),
+)
+
 
 def parse_rows(output: str, candidates: tuple[str, ...]) -> list[dict[str, float]]:
     rows: list[dict[str, float]] = []
@@ -108,9 +159,61 @@ def run_case(case: Case) -> None:
             )
 
 
+def run_evaluator_case(case: EvaluatorCase) -> None:
+    command = [
+        str(ROOT / "bin/qpair"),
+        "-n", str(ROOT / "data/champion.bin"),
+        "-S", str(ROOT / "data/probes" / case.state),
+        "-s", str(case.seed),
+        "-E", EVAL_SPEC,
+    ]
+    result = subprocess.run(
+        command,
+        cwd=ROOT,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    print(f"\n[{case.name}]\n{result.stdout}", end="")
+    rows = [
+        line for line in result.stdout.splitlines()
+        if line and not line.startswith(("position:", "hand:", "rollout ",
+                                         "worlds:", "candidate"))
+    ]
+    selected = [
+        line for line in rows
+        if line.split() and line.split()[-1] == "yes"
+    ]
+    if len(selected) != 1 or not selected[0].startswith(case.selected):
+        raise AssertionError(
+            f"{case.name}: expected only {case.selected!r} selected, got "
+            f"{selected!r}"
+        )
+    for move in case.absent:
+        if any(line.startswith(move) for line in rows):
+            raise AssertionError(
+                f"{case.name}: low-prior candidate {move!r} entered audit"
+            )
+    for move in case.blocked:
+        line = next((row for row in rows if row.startswith(move)), None)
+        if line is None or " blocked " not in f" {line} ":
+            raise AssertionError(
+                f"{case.name}: expected {move!r} to be guard-blocked"
+            )
+    for move in case.not_blocked:
+        line = next((row for row in rows if row.startswith(move)), None)
+        if line is None or " blocked " in f" {line} ":
+            raise AssertionError(
+                f"{case.name}: safe cross-suit discard {move!r} was blocked"
+            )
+
+
 def main() -> None:
     for case in CASES:
         run_case(case)
+    for case in EVALUATOR_CASES:
+        run_evaluator_case(case)
     print("\nall semantic rollout audit regressions passed")
 
 

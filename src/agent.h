@@ -52,10 +52,21 @@ typedef struct Agent {
                            cannot be selected (0 = off). */
     int batch_dets;     /* AG_ROLLOUT: paired worlds per adaptive batch.
                            dets is the cap; 0 evaluates exactly dets worlds */
-    int playout_symmetries; /* AG_ROLLOUT: exact policy ensemble used at every
-                               continuation decision.  This is separate from
-                               the root ensemble so a 5-way continuation can
-                               cheaply approximate the 20-way actor. */
+    int playout_symmetries; /* AG_ROLLOUT continuation suit group.  Mode 0
+                               averages the group exactly; modes 1/2 draw one
+                               group member per decision.  Mode 1 samples the
+                               resulting action, while mode 2 takes argmax. */
+    int discard_guard; /* AG_ROLLOUT: do not override a nondominated policy
+                          move with a discard that lc_discard_dominated marks
+                          questionable.  Unlike prune_dom, the move remains in
+                          the audit and in continuations. */
+    int deck_max;      /* AG_ROLLOUT: search only with at most this many deck
+                          cards remaining (0 = no deck-phase gate). */
+    int confirm_dets;  /* AG_ROLLOUT: fresh confirmation worlds
+                          (0 = the primary configured world cap). */
+    int playout_prune; /* AG_ROLLOUT continuation-only dead-discard focus.
+                          -1 follows prune_dom for backward compatibility;
+                          0/1 explicitly disables/enables it. */
     int win_q;          /* AG_ROLLOUT objective: 0 = round margin; 1 = pure
                            match result in real round index 2; 2 = champion
                            hybrid (0.05 * final margin + 50 * result) there.
@@ -69,16 +80,19 @@ typedef struct Agent {
                            playouts gifting live cards when a dead one is in
                            hand */
     float override_k;   /* AG_ROLLOUT: let an eligible challenger take the
-                           move only after it is the resolved leader and beats
-                           the policy top by this many paired standard errors
+                           move only after it beats the policy top by this many
+                           paired standard errors and passes a fresh,
+                           independently seeded continuation check
                            (0 = legacy behavior: take the numerical leader) */
-    int playout_sample; /* AG_ROLLOUT: sample the policy in playouts instead
-                           of argmaxing it (common per-world seeds keep the
-                           candidate comparison paired).  Argmax repeats
-                           every knife-edge downstream decision across all
-                           worlds, which can manufacture large fake Q gaps
-                           with tiny paired errors; sampling trades a
-                           little variance for unbiasedness. */
+    int playout_sample; /* AG_ROLLOUT continuation mode:
+                           0 = exact suit-group average, then argmax;
+                           1 = random group member, then sample its policy;
+                           2 = random group member, then argmax.
+                           Modes 1/2 cost one forward per decision and common
+                           per-world seeds keep candidate comparisons paired.
+                           Mode 2 is the closest cheap approximation to the
+                           exact-ensemble actor; mode 1 is a high-variance
+                           robustness ablation, not the maintained default. */
     float override_min; /* AG_ROLLOUT: ...AND by at least this many points.
                            The SE gate alone is world-count-dependent in the
                            wrong direction: more worlds shrink the noise but
@@ -118,6 +132,11 @@ void agent_default(Agent *a, AgentKind k, const Net *net);
 int  policy_probs(const Net *net, const State *st, Move *mv, float *prob, float *value);
 int  policy_probs_sym(const Net *net, const State *st, Move *mv, float *prob,
                       float *value, int symmetries);
+/* Draw one member of a suit-permutation group and map its policy back to st.
+ * Averaging repeated calls equals policy_probs_sym(), but each costs one
+ * forward pass. */
+int  policy_probs_random_sym(const Net *net, const State *st, Move *mv,
+                             float *prob, Rng *rng, int symmetries);
 /* Fill an exact subgroup of suit relabellings.  Invalid sizes return only the
  * identity.  The returned maps send original suit -> permuted suit. */
 int  suit_permutations(int requested, uint8_t out[120][NSUIT]);

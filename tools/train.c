@@ -651,6 +651,13 @@ int main(int argc, char **argv)
             if ((v = strtok_r(NULL, ":", &save))) gen.override_min = (float)atof(v);
             if ((v = strtok_r(NULL, ":", &save))) gen.playout_sample = atoi(v);
             if ((v = strtok_r(NULL, ":", &save))) gen.symmetries = atoi(v);
+            if ((v = strtok_r(NULL, ":", &save))) gen.cand_mass = (float)atof(v);
+            if ((v = strtok_r(NULL, ":", &save))) gen.batch_dets = atoi(v);
+            if ((v = strtok_r(NULL, ":", &save))) gen.playout_symmetries = atoi(v);
+            if ((v = strtok_r(NULL, ":", &save))) gen.discard_guard = atoi(v);
+            if ((v = strtok_r(NULL, ":", &save))) gen.deck_max = atoi(v);
+            if ((v = strtok_r(NULL, ":", &save))) gen.confirm_dets = atoi(v);
+            if ((v = strtok_r(NULL, ":", &save))) gen.playout_prune = atoi(v);
         } else {
             spec_parse(gen_spec, &gen);
             gen.net = net;

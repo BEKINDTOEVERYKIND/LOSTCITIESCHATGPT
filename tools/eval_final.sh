@@ -20,7 +20,7 @@ echo "=== classical baseline: heuristic + perfect-information Monte Carlo ==="
 ./bin/arena -a "policy:$BEST:0:20" -b hrollout:24:4 -n 60 -t 4 -r 3
 
 echo
-echo "=== search on top of the trained policy ==="
+echo "=== validated late-round search on top of the trained policy ==="
 ./bin/arena \
-  -a "rollout:$BEST:128:4:0.02:0:1:14:0:4:2:1:3:4:0:20" \
-  -b "policy:$BEST:0:20" -n 120 -t 4 -r 3
+  -a "rolloutu:$BEST:512:4:0.02:0:1:20:0:0:0:0:3.5:2:2:20:0:0:20:1:0:512:1" \
+  -b "policy:$BEST:0:20" -n 200 -t 4 -r 3

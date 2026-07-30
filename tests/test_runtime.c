@@ -4,6 +4,7 @@
 #include "../src/match.h"
 #include "../src/net.h"
 #include "../src/search.h"
+#include "../src/spec.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -251,6 +252,30 @@ static void test_rollout_policy_shortlist(void)
     CHECK(named_move(s3.mv[0], "Bx", 0, 0),
           "ply 3 did not retain the policy leader");
 
+    Agent singleton = audit;
+    singleton.gate = 0.0f;
+    singleton.min_cand = 1;
+    singleton.root_width = 4;
+    SearchStats s_singleton;
+    rng_seed(&rng, 3003);
+    (void)rollout_move(&singleton, &p3, &rng, NULL, &s_singleton);
+    CHECK(s_singleton.worlds == 0 && s_singleton.n == 1 &&
+          s_singleton.skip_reason == SEARCH_SKIP_POLICY_CONFIDENCE,
+          "one-move policy shortlist wasted comparative rollout worlds");
+    CHECK(named_move(s_singleton.mv[0], "Bx", 0, 0),
+          "one-move policy shortlist changed the policy leader");
+
+    Agent advisory = singleton;
+    advisory.dets = 2;
+    advisory.eval_cand = 3;
+    SearchStats s_advisory;
+    rng_seed(&rng, 3003);
+    (void)rollout_move(&advisory, &p3, &rng, NULL, &s_advisory);
+    CHECK(s_advisory.worlds == 2 && s_advisory.n == 3,
+          "singleton shortcut discarded requested advisory Q targets");
+    CHECK(named_move(s_advisory.mv[0], "Bx", 0, 0),
+          "advisory evaluation changed the policy baseline");
+
     State p20 = reviewed_state(net, 20);
     SearchStats s20;
     rng_seed(&rng, 3020);
@@ -292,6 +317,24 @@ static void test_rollout_policy_shortlist(void)
     CHECK(s20.delta[0] == 0.0 && s20.dse[0] == 0.0,
           "policy baseline paired statistics are nonzero");
 
+    /* Phase gates must return the unmodified actor policy.  Root
+     * dead-discard focusing cannot silently alter play before the configured
+     * search window begins. */
+    audit.prune_dom = 1;
+    audit.ply_lo = 999;
+    SearchStats gated;
+    rng_seed(&rng, 3021);
+    Move gated_move = rollout_move(&audit, &p20, &rng, NULL, &gated);
+    CHECK(gated.worlds == 0 &&
+          gated.skip_reason == SEARCH_SKIP_PLY_WINDOW &&
+          gated.nlegal == pn,
+          "ply gate did not report the raw legal policy state");
+    CHECK(MOVE_PACK(gated_move) == MOVE_PACK(pmv[order[0]]) &&
+          MOVE_PACK(gated.mv[0]) == MOVE_PACK(pmv[order[0]]),
+          "root pruning changed the policy move outside the search window");
+    audit.prune_dom = 0;
+    audit.ply_lo = 0;
+
     /* The original audit forcibly added same-card pile-draw variants with
      * effectively zero prior.  Those exact W2 cases must stay outside the
      * top-policy shortlist at the reviewed positions. */
@@ -305,6 +348,104 @@ static void test_rollout_policy_shortlist(void)
                   "ply %d reintroduced a forced W2 draw variant", target);
     }
     free(net);
+}
+
+static void test_random_symmetry_policy_sample(void)
+{
+    Net *net = malloc(sizeof(*net));
+    CHECK(net != NULL, "network allocation for random symmetry sample");
+    if (!net) return;
+    CHECK(net_load(net, "data/champion.bin") == 0,
+          "load champion for random symmetry sample");
+
+    State st = reviewed_state(net, 20);
+    Move exact_mv[MAX_MOVES], sample_mv[MAX_MOVES];
+    float exact[MAX_MOVES], sample[MAX_MOVES];
+    double mean[MAX_MOVES] = { 0 };
+    int n = policy_probs_sym(net, &st, exact_mv, exact, NULL, 20);
+    Rng rng;
+    rng_seed(&rng, 20260730);
+    const int reps = 5000;
+    for (int r = 0; r < reps; r++) {
+        int sn = policy_probs_random_sym(net, &st, sample_mv, sample,
+                                         &rng, 20);
+        CHECK(sn == n, "random symmetry changed legal-move count");
+        double sum = 0.0;
+        for (int i = 0; i < n; i++) {
+            CHECK(MOVE_PACK(sample_mv[i]) == MOVE_PACK(exact_mv[i]),
+                  "random symmetry changed legal-move order");
+            mean[i] += sample[i];
+            sum += sample[i];
+        }
+        CHECK(fabs(sum - 1.0) < 2e-5,
+              "random-symmetry policy probabilities sum to %.8f", sum);
+    }
+    for (int i = 0; i < n; i++) {
+        mean[i] /= reps;
+        CHECK(fabs(mean[i] - exact[i]) < 0.015,
+              "random symmetry mean %.6f != exact ensemble %.6f",
+              mean[i], exact[i]);
+    }
+    free(net);
+}
+
+static void test_rollout_spec_tail(void)
+{
+    Agent a;
+    agent_default(&a, AG_ROLLOUT, NULL);
+    CHECK(a.playout_prune == -1,
+          "rollout default no longer makes continuation pruning follow root");
+    spec_parse("rolloutu:data/champion.bin:256:5:0.03:0.9:2:14:50:4:"
+               "2:1:3.5:1.5:1:20:0.995:64:20:1:24:128:0", &a);
+    CHECK(a.kind == AG_ROLLOUT && a.no_belief,
+          "rolloutu kind/world model parsed incorrectly");
+    CHECK(a.dets == 256 && a.root_width == 5 && a.min_cand == 2,
+          "rollout core fields parsed incorrectly");
+    CHECK(a.ply_lo == 14 && a.ply_hi == 50 && a.eval_cand == 4,
+          "rollout ply fields parsed incorrectly");
+    CHECK(a.win_q == 2 && a.prune_dom == 1 &&
+          fabsf(a.override_k - 3.5f) < 1e-6f &&
+          fabsf(a.override_min - 1.5f) < 1e-6f,
+          "rollout selection fields parsed incorrectly");
+    CHECK(a.playout_sample == 1 && a.symmetries == 20 &&
+          fabsf(a.cand_mass - 0.995f) < 1e-6f &&
+          a.batch_dets == 64 && a.playout_symmetries == 20,
+          "rollout sampling fields parsed incorrectly");
+    CHECK(a.discard_guard == 1 && a.deck_max == 24 &&
+          a.confirm_dets == 128 && a.playout_prune == 0,
+          "rollout confirmation tail parsed incorrectly");
+    free((void *)a.net);
+}
+
+static void test_dead_discard_focus_equivariance(void)
+{
+    State st;
+    memset(&st, 0, sizeof st);
+    const int y2 = CARD_MAKE(0, 3);
+    const int w5 = CARD_MAKE(2, 6);
+    const int r2 = CARD_MAKE(4, 3);
+    st.hand[0] = (1ULL << y2) | (1ULL << w5) | (1ULL << r2);
+    st.hand_n[0] = 3;
+    st.exp_top[0][0] = st.exp_top[1][0] = 2;
+    st.exp_top[0][4] = st.exp_top[1][4] = 2;
+    uint64_t dead = lc_dead_cards(&st);
+    Move yd = { (uint8_t)y2, 1, 0 };
+    Move wd = { (uint8_t)w5, 1, 0 };
+    Move rd = { (uint8_t)r2, 1, 0 };
+    CHECK(!lc_discard_dominated(&st, yd, dead) &&
+          !lc_discard_dominated(&st, rd, dead),
+          "one safe discard was arbitrarily preferred by card id");
+    CHECK(lc_discard_dominated(&st, wd, dead),
+          "live discard was not focused away when safe discards exist");
+
+    const uint8_t swap_y_r[NSUIT] = { 4, 1, 2, 3, 0 };
+    State ps;
+    lc_permute_suits(&st, &ps, swap_y_r);
+    uint64_t pdead = lc_dead_cards(&ps);
+    CHECK(!lc_discard_dominated(&ps, lc_permute_move(yd, swap_y_r), pdead) &&
+          !lc_discard_dominated(&ps, lc_permute_move(rd, swap_y_r), pdead) &&
+          lc_discard_dominated(&ps, lc_permute_move(wd, swap_y_r), pdead),
+          "dead-discard focus is not suit equivariant");
 }
 
 static void test_wager_interaction_head(void)
@@ -522,6 +663,41 @@ static void test_match_thread_determinism(void)
           "same seed differs between one and four threads");
 }
 
+static void test_rollout_match_thread_determinism(void)
+{
+    Net *net = malloc(sizeof(*net));
+    CHECK(net != NULL, "network allocation for rollout thread determinism");
+    if (!net) return;
+    CHECK(net_load(net, "data/champion.bin") == 0,
+          "load champion for rollout thread determinism");
+
+    Agent search, policy;
+    agent_default(&search, AG_ROLLOUT, net);
+    search.no_belief = 1;
+    search.dets = 2;
+    search.confirm_dets = 2;
+    search.root_width = 2;
+    search.min_cand = 2;
+    search.ply_lo = 14;
+    search.override_k = 1.96f;
+    search.override_min = 1.0f;
+    search.playout_sample = 2;
+    search.playout_symmetries = 20;
+    agent_default(&policy, AG_POLICY, net);
+
+    MatchResult one, four;
+    match_run_r(&search, &policy, 2, 1, 830083, MATCH_ROUNDS, &one);
+    match_run_r(&search, &policy, 2, 4, 830083, MATCH_ROUNDS, &four);
+    CHECK(one.pairs == four.pairs && one.games == four.games &&
+          one.margin == four.margin && one.margin_se == four.margin_se &&
+          one.winrate == four.winrate && one.winrate_se == four.winrate_se &&
+          one.points_a == four.points_a && one.points_b == four.points_b &&
+          one.plies == four.plies && one.wins == four.wins &&
+          one.losses == four.losses && one.draws == four.draws,
+          "rollout match differs between one and four threads");
+    free(net);
+}
+
 static uint8_t rotate_card(uint8_t card, int shift)
 {
     return (uint8_t)CARD_MAKE((CARD_SUIT(card) + shift) % NSUIT,
@@ -634,11 +810,15 @@ int main(void)
     test_rollout_value_scale();
     test_belief_distribution();
     test_rollout_policy_shortlist();
+    test_random_symmetry_policy_sample();
+    test_rollout_spec_tail();
+    test_dead_discard_focus_equivariance();
     test_wager_interaction_head();
     test_wager_parameter_projection();
     test_wager_tied_gradients();
     test_pile_order_features();
     test_match_thread_determinism();
+    test_rollout_match_thread_determinism();
     test_suit_symmetry_ensemble();
     if (failures == 0) {
         printf("all runtime regression tests passed\n");

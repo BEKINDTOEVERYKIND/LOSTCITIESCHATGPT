@@ -144,6 +144,85 @@ static int move_eq(Move a, Move b)
     return a.card == b.card && a.discard == b.discard && a.draw == b.draw;
 }
 
+static int search_guard_blocked(const SearchStats *ss)
+{
+    for (int i = 0; i < ss->n; i++)
+        if (ss->guard_rejected[i]) return 1;
+    return 0;
+}
+
+static const char *search_status(const SearchStats *ss, Move recommended)
+{
+    if (ss->worlds == 0) {
+        if (ss->skip_reason == SEARCH_SKIP_FORCED)
+            return "forced_move";
+        if (ss->skip_reason == SEARCH_SKIP_PLY_WINDOW)
+            return "skipped_ply_window";
+        if (ss->skip_reason == SEARCH_SKIP_DECK_PHASE)
+            return "skipped_deck_phase";
+        if (ss->skip_reason == SEARCH_SKIP_ROOT_FOCUS)
+            return "reduced_by_root_focus";
+        return "skipped_policy_confidence";
+    }
+    if (ss->confirmed && ss->n > 0 &&
+        !move_eq(ss->mv[0], recommended))
+        return "supported_policy_override";
+    if (search_guard_blocked(ss))
+        return "blocked_by_discard_guard";
+    if (ss->confirm_worlds > 0)
+        return "failed_stochastic_confirmation";
+    if (!ss->resolved)
+        return "inconclusive";
+    if (ss->raw_best >= 0 && ss->raw_best < ss->n &&
+        move_eq(ss->mv[ss->raw_best], recommended))
+        return "resolved";
+    return "resolved_below_action_threshold";
+}
+
+static void j_search_rows(FILE *fp, const SearchStats *ss, Move played,
+                          Move recommended)
+{
+    int order[MAX_MOVES];
+    for (int i = 0; i < ss->n; i++) order[i] = i;
+    for (int i = 0; i < ss->n; i++)
+        for (int j = i + 1; j < ss->n; j++)
+            if (ss->q[order[j]] > ss->q[order[i]]) {
+                int t = order[i]; order[i] = order[j]; order[j] = t;
+            }
+
+    fputc('[', fp);
+    for (int i = 0; i < ss->n; i++) {
+        if (i) fputc(',', fp);
+        int k = order[i];
+        j_move_open(fp, ss->mv[k]);
+        fprintf(fp, ",\"q\":%.3f,\"q_se\":%.3f,"
+                    "\"delta_vs_policy\":%.3f,\"delta_se\":%.3f,"
+                    "\"policy_prob\":%.6f,\"visits\":%.0f,"
+                    "\"played\":%s,\"policy_top\":%s,\"retained\":%s,"
+                    "\"highest_mean\":%s,\"confirmed_best\":%s,"
+                    "\"primary_pass\":%s,"
+                    "\"confirmation_delta\":%.3f,"
+                    "\"confirmation_se\":%.3f,"
+                    "\"confirmation_pass\":%s,"
+                    "\"guard_rejected\":%s",
+                ss->q[k], ss->se[k], ss->delta[k], ss->dse[k],
+                ss->prior[k], ss->visits[k],
+                move_eq(ss->mv[k], played) ? "true" : "false",
+                k == 0 ? "true" : "false",
+                move_eq(ss->mv[k], recommended) ? "true" : "false",
+                k == ss->raw_best ? "true" : "false",
+                ss->csupported[k] && move_eq(ss->mv[k], recommended)
+                    ? "true" : "false",
+                ss->pqualified[k] ? "true" : "false",
+                ss->cdelta[k], ss->cdse[k],
+                ss->csupported[k] ? "true" : "false",
+                ss->guard_rejected[k] ? "true" : "false");
+        if (ss->qw[k] >= 0.0) fprintf(fp, ",\"qw\":%.3f", ss->qw[k]);
+        fputc('}', fp);
+    }
+    fputc(']', fp);
+}
+
 static uint64_t mix64(uint64_t x)
 {
     x += 0x9E3779B97F4A7C15ULL;
@@ -154,9 +233,9 @@ static uint64_t mix64(uint64_t x)
 
 int main(int argc, char **argv)
 {
-    const char *actor_spec = "policy:data/champion.bin:0:20";
+    const char *actor_spec = LC_CHAMPION_AGENT_SPEC;
     const char *eval_spec =
-        "rolloutu:data/champion.bin:1000:8:0.01:0.98:2:0:0:0:2:0:1.96:1:0:20:0.995:250:5";
+        "rolloutu:data/champion.bin:1000:4:0.01:0.995:2:20:0:0:2:0:1.96:1:2:20:0.995:0:20:1:0:1000:1";
     uint64_t seed = 1;
     int rounds = MATCH_ROUNDS;
     float belief_alpha = 1.15f;
@@ -183,8 +262,10 @@ int main(int argc, char **argv)
     Agent actor, evaluator;
     spec_parse(actor_spec, &actor);
     spec_parse(eval_spec, &evaluator);
-    if (!actor.net) {
-        fprintf(stderr, "analyze: actor '%s' has no network\n", actor_spec);
+    if (!actor.net ||
+        (actor.kind != AG_POLICY && actor.kind != AG_ROLLOUT)) {
+        fprintf(stderr, "analyze: actor must be a network policy or rollout "
+                        "spec (got '%s')\n", actor_spec);
         return 1;
     }
     if (evaluator.kind != AG_ROLLOUT || !evaluator.net) {
@@ -232,8 +313,9 @@ int main(int argc, char **argv)
         int p = st.turn;
         ply++;
         if (ply > 1) fputc(',', pf);
-        fprintf(pf, "{\"n\":%d,\"player\":%d,\"round\":%d,\"cum\":[%d,%d],\"deck_left\":%d,",
-                ply, p, rd, cum[0], cum[1], st.deck_left);
+        fprintf(pf, "{\"n\":%d,\"round_ply\":%u,\"player\":%d,"
+                    "\"round\":%d,\"cum\":[%d,%d],\"deck_left\":%d,",
+                ply, (unsigned)st.nply, p, rd, cum[0], cum[1], st.deck_left);
 
         fprintf(pf, "\"known\":");
         j_known(pf, &st);
@@ -331,9 +413,19 @@ int main(int argc, char **argv)
         }
         fputc(']', pf);
 
-        /* The actor chooses first.  A stateless evaluator seed then makes the
-         * post-hoc audit reproducible without consuming deal/actor randomness. */
-        Move played = agent_move(&actor, &st, &actor_rng);
+        /* The actor chooses first.  Preserve its own rollout statistics when
+         * search is part of the playing agent; those explain the real move and
+         * are distinct from the deeper, stateless post-hoc audit below. */
+        SearchStats actor_ss;
+        memset(&actor_ss, 0, sizeof actor_ss);
+        Move played;
+        if (actor.kind == AG_ROLLOUT)
+            played = rollout_move(&actor, &st, &actor_rng, NULL, &actor_ss);
+        else
+            played = agent_move(&actor, &st, &actor_rng);
+
+        /* A stateless evaluator seed makes the post-hoc audit reproducible
+         * without consuming deal/actor randomness. */
         SearchStats ss;
         float sval = 0.0f;
         Rng eval_rng;
@@ -341,57 +433,85 @@ int main(int argc, char **argv)
                                  ^ ((uint64_t)rd << 48)
                                  ^ (uint64_t)ply));
         Move recommended = rollout_move(&evaluator, &st, &eval_rng, &sval, &ss);
-        const char *analysis_status;
-        if (ss.worlds == 0) {
-            analysis_status = nleg == 1 ? "forced_move"
-                : "skipped_policy_confidence";
-        } else if (!ss.resolved) {
-            analysis_status = "inconclusive";
-        } else if (move_eq(ss.mv[ss.raw_best], recommended)) {
-            analysis_status = "resolved";
-        } else {
-            analysis_status = "resolved_below_action_threshold";
-        }
+        const char *analysis_status = search_status(&ss, recommended);
 
-        int sord[MAX_MOVES];
-        for (int i = 0; i < ss.n; i++) sord[i] = i;
-        for (int i = 0; i < ss.n; i++)
-            for (int j = i + 1; j < ss.n; j++)
-                if (ss.q[sord[j]] > ss.q[sord[i]]) { int t = sord[i]; sord[i] = sord[j]; sord[j] = t; }
-        fprintf(pf, ",\"search\":[");
-        for (int i = 0; i < ss.n; i++) {
-            if (i) fputc(',', pf);
-            int k = sord[i];
-            j_move_open(pf, ss.mv[k]);
-            fprintf(pf, ",\"q\":%.3f,\"q_se\":%.3f,"
-                        "\"delta_vs_policy\":%.3f,\"delta_se\":%.3f,"
-                        "\"policy_prob\":%.6f,\"visits\":%.0f,"
-                        "\"played\":%s,\"policy_top\":%s,\"retained\":%s,"
-                        "\"highest_mean\":%s,\"confirmed_best\":%s",
-                    ss.q[k], ss.se[k], ss.delta[k], ss.dse[k],
-                    ss.prior[k], ss.visits[k],
-                    move_eq(ss.mv[k], played) ? "true" : "false",
-                    k == 0 ? "true" : "false",
-                    move_eq(ss.mv[k], recommended) ? "true" : "false",
-                    k == ss.raw_best ? "true" : "false",
-                    ss.worlds > 0 && ss.resolved && k == ss.raw_best
-                        ? "true" : "false");
-            if (ss.qw[k] >= 0.0) fprintf(pf, ",\"qw\":%.3f", ss.qw[k]);
-            fputc('}', pf);
-        }
-        fputc(']', pf);
+        fprintf(pf, ",\"search\":");
+        j_search_rows(pf, &ss, played, recommended);
+
+        Move actor_policy_move =
+            actor.kind == AG_ROLLOUT && actor_ss.n > 0
+                ? actor_ss.mv[0] : pmv[ord[0]];
+        fprintf(pf, ",\"actor_decision\":{\"method\":\"%s\","
+                    "\"used_to_choose\":%s,\"searched\":%s,"
+                    "\"status\":\"%s\",\"worlds\":%d,\"max_worlds\":%d,"
+                    "\"overrode_policy\":%s,\"root_width\":%d,"
+                    "\"policy_mass\":%.6f,\"target_policy_mass\":%.6f,"
+                    "\"policy_floor\":%.6f,\"min_candidates\":%d,"
+                    "\"continuation_policy\":\"%s\","
+                    "\"continuation_symmetries\":%d,"
+                    "\"confirmation\":{\"required\":%s,\"passed\":%s,"
+                    "\"worlds\":%d,\"configured_worlds\":%d},"
+                    "\"policy_move\":",
+                actor.kind == AG_ROLLOUT
+                    ? "late_round_rollout" : "policy_argmax",
+                actor.kind == AG_ROLLOUT ? "true" : "false",
+                actor.kind == AG_ROLLOUT && actor_ss.worlds > 0
+                    ? "true" : "false",
+                actor.kind == AG_ROLLOUT
+                    ? search_status(&actor_ss, played) : "policy_argmax",
+                actor.kind == AG_ROLLOUT ? actor_ss.worlds : 0,
+                actor.kind == AG_ROLLOUT ? actor_ss.max_worlds : 0,
+                !move_eq(actor_policy_move, played) ? "true" : "false",
+                actor.kind == AG_ROLLOUT ? actor.root_width : 1,
+                actor.kind == AG_ROLLOUT ? actor_ss.policy_mass
+                                         : prob[ord[0]],
+                actor.kind == AG_ROLLOUT ? actor.cand_mass : 1.0f,
+                actor.kind == AG_ROLLOUT ? actor.cand_floor : 0.0f,
+                actor.kind == AG_ROLLOUT ? actor.min_cand : 1,
+                actor.kind == AG_ROLLOUT
+                    ? (actor.playout_sample == 1
+                        ? "sampled_policy"
+                        : (actor.playout_sample == 2
+                            ? "random_symmetry_argmax"
+                            : "exact_ensemble_argmax"))
+                    : "none",
+                actor.kind == AG_ROLLOUT ? actor.playout_symmetries : 0,
+                actor.kind == AG_ROLLOUT && actor.override_k > 0.0f
+                    ? "true" : "false",
+                actor.kind == AG_ROLLOUT && actor_ss.confirmed
+                    ? "true" : "false",
+                actor.kind == AG_ROLLOUT ? actor_ss.confirm_worlds : 0,
+                actor.kind == AG_ROLLOUT ? actor.confirm_dets : 0);
+        j_move_open(pf, actor_policy_move);
+        fprintf(pf, "},\"selected\":");
+        j_move_open(pf, played);
+        fprintf(pf, "},\"candidates\":");
+        if (actor.kind == AG_ROLLOUT)
+            j_search_rows(pf, &actor_ss, played, played);
+        else
+            fputs("[]", pf);
+        fputc('}', pf);
+
         fprintf(pf, ",\"actor_value\":%.3f,"
                     "\"analysis\":{\"kind\":\"posthoc_rollout\","
                     "\"objective\":\"%s\",\"worlds\":%d,\"max_worlds\":%d,"
                     "\"used_to_choose\":false,\"searched\":%s,"
                     "\"status\":\"%s\",\"resolved\":%s,"
-                    "\"confidence_guard_se\":3.5,"
+                    "\"confidence_guard_se\":%.3f,"
                     "\"practical_threshold\":%.3f,\"policy_mass\":%.6f,"
                     "\"target_policy_mass\":%.6f,\"shortlist_capped\":%s,"
                     "\"audited_moves\":%d,\"omitted_moves\":%d,"
                     "\"world_model\":\"%s\","
                     "\"continuation_policy\":\"%s\","
-                    "\"continuation_symmetries\":%d}",
+                    "\"continuation_symmetries\":%d,"
+                    "\"continuation_symmetry_mode\":\"%s\","
+                    "\"root_dead_discard_focus\":%s,"
+                    "\"continuation_dead_discard_focus\":%s,"
+                    "\"challenger_discard_guard\":%s,"
+                    "\"deck_max\":%d,"
+                    "\"confirmation\":{\"required\":%s,"
+                    "\"passed\":%s,\"worlds\":%d,\"configured_worlds\":%d,"
+                    "\"continuation\":\"random_symmetry_argmax\"}}",
                 pv,
                 rd == MATCH_ROUNDS - 1 && evaluator.win_q == 2
                     ? "final_hybrid"
@@ -399,6 +519,7 @@ int main(int argc, char **argv)
                         ? "final_result" : "round_margin"),
                 ss.worlds, ss.max_worlds, ss.worlds > 0 ? "true" : "false",
                 analysis_status, ss.resolved ? "true" : "false",
+                evaluator.override_k > 3.5f ? evaluator.override_k : 3.5f,
                 evaluator.override_min, ss.policy_mass, evaluator.cand_mass,
                 ss.worlds > 0 && evaluator.cand_mass > 0.0f &&
                         ss.policy_mass + 1e-6 < evaluator.cand_mass &&
@@ -407,8 +528,25 @@ int main(int argc, char **argv)
                 ss.n, nleg - ss.n,
                 evaluator.no_belief ? "uniform_card_count"
                                     : "learned_fixed_cardinality",
-                evaluator.playout_sample ? "sampled" : "deterministic_argmax",
-                evaluator.playout_symmetries);
+                evaluator.playout_sample == 1
+                    ? "sampled_policy"
+                    : (evaluator.playout_sample == 2
+                        ? "random_symmetry_argmax"
+                        : "exact_ensemble_argmax"),
+                evaluator.playout_symmetries,
+                evaluator.playout_sample > 0 &&
+                        evaluator.playout_symmetries > 1
+                    ? "random_group_member_per_decision"
+                    : "exact_average",
+                evaluator.prune_dom ? "true" : "false",
+                (evaluator.playout_prune < 0
+                     ? evaluator.prune_dom : evaluator.playout_prune)
+                    ? "true" : "false",
+                evaluator.discard_guard ? "true" : "false",
+                evaluator.deck_max,
+                evaluator.override_k > 0.0f ? "true" : "false",
+                ss.confirmed ? "true" : "false",
+                ss.confirm_worlds, evaluator.confirm_dets);
 
         /* the card that will be drawn: read before lc_apply */
         int drawn = played.draw == 0 ? st.deck[st.deck_pos]

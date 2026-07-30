@@ -25,6 +25,8 @@ void agent_default(Agent *a, AgentKind k, const Net *net)
     a->eval_cand = 0;
     a->batch_dets = 0;
     a->playout_symmetries = 1;
+    a->confirm_dets = 256;
+    a->playout_prune = -1;
     a->win_q = 0;
     /* This is an optional search-focus heuristic, not true dominance:
      * changing which discard pile is covered can change later play.  Keep it
@@ -133,7 +135,7 @@ int belief_dist_init(const Net *net, const State *st, int p, int symmetries,
                                + dist->weight[i] * dist->suffix[i + 1][r - 1];
     }
     double z = dist->suffix[0][dist->need];
-    if (!(z > 0.0) || !isfinite(z)) return 0;
+    if (!(z > 0.0) || !lc_double_isfinite(z)) return 0;
 
     double prefix[NCARD + 1][HAND_SIZE + 1];
     memset(prefix, 0, sizeof prefix);
@@ -377,6 +379,33 @@ int policy_probs_sym(const Net *net, const State *st, Move *mv, float *prob,
     return n;
 }
 
+int policy_probs_random_sym(const Net *net, const State *st, Move *mv,
+                            float *prob, Rng *rng, int symmetries)
+{
+    uint8_t perms[120][NSUIT];
+    int nsym = suit_permutations(symmetries, perms);
+    if (nsym <= 1)
+        return policy_probs_raw(net, st, mv, prob, NULL);
+    int k = (int)rng_below(rng, (uint32_t)nsym);
+
+    State ps;
+    lc_permute_suits(st, &ps, perms[k]);
+    Move pmv[MAX_MOVES];
+    float pp[MAX_MOVES];
+    int pn = policy_probs_raw(net, &ps, pmv, pp, NULL);
+
+    int n = lc_moves(st, mv);
+    int by_pack[MOVE_NPACK];
+    for (int i = 0; i < MOVE_NPACK; i++) by_pack[i] = -1;
+    for (int i = 0; i < pn; i++) by_pack[MOVE_PACK(pmv[i])] = i;
+    for (int i = 0; i < n; i++) {
+        Move mapped = lc_permute_move(mv[i], perms[k]);
+        int j = by_pack[MOVE_PACK(mapped)];
+        prob[i] = j >= 0 ? pp[j] : 0.0f;
+    }
+    return n;
+}
+
 int policy_probs(const Net *net, const State *st, Move *mv, float *prob,
                  float *value)
 {
@@ -391,11 +420,11 @@ int sample_index(const float *w, int n, Rng *rng)
      * rather than allowing an inf/inf normalization to produce NaNs. */
     int ninf = 0;
     for (int i = 0; i < n; i++)
-        if (isinf(w[i]) && w[i] > 0.0f) ninf++;
+        if (lc_float_is_pos_inf(w[i])) ninf++;
     if (ninf > 0) {
         int pick = (int)rng_below(rng, (uint32_t)ninf);
         for (int i = 0; i < n; i++) {
-            if (isinf(w[i]) && w[i] > 0.0f && pick-- == 0) return i;
+            if (lc_float_is_pos_inf(w[i]) && pick-- == 0) return i;
         }
     }
 
@@ -403,16 +432,17 @@ int sample_index(const float *w, int n, Rng *rng)
      * and a positive distribution degenerating through underflow. */
     float scale = 0.0f;
     for (int i = 0; i < n; i++)
-        if (isfinite(w[i]) && w[i] > scale) scale = w[i];
+        if (lc_float_isfinite(w[i]) && w[i] > scale) scale = w[i];
     if (scale > 0.0f) {
         double sum = 0.0;
         for (int i = 0; i < n; i++)
-            if (isfinite(w[i]) && w[i] > 0.0f) sum += (double)w[i] / scale;
+            if (lc_float_isfinite(w[i]) && w[i] > 0.0f)
+                sum += (double)w[i] / scale;
 
         double r = (double)rng_float(rng) * sum;
         int last = -1;
         for (int i = 0; i < n; i++) {
-            if (!isfinite(w[i]) || w[i] <= 0.0f) continue;
+            if (!lc_float_isfinite(w[i]) || w[i] <= 0.0f) continue;
             last = i;
             double wi = (double)w[i] / scale;
             if (r < wi) return i;  /* strict comparison: r == 0 skips zeroes */

@@ -23,6 +23,32 @@
 #include <stdint.h>
 #include <string.h>
 
+/* -ffast-math permits the compiler to assume ordinary floating-point values
+ * are finite, which can compile isfinite()/isinf() safety checks away.  These
+ * bit-level classifiers remain valid under that optimization and should be
+ * used anywhere non-finite external or sampled values must be rejected. */
+static inline int lc_float_isfinite(float x)
+{
+    uint32_t bits;
+    memcpy(&bits, &x, sizeof bits);
+    return (bits & UINT32_C(0x7f800000)) != UINT32_C(0x7f800000);
+}
+
+static inline int lc_float_is_pos_inf(float x)
+{
+    uint32_t bits;
+    memcpy(&bits, &x, sizeof bits);
+    return bits == UINT32_C(0x7f800000);
+}
+
+static inline int lc_double_isfinite(double x)
+{
+    uint64_t bits;
+    memcpy(&bits, &x, sizeof bits);
+    return (bits & UINT64_C(0x7ff0000000000000)) !=
+           UINT64_C(0x7ff0000000000000);
+}
+
 #define NSUIT 5
 #define NRANK 12 /* 3 wagers + values 2..10 */
 #define NCARD 60

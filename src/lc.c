@@ -231,26 +231,23 @@ uint64_t lc_dead_cards(const State *st)
     return dead;
 }
 
-/* True if discard move m is dominated by discarding a dead card instead: a
- * both-ways-dead card is the safest possible gift, so with one in hand any
- * other discard (same draw source) only adds risk.  Guards that keep this
- * honest: the dead card must be discardable while preserving m's draw (a
- * card cannot go onto the pile that is drawn from in the same turn), and
- * among equally dead cards only the lowest id survives (they differ only in
- * which pile they cover).  Deliberately NOT strict dominance -- discarding a
- * live card as bait, or preferring which pile top gets buried, are real but
- * marginal lines this trades away for search focus. */
+/* True if discard move m gives away a live card while a both-ways-dead card
+ * could be discarded with the same draw source.  Dead discards in different
+ * suits are NOT ranked against one another: they cover different piles, a
+ * strategically material distinction, and choosing one by card ID broke suit
+ * equivariance.  Deliberately not strict dominance -- a live bait discard can
+ * still be useful -- so callers use this only as optional search focus. */
 int lc_discard_dominated(const State *st, Move m, uint64_t dead)
 {
     if (!m.discard) return 0;
+    if ((dead >> m.card) & 1ULL) return 0;
     uint64_t h = st->hand[st->turn] & dead;
-    int mdead = (int)((dead >> m.card) & 1ULL);
     while (h) {
         int d = __builtin_ctzll(h);
         h &= h - 1;
         if (d == m.card) continue;
         if (m.draw != 0 && m.draw - 1 == CARD_SUIT(d)) continue;
-        if (!mdead || d < m.card) return 1;
+        return 1;
     }
     return 0;
 }

@@ -357,7 +357,7 @@ int main(int argc, char **argv)
         else { fprintf(stderr, "unknown option %s\n", k); return 1; }
         #undef ARG
     }
-    if (!(temp > 0.0f) || !isfinite(temp)) {
+    if (!(temp > 0.0f) || !lc_float_isfinite(temp)) {
         fprintf(stderr, "--temp must be finite and greater than zero\n");
         return 1;
     }

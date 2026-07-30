@@ -38,7 +38,7 @@ typedef struct {
 } Cell;
 
 typedef struct {
-    const Agent *pol;
+    const Agent *actor;
     Agent srch;
     int matches, thread, nthread;
     uint64_t seed;
@@ -47,6 +47,14 @@ typedef struct {
     Cell rounds[MATCH_ROUNDS][NCONF];
     long plies;
 } Job;
+
+static uint64_t mix64(uint64_t x)
+{
+    x += UINT64_C(0x9E3779B97F4A7C15);
+    x = (x ^ (x >> 30)) * UINT64_C(0xBF58476D1CE4E5B9);
+    x = (x ^ (x >> 27)) * UINT64_C(0x94D049BB133111EB);
+    return x ^ (x >> 31);
+}
 
 static int conf_bucket(float p)
 {
@@ -58,40 +66,53 @@ static int conf_bucket(float p)
 static void *worker(void *arg)
 {
     Job *j = (Job *)arg;
-    Rng rng; rng_seed(&rng, j->seed + 77ULL * (uint64_t)(j->thread + 1));
     Move mv[MAX_MOVES];
     float pr[MAX_MOVES];
 
     for (int g = j->thread; g < j->matches; g += j->nthread) {
         int cum[2] = { 0, 0 };
         for (int rd = 0; rd < MATCH_ROUNDS; rd++) {
+            Rng deal_rng;
+            rng_seed(&deal_rng, mix64(j->seed ^
+                     ((uint64_t)g << 16) ^ (uint64_t)rd));
             State st;
-            lc_deal(&st, &rng);
+            lc_deal(&st, &deal_rng);
             st.round = (uint8_t)rd;
             st.cum[0] = (int16_t)cum[0];
             st.cum[1] = (int16_t)cum[1];
             st.turn = (uint8_t)(rd & 1);
             while (!st.over) {
-                int n = policy_probs(j->pol->net, &st, mv, pr, NULL);
+                int n = policy_probs_sym(j->actor->net, &st, mv, pr, NULL,
+                                         j->actor->symmetries);
                 int top = 0;
                 for (int i = 1; i < n; i++) if (pr[i] > pr[top]) top = i;
 
                 if (n > 1) {
                     SearchStats ss;
-                    Move rm = rollout_move(&j->srch, &st, &rng, NULL, &ss);
-                    /* Q of the policy's top move among the candidates */
-                    double qtop = -1e30, qbest = -1e30;
+                    Rng eval_rng;
+                    rng_seed(&eval_rng, mix64(j->seed ^
+                             ((uint64_t)g << 32) ^
+                             ((uint64_t)rd << 24) ^ st.nply));
+                    Move rm =
+                        rollout_move(&j->srch, &st, &eval_rng, NULL, &ss);
+                    /* Q of the selected and policy moves among candidates. */
+                    double qtop = -1e30, qselected = -1e30;
                     for (int i = 0; i < ss.n; i++) {
-                        if (ss.q[i] > qbest) qbest = ss.q[i];
                         if (ss.mv[i].card == mv[top].card &&
                             ss.mv[i].discard == mv[top].discard &&
                             ss.mv[i].draw == mv[top].draw)
                             qtop = ss.q[i];
+                        if (ss.mv[i].card == rm.card &&
+                            ss.mv[i].discard == rm.discard &&
+                            ss.mv[i].draw == rm.draw)
+                            qselected = ss.q[i];
                     }
                     int chosen_differs = !(rm.card == mv[top].card &&
                                            rm.discard == mv[top].discard &&
                                            rm.draw == mv[top].draw);
-                    double dq = (qtop > -1e29 && qbest > -1e29) ? (qbest - qtop) : 0.0;
+                    double dq =
+                        (qtop > -1e29 && qselected > -1e29)
+                            ? (qselected - qtop) : 0.0;
 
                     int cb = conf_bucket(pr[top]);
                     int ph = st.deck_left > 30 ? 0 : (st.deck_left > 10 ? 1 : 2);
@@ -131,29 +152,57 @@ static void print_cells(const char *title, Cell *row, int stride, int nrow,
 int main(int argc, char **argv)
 {
     const char *net_path = "data/champion.bin";
+    const char *actor_spec = NULL, *eval_spec = NULL;
     int matches = 40, nthread = 4, worlds = 96, cands = 5;
     uint64_t seed = 424242;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "-n") && i + 1 < argc) net_path = argv[++i];
+        else if (!strcmp(argv[i], "-a") && i + 1 < argc) actor_spec = argv[++i];
+        else if (!strcmp(argv[i], "-e") && i + 1 < argc) eval_spec = argv[++i];
         else if (!strcmp(argv[i], "-m") && i + 1 < argc) matches = atoi(argv[++i]);
         else if (!strcmp(argv[i], "-w") && i + 1 < argc) worlds = atoi(argv[++i]);
         else if (!strcmp(argv[i], "-c") && i + 1 < argc) cands = atoi(argv[++i]);
         else if (!strcmp(argv[i], "-t") && i + 1 < argc) nthread = atoi(argv[++i]);
         else if (!strcmp(argv[i], "-s") && i + 1 < argc) seed = strtoull(argv[++i], NULL, 10);
-        else { fprintf(stderr, "usage: %s [-n NET] [-m matches] [-w worlds] [-c cands]\n", argv[0]); return 1; }
+        else {
+            fprintf(stderr, "usage: %s [-a actor_spec] [-e rollout_spec] "
+                    "[-n NET] [-m matches] [-w worlds] [-c cands]\n",
+                    argv[0]);
+            return 1;
+        }
     }
 
-    char spec[256];
-    snprintf(spec, sizeof spec, "policy:%s", net_path);
-    Agent pol;
-    spec_parse(spec, &pol);
+    char actor_buf[512];
+    if (!actor_spec) {
+        snprintf(actor_buf, sizeof actor_buf, "policy:%s:0:20", net_path);
+        actor_spec = actor_buf;
+    }
+    Agent actor;
+    spec_parse(actor_spec, &actor);
+    if (actor.kind != AG_POLICY || !actor.net) {
+        fprintf(stderr, "searchcmp: actor must be a network policy\n");
+        return 1;
+    }
+
+    Agent evaluator;
+    if (eval_spec) {
+        spec_parse(eval_spec, &evaluator);
+        if (evaluator.kind != AG_ROLLOUT || !evaluator.net) {
+            fprintf(stderr, "searchcmp: evaluator must be a network rollout\n");
+            return 1;
+        }
+    } else {
+        agent_default(&evaluator, AG_ROLLOUT, actor.net);
+        evaluator.dets = worlds;
+        evaluator.root_width = cands;
+        evaluator.symmetries = actor.symmetries;
+    }
+
     Job *jobs = calloc((size_t)nthread, sizeof(Job));
     pthread_t th[64];
     for (int i = 0; i < nthread; i++) {
-        jobs[i].pol = &pol;
-        agent_default(&jobs[i].srch, AG_ROLLOUT, pol.net);
-        jobs[i].srch.dets = worlds;
-        jobs[i].srch.root_width = cands;
+        jobs[i].actor = &actor;
+        jobs[i].srch = evaluator;
         jobs[i].matches = matches;
         jobs[i].thread = i; jobs[i].nthread = nthread;
         jobs[i].seed = seed;
@@ -183,8 +232,9 @@ int main(int argc, char **argv)
         tot.plies += jobs[i].plies;
     }
 
-    printf("searchcmp: %d matches, rollout %d worlds x %d candidates, %ld plies\n",
-           matches, worlds, cands, tot.plies);
+    printf("searchcmp: %d matches, actor %s, rollout %d worlds x %d candidates, "
+           "%ld plies\n", matches, actor_spec, evaluator.dets,
+           evaluator.root_width, tot.plies);
 
     long alln = 0, alld = 0;
     double alldq = 0;
