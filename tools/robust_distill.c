@@ -27,6 +27,13 @@
  *   ./bin/robust_distill --train /tmp/lc-corrections.rdc \
  *       --net data/champion.bin --out /tmp/lc-residual-candidate.bin
  *
+ * Reviewed information states can be fed through the same statistical gates
+ * without hand-authored labels:
+ *
+ *   ./bin/robust_distill --generate /tmp/reviewed.rdc \
+ *       --net data/champion.bin --state /tmp/ply25.state \
+ *       --worlds 2048 --confirm-worlds 2048 --semantic-candidates
+ *
  * It never replaces or promotes a champion checkpoint.
  */
 #include "../src/agent.h"
@@ -43,11 +50,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
 #define RD_MAGIC UINT32_C(0x4C435244) /* "LCRD" */
-#define RD_VERSION UINT32_C(1)
+#define RD_VERSION UINT32_C(2)
 #define RD_KIND_ANCHOR UINT32_C(0)
 #define RD_KIND_CORRECTION UINT32_C(1)
 
@@ -77,7 +85,9 @@ typedef struct {
     uint32_t discard_guard;
     uint32_t playout_prune;
     float policy_mass;
-    float reserved[3];
+    uint32_t semantic_cand;
+    uint32_t plan_deck_max;
+    uint32_t plan_block_gap;
 } RecordHeader;
 
 typedef struct {
@@ -141,6 +151,9 @@ typedef struct {
     float override_min;
     int discard_guard;
     int playout_prune;
+    int semantic_cand;
+    int plan_deck_max;
+    int plan_block_gap;
 
     int epochs;
     int batch;
@@ -153,8 +166,14 @@ typedef struct {
     float max_kl;
     float weight_decay;
     int suit_augment;
+    int random_suit_augment;
     int force;
     int dry_run;
+    int verbose;
+    const char *state_path[128];
+    int state_count;
+    const char *extra_records[64];
+    int extra_record_count;
 } Config;
 
 static void usage(FILE *f, const char *argv0)
@@ -168,6 +187,8 @@ static void usage(FILE *f, const char *argv0)
         "generation options:\n"
         "  --games N                 champion self-play matches (default 4)\n"
         "  --max-searches N          hard rollout-call cap (default 64)\n"
+        "  --state FILE              evaluate this saved text state instead of\n"
+        "                            generated self-play (repeatable, max 128)\n"
         "  --search-stride N         search every Nth eligible state (default 4)\n"
         "  --anchor-stride N         retain a KL-only state every N plies (default 8)\n"
         "  --worlds N                primary paired worlds (default 512, min 256)\n"
@@ -183,8 +204,16 @@ static void usage(FILE *f, const char *argv0)
         "  --override-min X          primary practical gap (default 2 points)\n"
         "  --no-discard-guard        permit questionable discard overrides\n"
         "  --no-playout-prune        disable safe-dead-discard continuation focus\n"
+        "  --semantic-candidates     add one public-wager pickup and one\n"
+        "                            one-sided wager-discard challenger\n"
+        "  --plan-deck-max N         use exact visible-hand scheduling with at\n"
+        "                            most N deck cards (0=off, default 0)\n"
+        "  --plan-block-gap N        scheduler information-preservation threshold\n"
+        "                            (0=off, default 0)\n"
         "\n"
         "training options:\n"
+        "  --extra-records FILE      add another validated record set tied to\n"
+        "                            the same frozen network (repeatable)\n"
         "  --epochs N                passes over records (default 20)\n"
         "  --batch N                 residual-Adam batch size (default 32)\n"
         "  --lr X                    residual learning rate (default 1e-4)\n"
@@ -196,11 +225,15 @@ static void usage(FILE *f, const char *argv0)
         "  --max-kl X                reject an epoch above mean KL (default .01)\n"
         "  --weight-decay X          residual-only weight decay (default 0)\n"
         "  --no-suit-augment         do not deterministically permute suits\n"
+        "  --random-suit-augment     sample permutations with replacement\n"
+        "                            (default; explicit reproducibility flag)\n"
+        "  --exhaustive-suit-augment tour all 120 permutations without replacement\n"
         "  --dry-run                 train and report without writing a model\n"
         "\n"
         "common options:\n"
         "  --seed N                  deterministic seed (default 20260730)\n"
         "  --force                   allow replacing RECORDS/CANDIDATE\n"
+        "  --verbose                 list each confirmed correction on inspect\n"
         "  -h, --help                show this help\n"
         "\n"
         "Safety notes: early search (--ply-lo below 14) requires at least 1024\n"
@@ -304,6 +337,7 @@ static int parse_args(int argc, char **argv, Config *c)
     c->max_kl = 0.01f;
     c->weight_decay = 0.0f;
     c->suit_augment = 1;
+    c->random_suit_augment = 1;
 
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i], *v = NULL;
@@ -341,6 +375,23 @@ static int parse_args(int argc, char **argv, Config *c)
             if (!next_value(argc, argv, &i, &v) ||
                 !parse_long(v, 1, INT_MAX, &iv)) goto bad_value;
             c->max_searches = (int)iv;
+        } else if (!strcmp(a, "--state")) {
+            if (!next_value(argc, argv, &i, &v)) return 0;
+            if (c->state_count >=
+                (int)(sizeof c->state_path / sizeof c->state_path[0])) {
+                fprintf(stderr, "too many --state inputs\n");
+                return 0;
+            }
+            c->state_path[c->state_count++] = v;
+        } else if (!strcmp(a, "--extra-records")) {
+            if (!next_value(argc, argv, &i, &v)) return 0;
+            if (c->extra_record_count >=
+                (int)(sizeof c->extra_records /
+                      sizeof c->extra_records[0])) {
+                fprintf(stderr, "too many --extra-records inputs\n");
+                return 0;
+            }
+            c->extra_records[c->extra_record_count++] = v;
         } else if (!strcmp(a, "--search-stride")) {
             if (!next_value(argc, argv, &i, &v) ||
                 !parse_long(v, 1, INT_MAX, &iv)) goto bad_value;
@@ -426,14 +477,32 @@ static int parse_args(int argc, char **argv, Config *c)
             c->suit_augment = 0;
         } else if (!strcmp(a, "--suit-augment")) {
             c->suit_augment = 1;
+        } else if (!strcmp(a, "--random-suit-augment")) {
+            c->suit_augment = 1;
+            c->random_suit_augment = 1;
+        } else if (!strcmp(a, "--exhaustive-suit-augment")) {
+            c->suit_augment = 1;
+            c->random_suit_augment = 0;
         } else if (!strcmp(a, "--no-discard-guard")) {
             c->discard_guard = 0;
         } else if (!strcmp(a, "--no-playout-prune")) {
             c->playout_prune = 0;
+        } else if (!strcmp(a, "--semantic-candidates")) {
+            c->semantic_cand = 1;
+        } else if (!strcmp(a, "--plan-deck-max")) {
+            if (!next_value(argc, argv, &i, &v) ||
+                !parse_long(v, 0, NCARD, &iv)) goto bad_value;
+            c->plan_deck_max = (int)iv;
+        } else if (!strcmp(a, "--plan-block-gap")) {
+            if (!next_value(argc, argv, &i, &v) ||
+                !parse_long(v, 0, 1000, &iv)) goto bad_value;
+            c->plan_block_gap = (int)iv;
         } else if (!strcmp(a, "--force")) {
             c->force = 1;
         } else if (!strcmp(a, "--dry-run")) {
             c->dry_run = 1;
+        } else if (!strcmp(a, "--verbose")) {
+            c->verbose = 1;
         } else {
             fprintf(stderr, "unknown option: %s\n", a);
             return 0;
@@ -465,6 +534,10 @@ static int parse_args(int argc, char **argv, Config *c)
         fprintf(stderr, "--out must not be the frozen --net path\n");
         return 0;
     }
+    if (c->mode != MODE_TRAIN && c->extra_record_count > 0) {
+        fprintf(stderr, "--extra-records is only valid with --train\n");
+        return 0;
+    }
     if (c->mode == MODE_GENERATE) {
         if (!valid_symmetries(c->actor_symmetries) ||
             !valid_symmetries(c->playout_symmetries)) {
@@ -486,6 +559,15 @@ static int parse_args(int argc, char **argv, Config *c)
             fprintf(stderr, "--ply-hi must be greater than --ply-lo\n");
             return 0;
         }
+        if ((c->plan_deck_max > 0) != (c->plan_block_gap > 0)) {
+            fprintf(stderr, "--plan-deck-max and --plan-block-gap must both "
+                            "be positive, or both be zero\n");
+            return 0;
+        }
+    }
+    if (c->mode != MODE_GENERATE && c->state_count > 0) {
+        fprintf(stderr, "--state is only valid with --generate\n");
+        return 0;
     }
     return 1;
 }
@@ -703,6 +785,171 @@ static int same_move(Move a, Move b)
     return semantic_key(a) == semantic_key(b);
 }
 
+static int validate_state_payload(const State *st);
+
+static int text_card_id(const char *name, uint64_t used)
+{
+    char shown[8];
+    for (int card = 0; card < NCARD; card++) {
+        lc_card_name(card, shown);
+        if (!strcasecmp(shown, name) &&
+            !((used >> card) & UINT64_C(1)))
+            return card;
+    }
+    return -1;
+}
+
+/* Saved review states intentionally omit deck order.  Policy features and
+ * root determinization do not consume that hidden order, but State remains a
+ * complete engine object, so fill the inactive prefix from occupied cards and
+ * the active suffix from the unseen complement. */
+static int complete_text_state_deck(State *st)
+{
+    const uint64_t valid = (UINT64_C(1) << NCARD) - UINT64_C(1);
+    uint64_t occupied = st->hand[0] | st->hand[1] |
+                        st->played[0] | st->played[1] | st->discarded;
+    uint64_t unseen = valid & ~occupied;
+    if (__builtin_popcountll(unseen) != st->deck_left ||
+        __builtin_popcountll(occupied) != NCARD - st->deck_left)
+        return 0;
+    st->deck_pos = (uint8_t)(NCARD - st->deck_left);
+    int before = 0, active = st->deck_pos;
+    for (int card = 0; card < NCARD; card++) {
+        uint64_t bit = UINT64_C(1) << card;
+        if (occupied & bit) st->deck[before++] = (uint8_t)card;
+        else st->deck[active++] = (uint8_t)card;
+    }
+    return before == st->deck_pos && active == NCARD;
+}
+
+static int load_text_state(const char *path, State *st)
+{
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        fprintf(stderr, "cannot open saved state %s: %s\n",
+                path, strerror(errno));
+        return 0;
+    }
+    memset(st, 0, sizeof *st);
+    uint64_t used = 0;
+    char line[512];
+    while (fgets(line, sizeof line, f)) {
+        char *tok = strtok(line, " \t\r\n");
+        if (!tok) continue;
+        if (!strcmp(tok, "turn")) {
+            char *v = strtok(NULL, " \t\r\n");
+            long value;
+            if (!v || !parse_long(v, 0, 1, &value)) goto bad;
+            st->turn = (uint8_t)value;
+        } else if (!strcmp(tok, "round")) {
+            char *v = strtok(NULL, " \t\r\n");
+            long value;
+            if (!v || !parse_long(v, 0, MATCH_ROUNDS - 1, &value)) goto bad;
+            st->round = (uint8_t)value;
+        } else if (!strcmp(tok, "nply")) {
+            char *v = strtok(NULL, " \t\r\n");
+            long value;
+            if (!v || !parse_long(v, 0, LC_MAX_PLIES - 1, &value)) goto bad;
+            st->nply = (uint16_t)value;
+        } else if (!strcmp(tok, "deck_left")) {
+            char *v = strtok(NULL, " \t\r\n");
+            long value;
+            if (!v || !parse_long(v, 1, NCARD, &value)) goto bad;
+            st->deck_left = (uint8_t)value;
+        } else if (!strcmp(tok, "cum")) {
+            char *a = strtok(NULL, " \t\r\n");
+            char *b = strtok(NULL, " \t\r\n");
+            long av, bv;
+            if (!a || !b ||
+                !parse_long(a, INT16_MIN, INT16_MAX, &av) ||
+                !parse_long(b, INT16_MIN, INT16_MAX, &bv))
+                goto bad;
+            st->cum[0] = (int16_t)av;
+            st->cum[1] = (int16_t)bv;
+        } else if (!strncmp(tok, "hand", 4)) {
+            int p = tok[4] - '0';
+            if (p < 0 || p > 1) goto bad;
+            char *word;
+            while ((word = strtok(NULL, " \t\r\n"))) {
+                int card = text_card_id(word, used);
+                if (card < 0) goto bad;
+                used |= UINT64_C(1) << card;
+                st->hand[p] |= UINT64_C(1) << card;
+                st->hand_n[p]++;
+            }
+        } else if (!strncmp(tok, "known", 5)) {
+            int p = tok[5] - '0';
+            if (p < 0 || p > 1) goto bad;
+            char *word;
+            while ((word = strtok(NULL, " \t\r\n"))) {
+                char shown[8];
+                int found = 0;
+                for (int card = 0; card < NCARD; card++) {
+                    lc_card_name(card, shown);
+                    if (!strcasecmp(shown, word) &&
+                        ((st->hand[p] >> card) & UINT64_C(1)) &&
+                        !((st->known[p] >> card) & UINT64_C(1))) {
+                        st->known[p] |= UINT64_C(1) << card;
+                        found = 1;
+                        break;
+                    }
+                }
+                if (!found) goto bad;
+            }
+        } else if (!strcmp(tok, "exp")) {
+            char *ps = strtok(NULL, " \t\r\n");
+            char *ss = strtok(NULL, " \t\r\n");
+            long pv, sv;
+            if (!ps || !ss || !parse_long(ps, 0, 1, &pv) ||
+                !parse_long(ss, 0, NSUIT - 1, &sv))
+                goto bad;
+            int p = (int)pv, suit = (int)sv;
+            char *word;
+            while ((word = strtok(NULL, " \t\r\n"))) {
+                int card = text_card_id(word, used);
+                if (card < 0 || CARD_SUIT(card) != suit) goto bad;
+                used |= UINT64_C(1) << card;
+                st->played[p] |= UINT64_C(1) << card;
+                st->exp_n[p][suit]++;
+                if (CARD_IS_WAGER(card)) {
+                    st->exp_wager[p][suit]++;
+                } else {
+                    int value = CARD_VALUE(card);
+                    st->exp_top[p][suit] = (uint8_t)value;
+                    st->exp_sum[p][suit] += (uint8_t)value;
+                }
+            }
+        } else if (!strcmp(tok, "pile")) {
+            char *ss = strtok(NULL, " \t\r\n");
+            long sv;
+            if (!ss || !parse_long(ss, 0, NSUIT - 1, &sv)) goto bad;
+            int suit = (int)sv;
+            char *word;
+            while ((word = strtok(NULL, " \t\r\n"))) {
+                int card = text_card_id(word, used);
+                if (card < 0 || CARD_SUIT(card) != suit ||
+                    st->pile_n[suit] >= NRANK)
+                    goto bad;
+                used |= UINT64_C(1) << card;
+                st->pile[suit][st->pile_n[suit]++] = (uint8_t)card;
+                st->discarded |= UINT64_C(1) << card;
+            }
+        } else goto bad;
+    }
+    int read_error = ferror(f);
+    int close_error = fclose(f);
+    if (read_error || close_error != 0 || !complete_text_state_deck(st)) {
+        fprintf(stderr, "invalid saved state %s\n", path);
+        return 0;
+    }
+    return 1;
+
+bad:
+    fclose(f);
+    fprintf(stderr, "invalid saved state %s\n", path);
+    return 0;
+}
+
 static int write_record(FILE *f, const DistillRecord *r)
 {
     return fwrite(r, sizeof *r, 1, f) == 1;
@@ -751,6 +998,9 @@ static int generate_records(const Config *c)
     hdr.discard_guard = (uint32_t)c->discard_guard;
     hdr.playout_prune = (uint32_t)c->playout_prune;
     hdr.policy_mass = c->policy_mass;
+    hdr.semantic_cand = (uint32_t)c->semantic_cand;
+    hdr.plan_deck_max = (uint32_t)c->plan_deck_max;
+    hdr.plan_block_gap = (uint32_t)c->plan_block_gap;
     if (fwrite(&hdr, sizeof hdr, 1, out) != 1) {
         fprintf(stderr, "cannot write %s\n", c->records_path);
         fclose(out);
@@ -780,6 +1030,9 @@ static int generate_records(const Config *c)
     evaluator.prune_dom = 0;
     evaluator.playout_prune = c->playout_prune;
     evaluator.discard_guard = c->discard_guard;
+    evaluator.semantic_cand = c->semantic_cand;
+    evaluator.plan_deck_max = c->plan_deck_max;
+    evaluator.plan_block_gap = c->plan_block_gap;
     evaluator.override_k = c->override_k;
     evaluator.override_min = c->override_min;
     /* One random member of the exact suit group per continuation decision,
@@ -792,6 +1045,81 @@ static int generate_records(const Config *c)
     uint64_t count = 0, anchors = 0, corrections = 0;
     int searches = 0;
     uint64_t eligible_seen = 0;
+
+    if (c->state_count > 0) {
+        for (int si = 0; si < c->state_count; si++) {
+            State st;
+            if (!load_text_state(c->state_path[si], &st) ||
+                !validate_state_payload(&st)) {
+                fprintf(stderr, "saved state failed engine validation: %s\n",
+                        c->state_path[si]);
+                goto generation_error;
+            }
+            if (st.nply < c->ply_lo ||
+                (c->ply_hi > 0 && st.nply >= c->ply_hi) ||
+                (c->deck_max > 0 && st.deck_left > c->deck_max)) {
+                fprintf(stderr, "saved state falls outside configured phase: "
+                                "%s\n", c->state_path[si]);
+                goto generation_error;
+            }
+            Rng search_rng;
+            rng_seed(&search_rng, mix64(c->seed ^
+                     ((uint64_t)(unsigned)si << 32) ^
+                     ((uint64_t)st.nply << 8) ^
+                     UINT64_C(0x535441544553)));
+            SearchStats ss;
+            Move selected =
+                rollout_move(&evaluator, &st, &search_rng, NULL, &ss);
+            searches++;
+            int ci = -1;
+            for (int i = 1; i < ss.n; i++)
+                if (same_move(ss.mv[i], selected)) {
+                    ci = i;
+                    break;
+                }
+            int wrote = 0;
+            if (ss.confirmed && ci > 0 && ss.csupported[ci] &&
+                !ss.guard_rejected[ci]) {
+                double plcb =
+                    ss.delta[ci] -
+                    (double)c->override_k * ss.dse[ci];
+                double clcb =
+                    ss.cdelta[ci] - 2.58 * ss.cdse[ci];
+                double lcb = plcb < clcb ? plcb : clcb;
+                if (lc_double_isfinite(lcb) && lcb > 0.0) {
+                    DistillRecord r;
+                    memset(&r, 0, sizeof r);
+                    r.st = st;
+                    r.kind = RD_KIND_CORRECTION;
+                    r.baseline = MOVE_PACK(ss.mv[0]);
+                    r.challenger = MOVE_PACK(ss.mv[ci]);
+                    r.primary_delta = (float)ss.delta[ci];
+                    r.primary_se = (float)ss.dse[ci];
+                    r.confirm_delta = (float)ss.cdelta[ci];
+                    r.confirm_se = (float)ss.cdse[ci];
+                    r.lcb = (float)lcb;
+                    if (!write_record(out, &r)) goto write_error;
+                    count++;
+                    corrections++;
+                    wrote = 1;
+                }
+            }
+            if (!wrote) {
+                DistillRecord r;
+                memset(&r, 0, sizeof r);
+                r.st = st;
+                r.kind = RD_KIND_ANCHOR;
+                if (!write_record(out, &r)) goto write_error;
+                count++;
+                anchors++;
+            }
+            printf("evaluated saved state %d/%d: %s (%s)\n",
+                   si + 1, c->state_count, c->state_path[si],
+                   wrote ? "confirmed correction" : "anchor only");
+            fflush(stdout);
+        }
+        goto finalize_records;
+    }
 
     for (int game = 0; game < c->games; game++) {
         int cumulative[2] = { 0, 0 };
@@ -905,6 +1233,7 @@ static int generate_records(const Config *c)
         fflush(stdout);
     }
 
+finalize_records:
     hdr.count = count;
     hdr.anchor_count = anchors;
     hdr.correction_count = corrections;
@@ -944,12 +1273,21 @@ static int read_header(FILE *f, RecordHeader *h, const char *path)
         fprintf(stderr, "%s: short record header\n", path);
         return 0;
     }
-    if (h->magic != RD_MAGIC || h->version != RD_VERSION ||
+    if (h->magic != RD_MAGIC ||
+        (h->version != 1U && h->version != RD_VERSION) ||
         h->header_size != sizeof(RecordHeader) ||
         h->state_size != sizeof(State) ||
         h->record_size != sizeof(DistillRecord)) {
         fprintf(stderr, "%s: incompatible robust-distill record format\n", path);
         return 0;
+    }
+    /* Version 1 reserved these final three words and writers zeroed them.
+     * Interpret them as disabled even if a hostile legacy file filled the
+     * reserved bytes with junk. */
+    if (h->version == 1U) {
+        h->semantic_cand = 0;
+        h->plan_deck_max = 0;
+        h->plan_block_gap = 0;
     }
     if (!lc_float_isfinite(h->override_k) ||
         !lc_float_isfinite(h->override_min) ||
@@ -961,7 +1299,10 @@ static int read_header(FILE *f, RecordHeader *h, const char *path)
     if (h->playout_sample != 2 || h->root_width < 2 ||
         h->root_width > 8 || h->discard_guard > 1 ||
         h->playout_prune > 1 || !lc_float_isfinite(h->policy_mass) ||
-        h->policy_mass < 0.5f || h->policy_mass > 1.0f) {
+        h->policy_mass < 0.5f || h->policy_mass > 1.0f ||
+        h->semantic_cand > 1 || h->plan_deck_max > NCARD ||
+        h->plan_block_gap > 1000 ||
+        ((h->plan_deck_max > 0) != (h->plan_block_gap > 0))) {
         fprintf(stderr, "%s: invalid rollout configuration in header\n", path);
         return 0;
     }
@@ -1224,12 +1565,33 @@ static int inspect_records(const Config *c)
            "(random-sym greedy), discard guard %u, playout prune %u\n",
            h.root_width, h.policy_mass, h.playout_sample,
            h.discard_guard, h.playout_prune);
+    printf("  focused challengers: semantic %s, scheduler deck <= %u "
+           "with block gap %u\n",
+           h.semantic_cand ? "on" : "off",
+           h.plan_deck_max, h.plan_block_gap);
     printf("  gates: primary %.2f SE and %.2f points; confirmation %.2f SE "
            "and %.2f points\n", h.override_k, h.override_min, h.confirm_z,
            0.5f * h.override_min);
     if (corrections)
         printf("  correction LCB: mean %.3f, min %.3f, max %.3f points\n",
                lcb_sum / (double)corrections, lcb_min, lcb_max);
+    if (c->verbose) {
+        for (uint64_t i = 0; i < h.count; i++) {
+            if (r[i].kind != RD_KIND_CORRECTION) continue;
+            Move baseline = unpack_move(r[i].baseline);
+            Move challenger = unpack_move(r[i].challenger);
+            char bname[64], cname[64];
+            lc_move_name(&r[i].st, baseline, bname);
+            lc_move_name(&r[i].st, challenger, cname);
+            printf("  correction %llu: round %u ply %u deck %u: %s -> %s; "
+                   "primary %+.2f +/- %.2f, confirm %+.2f +/- %.2f, "
+                   "LCB %.2f\n",
+                   (unsigned long long)i, r[i].st.round, r[i].st.nply,
+                   r[i].st.deck_left, bname, cname,
+                   r[i].primary_delta, r[i].primary_se,
+                   r[i].confirm_delta, r[i].confirm_se, r[i].lcb);
+        }
+    }
     if (c->net_path) {
         Net *n = load_net(c->net_path);
         if (!n) {
@@ -1254,7 +1616,7 @@ static void sample_suit_permutation(uint64_t key, uint8_t perm[NSUIT])
 {
     uint8_t left[NSUIT];
     for (int i = 0; i < NSUIT; i++) left[i] = (uint8_t)i;
-    uint64_t code = mix64(key) % UINT64_C(120);
+    uint64_t code = key % UINT64_C(120);
     for (int i = 0; i < NSUIT; i++) {
         int nleft = NSUIT - i;
         int pick = (int)(code % (uint64_t)nleft);
@@ -1517,6 +1879,66 @@ static int train_records(const Config *c)
         free(record);
         return 1;
     }
+    for (int set = 0; set < c->extra_record_count; set++) {
+        RecordHeader eh;
+        DistillRecord *extra =
+            load_records(c->extra_records[set], &eh);
+        if (!extra) {
+            free(record);
+            return 1;
+        }
+        uint64_t ea = 0, ec = 0;
+        for (uint64_t i = 0; i < eh.count; i++) {
+            if (!validate_record(&extra[i], &eh, i)) {
+                free(extra);
+                free(record);
+                return 1;
+            }
+            if (extra[i].kind == RD_KIND_CORRECTION) ec++;
+            else ea++;
+        }
+        if (ea != eh.anchor_count || ec != eh.correction_count ||
+            ea + ec != eh.count) {
+            fprintf(stderr, "%s: header counts do not match the payload\n",
+                    c->extra_records[set]);
+            free(extra);
+            free(record);
+            return 1;
+        }
+        if (eh.anchor_hash != h.anchor_hash) {
+            fprintf(stderr, "%s is tied to a different frozen network\n",
+                    c->extra_records[set]);
+            free(extra);
+            free(record);
+            return 1;
+        }
+        if (eh.count > UINT64_MAX - h.count ||
+            h.count + eh.count > SIZE_MAX / sizeof *record) {
+            fprintf(stderr, "combined record sets are too large\n");
+            free(extra);
+            free(record);
+            return 1;
+        }
+        uint64_t old_count = h.count;
+        DistillRecord *combined =
+            (DistillRecord *)realloc(
+                record, (size_t)(h.count + eh.count) * sizeof *record);
+        if (!combined) {
+            fprintf(stderr, "out of memory combining record sets\n");
+            free(extra);
+            free(record);
+            return 1;
+        }
+        record = combined;
+        memcpy(record + old_count, extra,
+               (size_t)eh.count * sizeof *extra);
+        free(extra);
+        h.count += eh.count;
+        anchors += ea;
+        corrections += ec;
+        h.anchor_count = anchors;
+        h.correction_count = corrections;
+    }
     if (corrections == 0) {
         fprintf(stderr, "%s contains no confirmed corrections; refusing a "
                         "no-signal training run\n", c->records_path);
@@ -1570,7 +1992,8 @@ static int train_records(const Config *c)
            (unsigned long long)h.anchor_count);
     printf("updates are restricted to %d x %d wcomb weights + %d biases; "
            "suit augmentation %s\n", NET_NCOMB, NET_H2, NET_NCOMB,
-           c->suit_augment ? "on" : "off");
+           !c->suit_augment ? "off" :
+           (c->random_suit_augment ? "random" : "exhaustive"));
     Metrics initial =
         evaluate_dataset(c, anchor, learner, record, h.count);
     print_metrics(0, &initial);
@@ -1596,10 +2019,28 @@ static int train_records(const Config *c)
             int used = 0;
             for (int k = 0; k < nb; k++) {
                 size_t ri = order[off + (uint64_t)k];
-                uint64_t aug_key =
-                    c->seed ^
-                    ((uint64_t)(unsigned)epoch << 48) ^
-                    ((uint64_t)ri * UINT64_C(0xD1B54A32D192ED03));
+                /* The default random branch preserves the published trainer
+                 * and its reproducible seeds.  Exhaustive mode gives every
+                 * record a no-replacement tour of all 120 permutations over
+                 * 120 epochs; it is a useful variance-control ablation, but
+                 * still has to pass independent match play. */
+                uint64_t aug_key;
+                if (c->random_suit_augment) {
+                    aug_key =
+                        mix64(c->seed ^
+                              ((uint64_t)(unsigned)epoch << 48) ^
+                              ((uint64_t)ri *
+                               UINT64_C(0xD1B54A32D192ED03))) %
+                        UINT64_C(120);
+                } else {
+                    uint64_t offset =
+                        mix64(c->seed ^
+                              ((uint64_t)ri *
+                               UINT64_C(0xD1B54A32D192ED03))) %
+                        UINT64_C(120);
+                    aug_key =
+                        offset + (uint64_t)(unsigned)(epoch - 1);
+                }
                 if (evaluate_record(c, anchor, learner, &record[ri],
                                     aug_key, c->suit_augment, grad, NULL))
                     used++;
@@ -1695,6 +2136,22 @@ int main(int argc, char **argv)
         fprintf(stderr, "candidate --out must not alias --net or the "
                         "training records\n");
         return 2;
+    }
+    if (c.mode == MODE_TRAIN) {
+        for (int i = 0; i < c.extra_record_count; i++) {
+            if ((c.out_path &&
+                 paths_alias(c.out_path, c.extra_records[i])) ||
+                paths_alias(c.records_path, c.extra_records[i])) {
+                fprintf(stderr, "extra record inputs must be distinct from "
+                                "the primary records and candidate output\n");
+                return 2;
+            }
+            for (int j = 0; j < i; j++)
+                if (paths_alias(c.extra_records[i], c.extra_records[j])) {
+                    fprintf(stderr, "duplicate extra record input\n");
+                    return 2;
+                }
+        }
     }
     switch (c.mode) {
     case MODE_GENERATE: return generate_records(&c);

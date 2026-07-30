@@ -3,6 +3,7 @@
 #include "../src/features.h"
 #include "../src/match.h"
 #include "../src/net.h"
+#include "../src/planner.h"
 #include "../src/search.h"
 #include "../src/spec.h"
 #include <math.h>
@@ -396,7 +397,8 @@ static void test_rollout_spec_tail(void)
     CHECK(a.playout_prune == -1,
           "rollout default no longer makes continuation pruning follow root");
     spec_parse("rolloutu:data/champion.bin:256:5:0.03:0.9:2:14:50:4:"
-               "2:1:3.5:1.5:1:20:0.995:64:20:1:24:128:0", &a);
+               "2:1:3.5:1.5:1:20:0.995:64:20:1:24:128:0:16:12:1",
+               &a);
     CHECK(a.kind == AG_ROLLOUT && a.no_belief,
           "rolloutu kind/world model parsed incorrectly");
     CHECK(a.dets == 256 && a.root_width == 5 && a.min_cand == 2,
@@ -414,7 +416,122 @@ static void test_rollout_spec_tail(void)
     CHECK(a.discard_guard == 1 && a.deck_max == 24 &&
           a.confirm_dets == 128 && a.playout_prune == 0,
           "rollout confirmation tail parsed incorrectly");
+    CHECK(a.plan_deck_max == 16 && a.plan_block_gap == 12 &&
+          a.semantic_cand == 1,
+          "rollout planner/semantic tail parsed incorrectly");
     free((void *)a.net);
+
+    Agent p;
+    spec_parse("policy:data/champion.bin:0:20:16:12", &p);
+    CHECK(p.kind == AG_POLICY && p.symmetries == 20 &&
+          p.plan_deck_max == 16 && p.plan_block_gap == 12,
+          "policy scheduling tail parsed incorrectly");
+    free((void *)p.net);
+}
+
+static void test_information_preserving_scheduler(void)
+{
+    State st;
+    memset(&st, 0, sizeof st);
+    st.turn = 0;
+    st.deck_left = 11;
+    const int w7 = CARD_MAKE(2, 8);
+    const int w9 = CARD_MAKE(2, 10);
+    const int w10 = CARD_MAKE(2, 11);
+    const int g7 = CARD_MAKE(3, 8);
+    const int g10 = CARD_MAKE(3, 11);
+    const int r10 = CARD_MAKE(4, 11);
+    const int b9 = CARD_MAKE(1, 10);
+    const int rw = CARD_MAKE(4, 0);
+    st.hand[0] = (1ULL << b9) | (1ULL << w7) | (1ULL << w9) |
+                 (1ULL << w10) | (1ULL << g7) | (1ULL << g10) |
+                 (1ULL << rw) | (1ULL << r10);
+    st.hand_n[0] = HAND_SIZE;
+    st.exp_wager[0][3] = 2;
+    st.exp_n[0][3] = 3;
+    st.exp_top[0][3] = 3;
+    st.exp_sum[0][3] = 3;
+    st.exp_n[0][4] = 3;
+    st.exp_top[0][4] = 8;
+    st.exp_sum[0][4] = 15; /* R2, R5, R8 */
+
+    /* Publicly locate the lower cards that should not contribute to the
+     * information-blocking cost.  W4/W5 and G4 stay unseen. */
+    st.played[1] = (1ULL << CARD_MAKE(2, 4)) | /* W3 */
+                   (1ULL << CARD_MAKE(2, 7)) | /* W6 */
+                   (1ULL << CARD_MAKE(3, 6)) | /* G5 */
+                   (1ULL << CARD_MAKE(3, 7)) | /* G6 */
+                   (1ULL << CARD_MAKE(3, 9)) | /* G8 */
+                   (1ULL << CARD_MAKE(4, 10)); /* R9 */
+    st.pile[2][0] = CARD_MAKE(2, 3); /* W2 */
+    st.pile_n[2] = 1;
+    st.discarded = 1ULL << CARD_MAKE(2, 3);
+
+    HandPlan plan;
+    hand_plan_build(&st, 0, 6, &plan);
+    CHECK(plan.min_cards == 6 && plan.score - plan.base_score == 67,
+          "scheduler did not find the six-card guaranteed finish");
+    CHECK((plan.first_cards & (1ULL << w7)) &&
+          (plan.first_cards & (1ULL << g7)) &&
+          (plan.first_cards & (1ULL << r10)),
+          "scheduler lost a commuting first play");
+
+    Move mv[3] = {
+        { (uint8_t)g7, 0, 0 },
+        { (uint8_t)r10, 0, 0 },
+        { (uint8_t)w7, 0, 0 },
+    };
+    float prob[3] = { 0.50f, 0.25f, 0.09f };
+    int order[3] = { 0, 1, 2 };
+    int pick = hand_plan_conservative_choose(
+        &st, 0, mv, prob, order, 3, 6, 12);
+    CHECK(pick == 1,
+          "scheduler did not preserve lower-card information with R10");
+    CHECK(hand_plan_conservative_choose(
+              &st, 0, mv, prob, order, 3, 6, 13) == -1,
+          "scheduler ignored its conservative block-gap threshold");
+
+    /* A third blue wager is not part of the best guaranteed schedule: two
+     * wagers plus B3/B6/B8 finish at -9, while adding the third finishes at
+     * -12.  The old policy nevertheless put 97% on playing it at showcase
+     * ply 32.  The scheduler must prefer a cost-free suit 10 even though a
+     * wager has no ordinary lower-card blocking cost. */
+    State commit;
+    memset(&commit, 0, sizeof commit);
+    commit.turn = 1;
+    commit.deck_left = 16;
+    const int bx = CARD_MAKE(1, 2);
+    const int b3 = CARD_MAKE(1, 4);
+    const int b6 = CARD_MAKE(1, 7);
+    const int b8 = CARD_MAKE(1, 9);
+    const int wx = CARD_MAKE(2, 0);
+    const int w2 = CARD_MAKE(2, 3);
+    const int w10b = CARD_MAKE(2, 11);
+    const int r10b = CARD_MAKE(4, 11);
+    commit.hand[1] = (1ULL << bx) | (1ULL << b3) | (1ULL << b6) |
+                     (1ULL << b8) | (1ULL << wx) | (1ULL << w2) |
+                     (1ULL << w10b) | (1ULL << r10b);
+    commit.hand_n[1] = HAND_SIZE;
+    commit.exp_wager[1][1] = 2;
+    commit.exp_n[1][1] = 2;
+    commit.exp_wager[1][2] = 1;
+    commit.exp_n[1][2] = 5;
+    commit.exp_top[1][2] = 9;
+    commit.exp_sum[1][2] = 28;
+    commit.exp_n[1][4] = 3;
+    commit.exp_top[1][4] = 7;
+    commit.exp_sum[1][4] = 16;
+    Move commitment[3] = {
+        { (uint8_t)bx, 0, 0 },
+        { (uint8_t)w10b, 0, 0 },
+        { (uint8_t)r10b, 0, 0 },
+    };
+    float commitment_prob[3] = { 0.97f, 0.02f, 0.01f };
+    int commitment_order[3] = { 0, 1, 2 };
+    CHECK(hand_plan_conservative_choose(
+              &commit, 1, commitment, commitment_prob,
+              commitment_order, 3, 8, 12) == 1,
+          "scheduler did not reject a score-losing third wager commitment");
 }
 
 static void test_dead_discard_focus_equivariance(void)
@@ -812,6 +929,7 @@ int main(void)
     test_rollout_policy_shortlist();
     test_random_symmetry_policy_sample();
     test_rollout_spec_tail();
+    test_information_preserving_scheduler();
     test_dead_discard_focus_equivariance();
     test_wager_interaction_head();
     test_wager_parameter_projection();

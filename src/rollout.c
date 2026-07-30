@@ -22,11 +22,13 @@
 #include "search.h"
 #include "agent.h"
 #include "heuristic.h"
+#include "planner.h"
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
 #define MAX_CAND 8
+#define URGENT_SEMANTIC_WORLDS 16384
 
 /* Rank the legal moves of s for the player to move.  With a network that is
  * the policy head; without one it is the hand-crafted evaluation, which gives
@@ -57,7 +59,8 @@ static int rank_moves(const Net *net, const State *s, Move *mv, float *score,
  * two sources of randomness made the old fast mode evaluate a much weaker,
  * high-entropy continuation policy instead of approximating the champion. */
 static int playout(const Net *net, State *s, int p, int prune, Rng *symrng,
-                   int sample_actions, int symmetries, double *winpts)
+                   int sample_actions, int symmetries, int plan_deck_max,
+                   int plan_block_gap, double *winpts)
 {
     Move mv[MAX_MOVES];
     float score[MAX_MOVES];
@@ -80,6 +83,27 @@ static int playout(const Net *net, State *s, int p, int prune, Rng *symrng,
                 if (dead && lc_discard_dominated(s, mv[i], dead)) continue;
                 if (best < 0 || score[i] > score[best]) best = i;
             }
+        }
+        /* Continuation values need a horizon-aware lower bound, not another
+         * myopic policy step.  Once the deck is short, follow an optimal
+         * schedule of cards already visible in the current player's hand.
+         * This is information-set safe and normalizes commuting play orders;
+         * the production actor remains more conservative at the root. */
+        if (!sample_actions && net && plan_deck_max > 0 &&
+            plan_block_gap > 0 && s->deck_left <= plan_deck_max) {
+            int order[MAX_MOVES];
+            for (int i = 0; i < n; i++) order[i] = i;
+            int keep = n < 8 ? n : 8;
+            for (int i = 0; i < keep; i++) {
+                int top = i;
+                for (int j = i + 1; j < n; j++)
+                    if (score[order[j]] > score[order[top]]) top = j;
+                int tmp = order[i]; order[i] = order[top]; order[top] = tmp;
+            }
+            int planned = hand_plan_choose(
+                s, s->turn, mv, score, order, keep,
+                (s->deck_left + 1) / 2);
+            if (planned >= 0) best = planned;
         }
         if (best < 0) best = 0;
         lc_apply(s, mv[best]);
@@ -115,11 +139,189 @@ double rollout_terminal_objective(const State *terminal, int p, int mode)
     return 0.05 * (double)total_margin + 50.0 * (double)result;
 }
 
+static int move_equal(Move a, Move b)
+{
+    return MOVE_PACK(a) == MOVE_PACK(b);
+}
+
+static int find_move(const Move *mv, int n, Move target)
+{
+    for (int i = 0; i < n; i++)
+        if (move_equal(mv[i], target)) return i;
+    return -1;
+}
+
+static int append_unique(int *order, int *count, int limit, int index)
+{
+    if (index < 0) return 0;
+    for (int i = 0; i < *count; i++)
+        if (order[i] == index) return 0;
+    if (*count >= limit) return 0;
+    order[(*count)++] = index;
+    return 1;
+}
+
+static int same_semantic_action(Move a, Move b)
+{
+    if (a.discard != b.discard) return 0;
+    if (CARD_IS_WAGER(a.card) && CARD_IS_WAGER(b.card))
+        return CARD_SUIT(a.card) == CARD_SUIT(b.card);
+    return a.card == b.card;
+}
+
+static int top_action_group(const Move *mv, const float *prob, int n,
+                            int index, int limit)
+{
+    double candidate = 0.0;
+    for (int i = 0; i < n; i++)
+        if (same_semantic_action(mv[i], mv[index]))
+            candidate += prob[i];
+    int better = 0;
+    for (int i = 0; i < n; i++) {
+        int first = 1;
+        for (int j = 0; j < i; j++)
+            if (same_semantic_action(mv[j], mv[i])) {
+                first = 0;
+                break;
+            }
+        if (!first) continue;
+        double action_prob = 0.0;
+        for (int j = 0; j < n; j++)
+            if (same_semantic_action(mv[j], mv[i]))
+                action_prob += prob[j];
+        if (action_prob > candidate) better++;
+    }
+    return better < limit;
+}
+
+/* With one deck card left, drawing it after the same play/discard ends the
+ * round immediately.  Taking a pile instead merely gives the opponent an
+ * extra optional scoring turn, so the deck variant weakly dominates. */
+static int last_deck_equivalent(const State *st, const Move *mv, int n,
+                                int policy_top)
+{
+    if (st->deck_left != 1 || mv[policy_top].draw == 0) return -1;
+    for (int i = 0; i < n; i++)
+        if (mv[i].card == mv[policy_top].card &&
+            mv[i].discard == mv[policy_top].discard && mv[i].draw == 0)
+            return i;
+    return -1;
+}
+
+/* A wager that is the only card of its suit in our hand, before we have
+ * started that suit, is a high-value semantic discard candidate once the
+ * opponent has played a number and therefore cannot score the wager.  It is
+ * not literally cost-free—the opponent could pick it up to stall—so it still
+ * has to beat the baseline in both large stochastic comparisons.  This is
+ * deliberately much narrower than evaluating every legal discard. */
+static int isolated_one_sided_wager_discard(
+    const State *st, const Move *mv, const float *prob, int n)
+{
+    const int p = st->turn, o = p ^ 1;
+    int best = -1, best_score = -1000000;
+    for (int i = 0; i < n; i++) {
+        int c = mv[i].card, s = CARD_SUIT(c);
+        if (!mv[i].discard || !CARD_IS_WAGER(c) ||
+            st->exp_n[p][s] != 0 || st->exp_top[o][s] == 0)
+            continue;
+        int suit_cards = 0;
+        uint64_t hand = st->hand[p];
+        while (hand) {
+            int h = __builtin_ctzll(hand);
+            hand &= hand - 1;
+            if (CARD_SUIT(h) == s) suit_cards++;
+        }
+        if (suit_cards != 1) continue;
+
+        /* Compare the known post-move hands without ever reading a hidden
+         * deck card.  This lets a one-sided wager discard pair naturally with a
+         * useful face-up pickup (p59/p61) instead of forcing the deck variant
+         * and spending a second semantic slot on the Cartesian combination. */
+        State after = *st;
+        if (mv[i].draw == 0) {
+            after.hand[p] &= ~(1ULL << c);
+            if (after.hand_n[p] > 0) after.hand_n[p]--;
+            if (after.deck_left > 0) after.deck_left--;
+        } else {
+            lc_apply(&after, mv[i]);
+        }
+        HandPlan plan;
+        hand_plan_build(&after, p, after.deck_left / 2, &plan);
+        if (best < 0 || plan.score > best_score ||
+            (plan.score == best_score &&
+             mv[i].draw == 0 && mv[best].draw != 0) ||
+            (plan.score == best_score &&
+             mv[i].draw == mv[best].draw && prob[i] > prob[best])) {
+            best = i;
+            best_score = plan.score;
+        }
+    }
+    return best;
+}
+
+/* Add one purposeful pile pickup, not one move per draw source.  Number cards
+ * must improve the exact visible-hand schedule (for example R4 before held
+ * R8/R9).  A wager may instead be denied when public knowledge proves that
+ * the opponent has already picked up or committed to that suit. */
+static int useful_pile_pickup(
+    const State *st, const Move *mv, const float *prob, int n,
+    int discard)
+{
+    const int p = st->turn, o = p ^ 1;
+    int best = -1, best_gain = -1000000, best_score = -1000000;
+    for (int s = 0; s < NSUIT; s++) {
+        if (st->pile_n[s] == 0) continue;
+        int pickup = st->pile[s][st->pile_n[s] - 1];
+        int wager = CARD_IS_WAGER(pickup);
+        if (wager && st->exp_top[p][s] != 0) continue;
+        uint64_t suit_mask =
+            ((UINT64_C(1) << NRANK) - 1) << (s * NRANK);
+        uint64_t wager_mask =
+            ((UINT64_C(1) << WAGERS_PER_SUIT) - 1) << (s * NRANK);
+        int public_signal =
+            (st->known[o] & wager_mask) != 0 || st->exp_n[o][s] != 0;
+        int own_numbers =
+            __builtin_popcountll(st->hand[p] & suit_mask & ~wager_mask);
+        if (wager && !public_signal && own_numbers < 2) continue;
+
+        for (int i = 0; i < n; i++) {
+            if (mv[i].draw != s + 1 || mv[i].discard != discard ||
+                !top_action_group(mv, prob, n, i, 3))
+                continue;
+            State after = *st;
+            lc_apply(&after, mv[i]);
+            HandPlan plan;
+            hand_plan_build(&after, p, after.deck_left / 2, &plan);
+            int uses_pickup = (plan.used_cards >> pickup) & 1ULL;
+            State without = after;
+            without.hand[p] &= ~(1ULL << pickup);
+            if (without.hand_n[p] > 0) without.hand_n[p]--;
+            HandPlan no_pickup;
+            hand_plan_build(&without, p, after.deck_left / 2, &no_pickup);
+            int gain = plan.score - no_pickup.score;
+            if ((!wager && (!uses_pickup || gain <= 0)) ||
+                (wager && !uses_pickup && !public_signal))
+                continue;
+            if (best < 0 || gain > best_gain ||
+                (gain == best_gain && plan.score > best_score) ||
+                (gain == best_gain && plan.score == best_score &&
+                 prob[i] > prob[best])) {
+                best = i;
+                best_gain = gain;
+                best_score = plan.score;
+            }
+        }
+    }
+    return best;
+}
+
 Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
                   float *out_value, SearchStats *stats)
 {
     if (stats) {
         memset(stats, 0, sizeof *stats);
+        stats->policy_top = -1;
+        stats->metric_kind = SEARCH_METRIC_NETWORK_VALUE;
         for (int i = 0; i < MAX_MOVES; i++) stats->qw[i] = -1.0;
     }
     Move mv[MAX_MOVES];
@@ -157,14 +359,127 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
         return n == 1 ? mv[0] : none;
     }
 
-    /* ply window: outside it the raw policy plays (see agent.h) */
+    int policy_top_index = 0;
+    for (int i = 1; i < n; i++)
+        if (prob[i] > prob[policy_top_index]) policy_top_index = i;
+    Move policy_top_move = mv[policy_top_index];
+    int baseline_index =
+        last_deck_equivalent(st, mv, n, policy_top_index);
+    int deck_end_baseline =
+        baseline_index >= 0 && baseline_index != policy_top_index;
+    int baseline_from_planner = 0;
+    if (baseline_index < 0 && a->net && a->plan_deck_max > 0 &&
+        a->plan_block_gap > 0 && st->deck_left <= a->plan_deck_max) {
+        int planned_order[MAX_MOVES];
+        for (int i = 0; i < n; i++) planned_order[i] = i;
+        int planned_keep = n < 8 ? n : 8;
+        for (int i = 0; i < planned_keep; i++) {
+            int top = i;
+            for (int j = i + 1; j < n; j++)
+                if (prob[planned_order[j]] > prob[planned_order[top]])
+                    top = j;
+            int tmp = planned_order[i];
+            planned_order[i] = planned_order[top];
+            planned_order[top] = tmp;
+        }
+        baseline_index = hand_plan_conservative_choose(
+            st, st->turn, mv, prob, planned_order, planned_keep,
+            (st->deck_left + 1) / 2, a->plan_block_gap);
+        baseline_from_planner =
+            baseline_index >= 0 && baseline_index != policy_top_index;
+    }
+    if (baseline_index < 0) baseline_index = policy_top_index;
+    int changed_baseline = baseline_from_planner || deck_end_baseline;
+    Move baseline_move = mv[baseline_index];
+    int safe_discard_index = a->semantic_cand
+        ? isolated_one_sided_wager_discard(st, mv, prob, n) : -1;
+    int pile_play_index = a->semantic_cand
+        ? useful_pile_pickup(st, mv, prob, n, 0) : -1;
+    int pile_discard_index = a->semantic_cand
+        ? useful_pile_pickup(st, mv, prob, n, 1) : -1;
+    const int have_safe_discard = safe_discard_index >= 0;
+    const int have_pile_play = pile_play_index >= 0;
+    const int have_pile_discard = pile_discard_index >= 0;
+    const Move safe_discard_move =
+        have_safe_discard ? mv[safe_discard_index] : policy_top_move;
+    const Move pile_play_move =
+        have_pile_play ? mv[pile_play_index] : policy_top_move;
+    const Move pile_discard_move =
+        have_pile_discard ? mv[pile_discard_index] : policy_top_move;
+
+    /* A validated visible-hand correction is the deployed baseline, not
+     * another noisy rollout candidate.  Continuing to simulate here allowed
+     * the same myopic scheduler error to "confirm" itself and undo the exact
+     * correction.  Likewise, with one deck card left the dominance rule is
+     * exact.  Report both the corrected baseline and raw policy, but spend no
+     * hidden worlds. */
+    if (changed_baseline) {
+        int turns = (st->deck_left + 1) / 2;
+        HandPlan plan;
+        hand_plan_build(st, st->turn, turns, &plan);
+        int selected_score = baseline_from_planner
+            ? hand_plan_score_after_play(
+                  st, st->turn, baseline_move.card, turns)
+            : plan.score;
+        int policy_score = baseline_from_planner
+            ? hand_plan_score_after_play(
+                  st, st->turn, policy_top_move.card, turns)
+            : plan.score;
+        if (out_value) *out_value = value;
+        if (stats) {
+            stats->n = 2;
+            stats->nlegal = nlegal;
+            stats->worlds = 0;
+            stats->max_worlds = a->dets;
+            stats->resolved = 1;
+            stats->skip_reason = baseline_from_planner
+                ? SEARCH_SKIP_VISIBLE_PLAN : SEARCH_SKIP_LAST_DECK;
+            stats->raw_best = 0;
+            stats->policy_top = 1;
+            stats->planned_baseline = baseline_from_planner;
+            stats->deck_end_baseline = deck_end_baseline;
+            stats->metric_kind = baseline_from_planner
+                ? SEARCH_METRIC_VISIBLE_PLAN
+                : SEARCH_METRIC_LAST_DECK_RULE;
+            stats->planner_turns = baseline_from_planner ? turns : 0;
+            stats->planner_score = baseline_from_planner ? plan.score : 0;
+            stats->planner_policy_score =
+                baseline_from_planner ? policy_score : 0;
+            stats->planner_regret =
+                baseline_from_planner ? plan.score - policy_score : 0;
+            stats->planner_policy_block = baseline_from_planner
+                ? hand_plan_block_cost(st, st->turn, policy_top_move.card) : 0;
+            stats->planner_selected_block = baseline_from_planner
+                ? hand_plan_block_cost(st, st->turn, baseline_move.card) : 0;
+            stats->policy_mass =
+                prob[baseline_index] + prob[policy_top_index];
+            stats->mv[0] = baseline_move;
+            stats->mv[1] = policy_top_move;
+            stats->q[0] = baseline_from_planner ? selected_score : value;
+            stats->q[1] = baseline_from_planner ? policy_score : value;
+            stats->delta[0] = 0.0;
+            stats->delta[1] = baseline_from_planner
+                ? (double)(policy_score - selected_score) : 0.0;
+            stats->prior[0] = prob[baseline_index];
+            stats->prior[1] = prob[policy_top_index];
+            stats->value = value;
+        }
+        return baseline_move;
+    }
+
+    /* Outside the rollout window, the validated scheduler remains part of
+     * the policy actor.  Only the Monte Carlo comparison is phase-gated,
+     * except for the narrow one-sided-wager signal: that public constraint is
+     * how an otherwise low-prior correction at an early round ply earns a
+     * focused comparison. */
     int outside_ply =
         (a->ply_lo > 0 && st->nply < a->ply_lo) ||
         (a->ply_hi > 0 && st->nply >= a->ply_hi);
     int outside_deck = a->deck_max > 0 && st->deck_left > a->deck_max;
-    if (outside_ply || outside_deck) {
-        int top = 0;
-        for (int i = 1; i < n; i++) if (prob[i] > prob[top]) top = i;
+    int urgent_semantic =
+        (outside_ply || outside_deck) && safe_discard_index >= 0 &&
+        !move_equal(safe_discard_move, baseline_move);
+    if ((outside_ply || outside_deck) && !urgent_semantic) {
         if (out_value) *out_value = value;
         if (stats) {
             stats->n = 1;
@@ -175,23 +490,25 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
             stats->skip_reason = outside_ply ? SEARCH_SKIP_PLY_WINDOW
                                              : SEARCH_SKIP_DECK_PHASE;
             stats->raw_best = 0;
-            stats->policy_mass = prob[top];
-            stats->mv[0] = mv[top];
+            stats->policy_mass = prob[baseline_index];
+            stats->policy_top = changed_baseline ? -1 : 0;
+            stats->planned_baseline = baseline_from_planner;
+            stats->deck_end_baseline = deck_end_baseline;
+            stats->mv[0] = baseline_move;
             stats->visits[0] = 0;
             stats->q[0] = value;
-            stats->se[0] = 0.0; stats->prior[0] = prob[top];
+            stats->se[0] = 0.0;
+            stats->prior[0] = prob[baseline_index];
             stats->value = value;
         }
-        return mv[top];
+        return baseline_move;
     }
 
     /* confidence gate: when the policy is already near-certain, searching can
      * only confirm it or override it with noise -- return the policy move and
      * spend the compute where decisions are actually contested */
     if (a->gate > 0.0f) {
-        int top = 0;
-        for (int i = 1; i < n; i++) if (prob[i] > prob[top]) top = i;
-        if (prob[top] >= a->gate) {
+        if (prob[policy_top_index] >= a->gate) {
             if (out_value) *out_value = value;
             if (stats) {
                 stats->n = 1;
@@ -201,14 +518,18 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
                 stats->resolved = 0;
                 stats->skip_reason = SEARCH_SKIP_POLICY_CONFIDENCE;
                 stats->raw_best = 0;
-                stats->policy_mass = prob[top];
-                stats->mv[0] = mv[top];
+                stats->policy_mass = prob[baseline_index];
+                stats->policy_top = changed_baseline ? -1 : 0;
+                stats->planned_baseline = baseline_from_planner;
+                stats->deck_end_baseline = deck_end_baseline;
+                stats->mv[0] = baseline_move;
                 stats->visits[0] = 0;
                 stats->q[0] = value;
-                stats->se[0] = 0.0; stats->prior[0] = prob[top];
+                stats->se[0] = 0.0;
+                stats->prior[0] = prob[baseline_index];
                 stats->value = value;
             }
-            return mv[top];
+            return baseline_move;
         }
     }
 
@@ -238,6 +559,15 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
             }
         }
     }
+    /* Root-focus pruning compacts mv[] and prob[].  Semantic candidates were
+     * identified before the phase gate, so remap their move identities rather
+     * than retaining now-stale array indices. */
+    safe_discard_index =
+        have_safe_discard ? find_move(mv, n, safe_discard_move) : -1;
+    pile_play_index =
+        have_pile_play ? find_move(mv, n, pile_play_move) : -1;
+    pile_discard_index =
+        have_pile_discard ? find_move(mv, n, pile_discard_move) : -1;
     if (n == 1) {
         if (out_value) *out_value = value;
         if (stats) {
@@ -273,11 +603,16 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
         nsorted = a->eval_cand < MAX_CAND ? a->eval_cand : MAX_CAND;
         if (nsorted > n) nsorted = n;
     }
+    if ((a->semantic_cand || a->plan_deck_max > 0) && nsorted < MAX_CAND) {
+        nsorted = n < MAX_CAND ? n : MAX_CAND;
+    }
     for (int i = 0; i < nsorted; i++) {
         int best = i;
         for (int j = i + 1; j < n; j++) if (prob[order[j]] > prob[order[best]]) best = j;
         int t = order[i]; order[i] = order[best]; order[best] = t;
     }
+    int ranked[MAX_CAND];
+    for (int i = 0; i < nsorted; i++) ranked[i] = order[i];
     int keep = a->min_cand > 1 ? a->min_cand : 1;
     if (keep > maxcand) keep = maxcand;
     int ncand = maxcand;
@@ -293,11 +628,80 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
         float floor_p = a->cand_floor > 0.0f ? a->cand_floor : 0.02f;
         while (ncand > keep && prob[order[ncand - 1]] < floor_p) ncand--;
     }
-    /* Optional advisory candidates are simply the next policy-ranked moves.
-     * They are diagnostic only and never displace the eligible prefix. */
+
+    int current_baseline = -1, current_policy_top = -1;
+    for (int i = 0; i < n; i++) {
+        if (move_equal(mv[i], baseline_move)) current_baseline = i;
+        if (move_equal(mv[i], policy_top_move)) current_policy_top = i;
+    }
+    if (current_baseline < 0) {
+        current_baseline = current_policy_top >= 0
+            ? current_policy_top : order[0];
+        baseline_from_planner = 0;
+        deck_end_baseline = 0;
+        changed_baseline = 0;
+    }
+    append_unique(order, &ncand, MAX_CAND, current_baseline);
+
+    /* One exact hand-scheduling challenger is enough.  It comes from the
+     * policy's top eight, so this remains a focused audit rather than a scan
+     * of every legal move. */
+    if (a->net && a->plan_deck_max > 0 &&
+        st->deck_left <= a->plan_deck_max) {
+        int planned = hand_plan_choose(
+            st, st->turn, mv, prob, ranked, nsorted,
+            (st->deck_left + 1) / 2);
+        append_unique(order, &ncand, MAX_CAND, planned);
+    }
+    int semantic_added = 0;
+    if (a->semantic_cand) {
+        semantic_added +=
+            append_unique(order, &ncand, MAX_CAND, safe_discard_index);
+        semantic_added +=
+            append_unique(order, &ncand, MAX_CAND, pile_play_index);
+        semantic_added +=
+            append_unique(order, &ncand, MAX_CAND, pile_discard_index);
+    }
+    /*
+     * An early one-sided-wager trigger is deliberately a two-move test.  Its
+     * purpose is to rescue one low-prior semantic blind spot, not to turn the
+     * entire early policy prefix into a 16,384-world audit.  This keeps the
+     * expensive path at baseline versus wager-discard only.
+     */
+    if (urgent_semantic) {
+        order[0] = current_baseline;
+        ncand = 1;
+        semantic_added =
+            append_unique(order, &ncand, MAX_CAND, safe_discard_index);
+    }
+
+    /* Candidate zero is the deployed actor's baseline: ordinarily the raw
+     * policy, but occasionally the validated scheduler or exact deck=1 rule.
+     * Keep the untouched policy leader in the list and report its true index. */
+    int baseline_pos = -1;
+    for (int i = 0; i < ncand; i++)
+        if (order[i] == current_baseline) baseline_pos = i;
+    if (baseline_pos > 0) {
+        int tmp = order[0]; order[0] = order[baseline_pos];
+        order[baseline_pos] = tmp;
+    }
+
+    /* Optional advisory rows are the next policy-ranked moves.  They remain
+     * diagnostic-only; semantic additions above are eligible because each is
+     * a single rule-derived challenger. */
     int neval = ncand;
-    if (a->eval_cand > neval) {
-        neval = a->eval_cand < nsorted ? a->eval_cand : nsorted;
+    int advisory_target = urgent_semantic ? 0 :
+        (a->eval_cand < nsorted ? a->eval_cand : nsorted);
+    for (int i = 0; i < advisory_target; i++)
+        append_unique(order, &neval, MAX_CAND, ranked[i]);
+
+    int policy_pos = -1;
+    for (int i = 0; i < neval; i++)
+        if (order[i] == current_policy_top) policy_pos = i;
+    if (current_policy_top >= 0 && policy_pos < 0) {
+        append_unique(order, &neval, MAX_CAND, current_policy_top);
+        for (int i = 0; i < neval; i++)
+            if (order[i] == current_policy_top) policy_pos = i;
     }
     /* A mass-based shortlist can legitimately contain only the policy leader.
      * With neither an eligible challenger nor requested advisory rows, paired
@@ -338,6 +742,10 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
             stats->resolved = 0;
             stats->skip_reason = SEARCH_SKIP_POLICY_CONFIDENCE;
             stats->raw_best = 0;
+            stats->policy_top = policy_pos == 0 ? 0 : -1;
+            stats->planned_baseline = baseline_from_planner;
+            stats->deck_end_baseline = deck_end_baseline;
+            stats->semantic_candidates = semantic_added;
             stats->policy_mass = prob[order[0]];
             stats->mv[0] = mv[order[0]];
             stats->visits[0] = 0;
@@ -357,6 +765,8 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
     }
     const int p = st->turn;
     int cap = a->dets > 0 ? a->dets : 1;
+    if (urgent_semantic && cap < URGENT_SEMANTIC_WORLDS)
+        cap = URGENT_SEMANTIC_WORLDS;
     int batch = a->batch_dets > 0 ? a->batch_dets : cap;
     if (batch > cap) batch = cap;
     int lastround = st->round == MATCH_ROUNDS - 1;
@@ -407,7 +817,8 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
             if (random_cont_sym) rng_seed(&pr, wseed); /* same seed per world */
             int m = playout(a->net, &s, p, cont_prune,
                             random_cont_sym ? &pr : NULL,
-                            sample_cont_actions, cont_sym, &w);
+                            sample_cont_actions, cont_sym,
+                            a->plan_deck_max, a->plan_block_gap, &w);
             double obj = rollout_terminal_objective(&s, p, a->win_q);
             if (val) val[(size_t)c * cap + d] = obj;
             sum[c] += m;
@@ -442,7 +853,8 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
 
     /* The raw leader is descriptive.  Move selection is deliberately more
      * conservative: only eligible candidates can win, and every challenger is
-     * tested directly against candidate zero, the policy leader. */
+     * tested directly against candidate zero, the deployed policy/planner
+     * baseline. */
     int eligible_best = 0;
     for (int c = 1; c < ncand; c++) {
         if (sumobj[c] > sumobj[eligible_best] ||
@@ -465,7 +877,7 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
         /* Qualify each challenger independently.  Requiring the raw numerical
          * leader to survive made a biased leader hide a smaller real
          * correction: when that leader failed confirmation the old code fell
-         * all the way back to policy. */
+         * all the way back to the baseline. */
         for (int c = 1; c < ncand; c++) {
             double dm = (sumobj[c] - sumobj[0]) / reps;
             double v2 = 0.0;
@@ -492,6 +904,9 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
              * on candidates that failed the primary screen. */
             confirm_worlds =
                 a->confirm_dets > 0 ? a->confirm_dets : cap;
+            if (urgent_semantic &&
+                confirm_worlds < URGENT_SEMANTIC_WORLDS)
+                confirm_worlds = URGENT_SEMANTIC_WORLDS;
             if (confirm_worlds < 2) confirm_worlds = 2;
             Rng confirm_rng;
             rng_seed(&confirm_rng, confirm_seed_base);
@@ -509,7 +924,8 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
                 Rng brng;
                 rng_seed(&brng, wseed);
                 (void)playout(a->net, &baseline, p, cont_prune,
-                              &brng, 0, cont_sym, NULL);
+                              &brng, 0, cont_sym,
+                              a->plan_deck_max, a->plan_block_gap, NULL);
                 double bobj =
                     rollout_terminal_objective(&baseline, p, a->win_q);
 
@@ -520,7 +936,8 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
                     Rng crng;
                     rng_seed(&crng, wseed);
                     (void)playout(a->net, &challenger, p, cont_prune,
-                                  &crng, 0, cont_sym, NULL);
+                                  &crng, 0, cont_sym,
+                                  a->plan_deck_max, a->plan_block_gap, NULL);
                     double x =
                         rollout_terminal_objective(&challenger, p, a->win_q)
                         - bobj;
@@ -552,7 +969,23 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
                     uint64_t dead = lc_dead_cards(st);
                     int baseline_guarded =
                         lc_discard_dominated(st, mv[order[0]], dead);
+                    /*
+                     * The generic discard guard predates the semantic
+                     * shortlist and can reject a one-sided wager even after
+                     * the focused primary and independent confirmation both
+                     * support it.  In this narrow public-information case the
+                     * opponent cannot score the wager, while any remaining
+                     * stall cost is already represented in both 16,384-world
+                     * continuation batches.  Let that evidence supersede the
+                     * coarse generic guard.  The maintained urgent path uses
+                     * 16,384 primary and 16,384 fresh worlds because the
+                     * reviewed ply-61 signal was not stable at 4,096.
+                     */
+                    int confirmed_one_sided_wager =
+                        have_safe_discard &&
+                        move_equal(mv[order[c]], safe_discard_move);
                     if (a->discard_guard && !baseline_guarded &&
+                        !confirmed_one_sided_wager &&
                         lc_discard_dominated(st, mv[order[c]], dead)) {
                         guard_rejected[c] = 1;
                         continue;
@@ -574,6 +1007,11 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
         stats->max_worlds = cap;
         stats->resolved = resolved;
         stats->raw_best = rawbest;
+        stats->policy_top = policy_pos;
+        stats->planned_baseline = baseline_from_planner;
+        stats->deck_end_baseline = deck_end_baseline;
+        stats->semantic_candidates = semantic_added;
+        stats->metric_kind = SEARCH_METRIC_ROLLOUT;
         stats->confirmed = confirmed;
         stats->confirm_worlds = confirm_worlds;
         stats->policy_mass = 0.0;

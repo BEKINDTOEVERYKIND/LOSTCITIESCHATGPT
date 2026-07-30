@@ -28,6 +28,18 @@ typedef struct Agent {
     int symmetries;     /* policy ensemble over exact suit relabellings:
                            1 (off), 5 (rotations), 10 (dihedral),
                            20 (affine), or 120 (all permutations). */
+    int plan_deck_max;  /* information-preserving hand scheduler at or below
+                           this deck size (0 = disabled) */
+    int plan_block_gap; /* root correction: minimum unseen-value preservation
+                           needed to replace the policy leader with an
+                           equivalent optimal-plan first move (0 = disabled);
+                           inside rollout continuations a positive value merely
+                           enables the full optimal visible-hand schedule */
+    int semantic_cand;  /* AG_ROLLOUT: add at most one useful pile pickup for
+                           each of a top policy play/discard action, plus one
+                           isolated one-sided-wager discard (0/1); these are
+                           targeted semantic challengers, never a scan of every
+                           legal move */
     /* AG_MCTS */
     int dets;           /* determinizations                                */
     int sims;           /* simulations per determinization                 */
@@ -44,9 +56,10 @@ typedef struct Agent {
                            correct it (0/1 = floor applies unconditionally) */
     int ply_lo, ply_hi; /* AG_ROLLOUT: search only when
                            ply_lo <= nply (< ply_hi if ply_hi > 0); outside
-                           the window the raw policy plays.  For measuring
-                           WHERE in a round the search actually earns its
-                           keep (0,0 = search everywhere) */
+                           the window the policy/planner baseline plays, except
+                           for a focused one-sided-wager trigger.  For
+                           measuring WHERE in a round ordinary search earns
+                           its keep (0,0 = search everywhere) */
     int eval_cand;      /* AG_ROLLOUT: report at least this many policy-ranked
                            candidates.  Extra entries are diagnostic only and
                            cannot be selected (0 = off). */
@@ -80,7 +93,8 @@ typedef struct Agent {
                            playouts gifting live cards when a dead one is in
                            hand */
     float override_k;   /* AG_ROLLOUT: let an eligible challenger take the
-                           move only after it beats the policy top by this many
+                           move only after it beats the deployed baseline by
+                           this many
                            paired standard errors and passes a fresh,
                            independently seeded continuation check
                            (0 = legacy behavior: take the numerical leader) */

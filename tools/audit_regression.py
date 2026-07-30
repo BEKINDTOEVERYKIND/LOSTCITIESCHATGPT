@@ -2,8 +2,10 @@
 """Slow semantic regressions for the human-reviewed rollout positions.
 
 These checks intentionally use fixed state files rather than replaying the
-current actor.  They are opt-in because exact per-decision suit ensembles make
-them substantially more expensive than the normal runtime suite:
+current actor. The original random showcase trajectory is not regenerated.
+They are opt-in because exact per-decision suit ensembles and the two urgent
+16,384-world semantic confirmations make them substantially more expensive
+than the normal runtime suite:
 
     make audit-test
 """
@@ -12,6 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import re
 import subprocess
 
 
@@ -50,8 +53,8 @@ CASES = (
 )
 
 EVAL_SPEC = (
-    "rolloutu:data/champion.bin:1000:4:0.01:0.995:2:0:0:0:"
-    "2:0:1.96:1:2:20:0.995:250:20:1:0:1000:1"
+    "rolloutu:data/champion.bin:1000:4:0.01:0.995:2:20:0:0:"
+    "2:0:1.96:1:2:20:0.995:250:20:1:0:1000:1:16:12:1"
 )
 
 
@@ -64,6 +67,11 @@ class EvaluatorCase:
     absent: tuple[str, ...] = ()
     blocked: tuple[str, ...] = ()
     not_blocked: tuple[str, ...] = ()
+    status_contains: tuple[str, ...] = ()
+    exact_candidates: tuple[str, ...] = ()
+    primary_cap: int = 0
+    min_primary_worlds: int = 0
+    confirmation_worlds: int = 0
 
 
 # These exercise rollout_move itself, including the top-policy cap, cheap
@@ -71,14 +79,14 @@ class EvaluatorCase:
 # guard.  They are positions from the second human-reviewed UI match.
 EVALUATOR_CASES = (
     EvaluatorCase(
-        "ply 29: do not spend worlds on the fifth-ranked G5",
+        "ply 29: admit one planner play, not the G5 discard",
         "ui_seed725402798_p29.state",
         990029,
-        "Y7 p deck",
-        absent=("G5 p deck", "G5 d deck"),
+        "G5 p deck",
+        absent=("G5 d deck",),
     ),
     EvaluatorCase(
-        "ply 36: independently confirm B10 over Y10",
+        "ply 36: visible-hand planner chooses B10 over Y10",
         "ui_seed725402798_p36.state",
         990036,
         "B10 p deck",
@@ -87,7 +95,7 @@ EVALUATOR_CASES = (
         "ply 40: block unsafe dead-discard replacements",
         "ui_seed725402798_p40.state",
         991588,
-        "Y2 d deck",
+        "W10 p deck",
         blocked=("W2 d deck",),
         not_blocked=("R2 d deck",),
     ),
@@ -97,6 +105,35 @@ EVALUATOR_CASES = (
         991442,
         "Y9 p deck",
         absent=("G5 d deck",),
+    ),
+    EvaluatorCase(
+        "showcase ply 59: one-sided B wager plus useful R pickup",
+        "showcase_5726968372613385_p59.state",
+        990059,
+        "Bx d R",
+        not_blocked=("Bx d R",),
+        status_contains=("confirmation: 16384 worlds, passed",),
+        exact_candidates=("Y2 p deck", "Bx d R"),
+        primary_cap=16384,
+        min_primary_worlds=1000,
+        confirmation_worlds=16384,
+    ),
+    EvaluatorCase(
+        "showcase ply 61: one-sided B wager correction confirms",
+        "showcase_5726968372613385_p61.state",
+        990061,
+        "Bx d R",
+        status_contains=("confirmation: 16384 worlds, passed",),
+        primary_cap=16384,
+        min_primary_worlds=1000,
+        confirmation_worlds=16384,
+    ),
+    EvaluatorCase(
+        "showcase ply 96: finish through the last deck card",
+        "showcase_5726968372613385_p96.state",
+        990096,
+        "G9 p deck",
+        status_contains=("worlds: 0/1000",),
     ),
 )
 
@@ -190,6 +227,48 @@ def run_evaluator_case(case: EvaluatorCase) -> None:
             f"{case.name}: expected only {case.selected!r} selected, got "
             f"{selected!r}"
         )
+    if case.exact_candidates:
+        actual = tuple(" ".join(line.split()[:3]) for line in rows)
+        if actual != case.exact_candidates:
+            raise AssertionError(
+                f"{case.name}: expected exactly {case.exact_candidates!r}, "
+                f"got {actual!r}"
+            )
+    status_match = re.search(
+        r"worlds: (\d+)/(\d+).*confirmation: (\d+) worlds",
+        result.stdout,
+    )
+    if (
+        case.primary_cap
+        or case.min_primary_worlds
+        or case.confirmation_worlds
+    ):
+        if status_match is None:
+            raise AssertionError(f"{case.name}: missing world-count status")
+        primary, cap, confirmation = map(int, status_match.groups())
+        if case.primary_cap and cap != case.primary_cap:
+            raise AssertionError(
+                f"{case.name}: expected primary cap {case.primary_cap}, "
+                f"got {cap}"
+            )
+        if case.min_primary_worlds and primary < case.min_primary_worlds:
+            raise AssertionError(
+                f"{case.name}: primary stopped at {primary}, below required "
+                f"{case.min_primary_worlds}"
+            )
+        if (
+            case.confirmation_worlds
+            and confirmation != case.confirmation_worlds
+        ):
+            raise AssertionError(
+                f"{case.name}: expected {case.confirmation_worlds} "
+                f"confirmation worlds, got {confirmation}"
+            )
+    for status in case.status_contains:
+        if status not in result.stdout:
+            raise AssertionError(
+                f"{case.name}: missing evaluator status {status!r}"
+            )
     for move in case.absent:
         if any(line.startswith(move) for line in rows):
             raise AssertionError(
@@ -197,15 +276,15 @@ def run_evaluator_case(case: EvaluatorCase) -> None:
             )
     for move in case.blocked:
         line = next((row for row in rows if row.startswith(move)), None)
-        if line is None or " blocked " not in f" {line} ":
+        if line is None or " discard " not in f" {line} ":
             raise AssertionError(
                 f"{case.name}: expected {move!r} to be guard-blocked"
             )
     for move in case.not_blocked:
         line = next((row for row in rows if row.startswith(move)), None)
-        if line is None or " blocked " in f" {line} ":
+        if line is None or " discard " in f" {line} ":
             raise AssertionError(
-                f"{case.name}: safe cross-suit discard {move!r} was blocked"
+                f"{case.name}: expected {move!r} to remain guard-clear"
             )
 
 

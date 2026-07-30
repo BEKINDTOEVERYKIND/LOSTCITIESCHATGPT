@@ -19,7 +19,16 @@ enum {
     SEARCH_SKIP_PLY_WINDOW,
     SEARCH_SKIP_DECK_PHASE,
     SEARCH_SKIP_POLICY_CONFIDENCE,
-    SEARCH_SKIP_ROOT_FOCUS
+    SEARCH_SKIP_ROOT_FOCUS,
+    SEARCH_SKIP_VISIBLE_PLAN,
+    SEARCH_SKIP_LAST_DECK
+};
+
+enum {
+    SEARCH_METRIC_ROLLOUT = 0,
+    SEARCH_METRIC_NETWORK_VALUE,
+    SEARCH_METRIC_VISIBLE_PLAN,
+    SEARCH_METRIC_LAST_DECK_RULE
 };
 
 typedef struct {
@@ -29,6 +38,18 @@ typedef struct {
     int max_worlds;         /* configured cap                                */
     int resolved;           /* highest mean clears the paired confidence bar */
     int raw_best;           /* index of highest mean in mv/q                 */
+    int policy_top;         /* index of the unmodified network-policy leader */
+    int planned_baseline;   /* candidate zero came from the exact scheduler  */
+    int deck_end_baseline;  /* candidate zero came from the one-card deck
+                               dominance rule                                */
+    int semantic_candidates; /* targeted non-prefix candidates actually added */
+    int metric_kind;        /* SEARCH_METRIC_* meaning of q[]               */
+    int planner_turns;      /* own visible-card turns used by scheduler      */
+    int planner_score;      /* best guaranteed current-hand score            */
+    int planner_policy_score; /* score after spending this turn on policy top */
+    int planner_regret;     /* planner_score - planner_policy_score          */
+    int planner_policy_block; /* unseen lower-card value policy would close  */
+    int planner_selected_block; /* same cost for selected schedule move      */
     int skip_reason;        /* SEARCH_SKIP_* when worlds == 0                */
     int confirmed;          /* a non-policy override passed an independent
                                stochastic continuation check                  */
@@ -38,9 +59,9 @@ typedef struct {
     double visits[MAX_MOVES];
     double q[MAX_MOVES];   /* mean selection objective, mover's view */
     double se[MAX_MOVES];  /* standard error of each candidate's own mean */
-    double delta[MAX_MOVES]; /* paired difference against policy candidate 0 */
+    double delta[MAX_MOVES]; /* paired difference against deployed baseline 0 */
     double dse[MAX_MOVES];   /* SE of that paired difference                 */
-    double cdelta[MAX_MOVES]; /* fresh stochastic paired difference vs policy */
+    double cdelta[MAX_MOVES]; /* fresh paired difference vs deployed baseline */
     double cdse[MAX_MOVES];   /* SE of cdelta                                 */
     uint8_t pqualified[MAX_MOVES]; /* passed the primary significance gates   */
     uint8_t csupported[MAX_MOVES]; /* candidate passed both independent gates */

@@ -162,11 +162,15 @@ static const char *search_status(const SearchStats *ss, Move recommended)
             return "skipped_deck_phase";
         if (ss->skip_reason == SEARCH_SKIP_ROOT_FOCUS)
             return "reduced_by_root_focus";
+        if (ss->skip_reason == SEARCH_SKIP_VISIBLE_PLAN)
+            return "selected_by_visible_plan";
+        if (ss->skip_reason == SEARCH_SKIP_LAST_DECK)
+            return "selected_by_last_deck_rule";
         return "skipped_policy_confidence";
     }
     if (ss->confirmed && ss->n > 0 &&
         !move_eq(ss->mv[0], recommended))
-        return "supported_policy_override";
+        return "supported_baseline_override";
     if (search_guard_blocked(ss))
         return "blocked_by_discard_guard";
     if (ss->confirm_worlds > 0)
@@ -177,6 +181,16 @@ static const char *search_status(const SearchStats *ss, Move recommended)
         move_eq(ss->mv[ss->raw_best], recommended))
         return "resolved";
     return "resolved_below_action_threshold";
+}
+
+static const char *search_metric(const SearchStats *ss)
+{
+    switch (ss->metric_kind) {
+    case SEARCH_METRIC_NETWORK_VALUE: return "network_state_value";
+    case SEARCH_METRIC_VISIBLE_PLAN: return "visible_hand_guarantee";
+    case SEARCH_METRIC_LAST_DECK_RULE: return "last_deck_rule";
+    default: return "rollout_objective";
+    }
 }
 
 static void j_search_rows(FILE *fp, const SearchStats *ss, Move played,
@@ -196,9 +210,10 @@ static void j_search_rows(FILE *fp, const SearchStats *ss, Move played,
         int k = order[i];
         j_move_open(fp, ss->mv[k]);
         fprintf(fp, ",\"q\":%.3f,\"q_se\":%.3f,"
-                    "\"delta_vs_policy\":%.3f,\"delta_se\":%.3f,"
+                    "\"delta_vs_baseline\":%.3f,\"delta_se\":%.3f,"
                     "\"policy_prob\":%.6f,\"visits\":%.0f,"
-                    "\"played\":%s,\"policy_top\":%s,\"retained\":%s,"
+                    "\"played\":%s,\"baseline\":%s,"
+                    "\"policy_top\":%s,\"retained\":%s,"
                     "\"highest_mean\":%s,\"confirmed_best\":%s,"
                     "\"primary_pass\":%s,"
                     "\"confirmation_delta\":%.3f,"
@@ -209,6 +224,7 @@ static void j_search_rows(FILE *fp, const SearchStats *ss, Move played,
                 ss->prior[k], ss->visits[k],
                 move_eq(ss->mv[k], played) ? "true" : "false",
                 k == 0 ? "true" : "false",
+                k == ss->policy_top ? "true" : "false",
                 move_eq(ss->mv[k], recommended) ? "true" : "false",
                 k == ss->raw_best ? "true" : "false",
                 ss->csupported[k] && move_eq(ss->mv[k], recommended)
@@ -235,7 +251,7 @@ int main(int argc, char **argv)
 {
     const char *actor_spec = LC_CHAMPION_AGENT_SPEC;
     const char *eval_spec =
-        "rolloutu:data/champion.bin:1000:4:0.01:0.995:2:20:0:0:2:0:1.96:1:2:20:0.995:0:20:1:0:1000:1";
+        "rolloutu:data/champion.bin:2048:4:0.01:0.995:2:20:0:0:2:0:3.5:1:2:20:0.995:0:20:1:0:2048:1:16:12:1";
     uint64_t seed = 1;
     int rounds = MATCH_ROUNDS;
     float belief_alpha = 1.15f;
@@ -438,9 +454,10 @@ int main(int argc, char **argv)
         fprintf(pf, ",\"search\":");
         j_search_rows(pf, &ss, played, recommended);
 
-        Move actor_policy_move =
+        Move actor_policy_move = pmv[ord[0]];
+        Move actor_baseline_move =
             actor.kind == AG_ROLLOUT && actor_ss.n > 0
-                ? actor_ss.mv[0] : pmv[ord[0]];
+                ? actor_ss.mv[0] : actor_policy_move;
         fprintf(pf, ",\"actor_decision\":{\"method\":\"%s\","
                     "\"used_to_choose\":%s,\"searched\":%s,"
                     "\"status\":\"%s\",\"worlds\":%d,\"max_worlds\":%d,"
@@ -449,6 +466,13 @@ int main(int argc, char **argv)
                     "\"policy_floor\":%.6f,\"min_candidates\":%d,"
                     "\"continuation_policy\":\"%s\","
                     "\"continuation_symmetries\":%d,"
+                    "\"evaluation_kind\":\"%s\","
+                    "\"baseline_source\":\"%s\","
+                    "\"planner\":{\"deck_max\":%d,\"block_gap\":%d,"
+                    "\"turns\":%d,\"guaranteed_score\":%d,"
+                    "\"policy_score\":%d,\"policy_regret\":%d,"
+                    "\"policy_block_cost\":%d,\"selected_block_cost\":%d},"
+                    "\"semantic_candidates\":%d,"
                     "\"confirmation\":{\"required\":%s,\"passed\":%s,"
                     "\"worlds\":%d,\"configured_worlds\":%d},"
                     "\"policy_move\":",
@@ -476,6 +500,23 @@ int main(int argc, char **argv)
                             : "exact_ensemble_argmax"))
                     : "none",
                 actor.kind == AG_ROLLOUT ? actor.playout_symmetries : 0,
+                actor.kind == AG_ROLLOUT
+                    ? search_metric(&actor_ss) : "network_state_value",
+                actor.kind == AG_ROLLOUT && actor_ss.planned_baseline
+                    ? "visible_hand_scheduler"
+                    : (actor.kind == AG_ROLLOUT &&
+                       actor_ss.deck_end_baseline
+                        ? "last_deck_dominance" : "network_policy"),
+                actor.kind == AG_ROLLOUT ? actor.plan_deck_max : 0,
+                actor.kind == AG_ROLLOUT ? actor.plan_block_gap : 0,
+                actor.kind == AG_ROLLOUT ? actor_ss.planner_turns : 0,
+                actor.kind == AG_ROLLOUT ? actor_ss.planner_score : 0,
+                actor.kind == AG_ROLLOUT ? actor_ss.planner_policy_score : 0,
+                actor.kind == AG_ROLLOUT ? actor_ss.planner_regret : 0,
+                actor.kind == AG_ROLLOUT ? actor_ss.planner_policy_block : 0,
+                actor.kind == AG_ROLLOUT ? actor_ss.planner_selected_block : 0,
+                actor.kind == AG_ROLLOUT
+                    ? actor_ss.semantic_candidates : 0,
                 actor.kind == AG_ROLLOUT && actor.override_k > 0.0f
                     ? "true" : "false",
                 actor.kind == AG_ROLLOUT && actor_ss.confirmed
@@ -483,6 +524,8 @@ int main(int argc, char **argv)
                 actor.kind == AG_ROLLOUT ? actor_ss.confirm_worlds : 0,
                 actor.kind == AG_ROLLOUT ? actor.confirm_dets : 0);
         j_move_open(pf, actor_policy_move);
+        fprintf(pf, "},\"baseline_move\":");
+        j_move_open(pf, actor_baseline_move);
         fprintf(pf, "},\"selected\":");
         j_move_open(pf, played);
         fprintf(pf, "},\"candidates\":");
@@ -509,6 +552,13 @@ int main(int argc, char **argv)
                     "\"continuation_dead_discard_focus\":%s,"
                     "\"challenger_discard_guard\":%s,"
                     "\"deck_max\":%d,"
+                    "\"evaluation_kind\":\"%s\","
+                    "\"planner\":{\"deck_max\":%d,\"block_gap\":%d,"
+                    "\"turns\":%d,\"guaranteed_score\":%d,"
+                    "\"policy_score\":%d,\"policy_regret\":%d,"
+                    "\"policy_block_cost\":%d,\"selected_block_cost\":%d},"
+                    "\"semantic_candidates\":%d,"
+                    "\"baseline_source\":\"%s\","
                     "\"confirmation\":{\"required\":%s,"
                     "\"passed\":%s,\"worlds\":%d,\"configured_worlds\":%d,"
                     "\"continuation\":\"random_symmetry_argmax\"}}",
@@ -544,6 +594,20 @@ int main(int argc, char **argv)
                     ? "true" : "false",
                 evaluator.discard_guard ? "true" : "false",
                 evaluator.deck_max,
+                search_metric(&ss),
+                evaluator.plan_deck_max,
+                evaluator.plan_block_gap,
+                ss.planner_turns,
+                ss.planner_score,
+                ss.planner_policy_score,
+                ss.planner_regret,
+                ss.planner_policy_block,
+                ss.planner_selected_block,
+                ss.semantic_candidates,
+                ss.planned_baseline
+                    ? "visible_hand_scheduler"
+                    : (ss.deck_end_baseline
+                        ? "last_deck_dominance" : "network_policy"),
                 evaluator.override_k > 0.0f ? "true" : "false",
                 ss.confirmed ? "true" : "false",
                 ss.confirm_worlds, evaluator.confirm_dets);

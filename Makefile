@@ -8,12 +8,14 @@ DATA    := data
 
 HDRS    := $(wildcard $(SRC)/*.h)
 CORE    := $(SRC)/lc.c $(SRC)/features.c $(SRC)/net.c $(SRC)/heuristic.c \
-           $(SRC)/search.c $(SRC)/rollout.c $(SRC)/agent.c $(SRC)/match.c $(SRC)/spec.c
+           $(SRC)/planner.c $(SRC)/search.c $(SRC)/rollout.c $(SRC)/agent.c \
+           $(SRC)/match.c $(SRC)/spec.c
 
 all: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/arena $(BIN)/train \
 	$(BIN)/bench $(BIN)/probe $(BIN)/rl $(BIN)/ladder $(BIN)/play \
 	$(BIN)/showgame $(BIN)/dumpfeat $(BIN)/analyze $(BIN)/searchcmp \
 	$(BIN)/qpair $(BIN)/mine $(BIN)/robust_distill $(BIN)/symmetrize \
+	$(BIN)/history_belief $(BIN)/planprobe $(BIN)/planarena \
 	$(DATA)/champion.bin
 
 $(BIN):
@@ -41,11 +43,14 @@ test: $(BIN)/test_engine $(BIN)/test_runtime $(DATA)/champion.bin
 audit-test: $(BIN)/qpair $(DATA)/champion.bin
 	python3 tools/audit_regression.py
 
+history-belief-test: $(BIN)/history_belief $(DATA)/champion.bin
+	python3 -m unittest tests/test_history_belief.py
+
 clean:
 	rm -rf $(BIN)
 	rm -f $(DATA)/champion.bin
 
-.PHONY: all test audit-test clean
+.PHONY: all test audit-test history-belief-test clean
 
 $(BIN)/probe: tools/probe.c $(CORE) $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
@@ -78,6 +83,15 @@ $(BIN)/mine: tools/mine.c $(CORE) $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
 
 $(BIN)/robust_distill: tools/robust_distill.c $(CORE) $(HDRS) | $(BIN)
+	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
+
+$(BIN)/history_belief: tools/history_belief.c $(CORE) $(HDRS) | $(BIN)
+	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
+
+$(BIN)/planprobe: tools/planprobe.c $(CORE) $(HDRS) | $(BIN)
+	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
+
+$(BIN)/planarena: tools/planarena.c $(CORE) $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
 
 $(BIN)/symmetrize: tools/symmetrize.c $(SRC)/net.c $(SRC)/features.c \

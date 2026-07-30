@@ -220,7 +220,8 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "-H") && i + 1 < argc) holdcard = argv[++i];
         else if (!strcmp(argv[i], "-c") && i + 1 < argc && ncand < MAXC) cand_str[ncand++] = argv[++i];
         else {
-            fprintf(stderr, "usage: %s -n NET -s SEED -f MOVES -p PLY "
+            fprintf(stderr, "usage: %s -n NET -s SEED "
+                    "(-f MOVES -p PLY | -S STATE) "
                     "[-w WORLDS] [-T temp] [-A contspec] [-U] "
                     "[-y trajectory_symmetries] "
                     "[-E rollout_spec | -c \"CARD p|d DRAW\" [-c ...]]\n",
@@ -303,8 +304,8 @@ int main(int argc, char **argv)
         printf("worlds: %d/%d  raw_resolved: %s  confirmation: %d worlds, %s\n",
                ss.worlds, ss.max_worlds, ss.resolved ? "yes" : "no",
                ss.confirm_worlds, ss.confirmed ? "passed" : "not passed");
-        printf("%-16s %8s %17s %8s %17s %8s %7s %8s\n",
-               "candidate", "prior", "primary delta", "p-pass",
+        printf("%-16s %8s %17s %8s %17s %8s %9s %8s\n",
+               "candidate", "prior", "delta vs base", "p-pass",
                "confirm delta", "c-pass", "guard", "selected");
         for (int i = 0; i < ss.n; i++) {
             char card[8], move[20], draw[8];
@@ -317,12 +318,12 @@ int main(int argc, char **argv)
             snprintf(move, sizeof move, "%s %c %s", card,
                      ss.mv[i].discard ? 'd' : 'p', draw);
             printf("%-16s %8.4f %+7.2f +- %-6.2f %8s "
-                   "%+7.2f +- %-6.2f %8s %7s %8s\n",
+                   "%+7.2f +- %-6.2f %8s %9s %8s\n",
                    move, ss.prior[i], ss.delta[i], ss.dse[i],
                    ss.pqualified[i] ? "yes" : "no",
                    ss.cdelta[i], ss.cdse[i],
                    ss.csupported[i] ? "yes" : "no",
-                   ss.guard_rejected[i] ? "blocked" : "-",
+                   ss.guard_rejected[i] ? "discard" : "-",
                    MOVE_PACK(ss.mv[i]) == MOVE_PACK(selected) ? "yes" : "");
         }
         free((void *)evaluator.net);

@@ -11,28 +11,40 @@ unchanged.
 
 ## Current status
 
-The strongest validated playing agent uses the exact 20-way champion policy
-directly before round ply 20, then a conservative uniform-world rollout over
-only its top four policy moves:
+The maintained playing agent uses the exact 20-way champion policy and a
+focused uniform-world rollout over a policy-ranked shortlist from round ply 20:
 
 ```text
 rolloutu:data/champion.bin:512:4:0.02:0:1:20:0:0:0:0:3.5:2:2:20:0:0:20:1:0:512:1
 ```
 
-Against the policy alone on a fresh 200-pair holdout (400 complete
-three-round matches), this exact configuration scored **+14.70 ± 1.53 SE
-points per match** and **56.5% ± 1.5% SE match score** (225 wins, 173 losses,
-2 draws). Approximate 95% intervals are +11.70 to +17.70 points and 53.6% to
-59.4%. The comparison is expensive but comfortably clears both zero-margin
-and 50%-score baselines. `play`, `showgame`, `analyze`, and the replay
-generator now use this configuration by default.
+This locked late-round rollout scored
+**+14.70 ± 1.53 SE points per match** and **56.5% ± 1.5% SE match score**
+against policy alone on a fresh 200-pair holdout (400 complete three-round
+matches). The exact one-card-deck weak-dominance rule is included directly:
+after the same card action, drawing the last deck card ends the round instead
+of gifting the opponent another optional turn.
+
+Independently, the optional visible-hand scheduler scored **+2.38 ± 0.33 SE
+points per match** and **51.9% ± 0.4% SE match score** against the raw
+exact-20 policy over 2,000 fresh mirrored pairs. It and the narrowly targeted
+semantic candidates are available to the post-hoc evaluator, but combined
+screens did not establish an additive gain over the locked rollout actor.
+Planner-only was +1.60 ± 5.34 points in a direct 20-pair screen against the
+locked actor; the full planner+semantic tail was -6.06 ± 4.36 over 40 pairs.
+They are therefore not silently enabled for live play. `play`, `showgame`,
+`analyze`, and the replay generator use the measured configuration above;
+`analyze` separately labels its higher-compute review recommendations.
 
 The [interactive match observatory](https://lost-cities-ai-match.juliandelphiki.chatgpt.site)
-contains one unscreened random self-play match from this exact agent (seed
-5726968372613385, generated once with no retry or result selection). It keeps
-the actual playing-search decision separate from a deeper post-game audit and
-shows the policy shortlist, paired uncertainty, independent confirmation,
-guard status, and experimental hand estimate at every move.
+retains one unscreened random self-play match generated once under this actor
+(seed 5726968372613385, with no retry or result selection).
+Its deals and 144-move trajectory have not been changed to make the new method
+look better. The offline decision review and hand estimates were upgraded
+against those same frozen positions. The viewer keeps the historical action
+separate from the current post-game audit and shows the focused shortlist,
+paired uncertainty, independent confirmation, guard status, and experimental
+hand estimate at every move.
 
 Its underlying network, `data/champion.bin`, combines an exactly
 wager-symmetric projection of the strongest inherited checkpoint with
@@ -88,6 +100,7 @@ src/lc.[ch]         rules engine: state, move generation, scoring, match context
 src/features.[ch]   information-set encoding (666 inputs, sparse + dense)
 src/net.[ch]        three-headed network, forward/backward, Adam, save/load
 src/heuristic.[ch]  hand-crafted projection evaluation (baseline, bootstrap)
+src/planner.[ch]    exact scheduling of cards already visible in one hand
 src/search.[ch]     determinized MCTS with network priors and values
 src/rollout.c       rollout policy improvement over belief-sampled worlds
 src/agent.[ch]      move-selection policies; belief-weighted determinization
@@ -99,6 +112,8 @@ tools/arena.c       head-to-head matches with error bars (-r 3 for full matches)
 tools/ladder.c      round robin with fitted Elo
 tools/analyze.c     per-ply JSON dump: state, values, policy, search, beliefs
 tools/qpair.c       paired rollout Q for any named moves at a replayed position
+tools/history_belief.py actor-aware offline hand posterior from scrubbed history
+tools/planarena.c   isolated mirrored evaluation of the visible-hand scheduler
 tools/robust_distill.c conservative confirmed-correction residual trainer
 tools/referee.py    numpy port of engine+net, verified to ~1e-6 against the C
 tools/dumpfeat.c    parity reference dumper for the referee
@@ -139,6 +154,22 @@ samples hidden hands from the uniform card-count prior, so questionable belief
 calibration cannot distort its Q comparisons. Learned-world rollout and MCTS
 remain available for research, but their playing-strength measurements must be
 rerun after the fixed-cardinality sampler change.
+
+For offline review, `tools/history_belief.py` also provides an actor-aware
+posterior. It reconstructs only the observer's original hand, public actions,
+and that observer's own deck draws, then rejection-samples deals whose visible
+action prefix is plausible under the frozen actor. The perspective-scrubbed
+wire format never contains the opponent's hidden cards or future draws. On the
+preserved showcase at ply 4, 100,000 proposals produced 4,433 accepted worlds:
+Y4 was estimated at 21.93%, Y9 at 22.94%, and Y10 at 22.96%. That fixes the
+obvious old inversion in which Y4 led while Y9/Y10 fell off the displayed
+list, without pretending the three yellow ranks should be far apart. This is
+an offline actor-conditioned diagnostic, not an input to the playing actor.
+Version
+1 accepts only a provably deterministic raw-policy prefix and rejects
+temperature sampling, rollout decisions, or planner/semantic-enabled actors
+rather than silently assigning them the wrong likelihood. It also verifies
+that the inference checkpoint is byte-identical to the recorded actor model.
 
 **Match play, not just round play.** The network's inputs include the round
 number and the cumulative score difference. Training is staged: early PPO
@@ -256,30 +287,54 @@ rollout continues to use uniform fixed-card-count worlds.
 
 Early low-compute experiments established that policy confidence alone is not
 a reliable phase gate. The maintained agent instead uses a round-ply cutoff
-selected by direct match play: policy only for plies 0–19, rollout thereafter.
-At each searched position it admits only policy moves with at least 2% prior,
-with a hard cap of four. It spends 512 shared hidden worlds on the primary
-comparison. A challenger must clear a family-wise 3.5-SE test and a two-point
-practical floor, then repeat on 512 independently seeded worlds before it may
-replace the policy leader. A one-candidate shortlist skips continuation
-forwards entirely while consuming the same hidden-world RNG stream, so it
-cannot change later deals or decisions.
+selected by direct match play: ordinary rollout is off for plies 0–19 and on
+thereafter. At each searched position it starts from policy moves with at
+least 2% prior, with a hard cap of four. It spends 512 shared hidden worlds on
+the primary comparison. A challenger must clear a family-wise 3.5-SE test and
+a two-point practical floor, then repeat on 512 independently seeded worlds
+before it may replace the deployed baseline.
 
-The exact production configuration was locked before its fresh holdout:
+The optional research tail `:16:12:1` adds two focused,
+information-set-respecting layers. With
+at most 16 deck cards, an exact subset scheduler computes the best guaranteed finish
+from the current visible hand and may reorder commuting first plays only when
+it preserves at least 12 points of still-unseen lower-card options. If the
+policy's first play is not part of any best guaranteed schedule, a
+conservative regret guard replaces it only when spending that turn loses at
+least two already-secured points. Separately, semantic mode considers a small
+number of purposeful pile draws attached to one of the top three
+card/disposition actions, plus a one-sided isolated wager discard when the
+opponent cannot score it directly. That discard is not assumed safe: the
+opponent can still pick it up to stall. In post-hoc review outside the
+ordinary search window it
+is evaluated only against the deployed baseline, not alongside the top four,
+and receives a primary cap plus a fresh confirmation batch of 16,384 worlds.
+Only support from both batches can supersede the generic discard guard. This
+does not evaluate the Cartesian product of legal plays and draw sources. A
+one-candidate shortlist still skips continuation forwards entirely. This
+tail remains an audit/component configuration until it beats the maintained
+actor in a new locked direct test.
+
+The maintained late-round rollout configuration was locked before its fresh
+holdout:
 
 | comparison | mirrored pairs | margin/match | match score |
 | --- | ---: | ---: | ---: |
 | rollout from round ply 20 vs policy alone, seed 950005 | 200 | **+14.70 ± 1.53 SE** | **56.5% ± 1.5% SE** |
 
-This is why rollout is now an actual decision-maker late in each round, not
-merely a UI diagnostic. Search remains off in the early game: phase screens
-did not justify its compute there, the horizon is longest there, and the
-human-reviewed failures showed that more worlds can make a biased
-continuation estimate more confidently wrong.
+This is why rollout remains an actual decision-maker late in each round, not
+merely a UI diagnostic. Broad search remains off in the early game: phase
+screens did not justify its compute there, the horizon is longest there, and
+the human-reviewed failures showed that more worlds can make a biased
+continuation estimate more confidently wrong. The post-hoc audit's
+one-sided-wager trigger is a specific public-information probe, not a general
+reversal of that result or an unmeasured live-play override.
 
-**The candidate floor cuts both ways.** Candidates come from the policy, and
-moves below a 2% prior are pruned -- so when the policy is *certain*, the
-"search" has one candidate and can only confirm it, never overrule it. A
+**The candidate floor cuts both ways.** Ordinary candidates come from the
+policy, and moves below a 2% prior are pruned. Semantic mode adds only the few
+rule-derived variants described above; it never opens every legal move.
+Without one of those public-information signals, a near-certain policy can
+still leave search with one candidate and no way to overrule it. A
 replayed position made this concrete: the policy put 100% on a discard, and a
 paired re-evaluation (tools/qpair.c, 4000 shared worlds) showed a wager it
 had written off was better -- +2.9 ± 0.6 with the net that played the game
@@ -320,11 +375,15 @@ shorter, more accurately evaluated horizons.
 
 **The search reports its own noise.** Every reported Q carries its own
 standard error plus the paired-difference standard error against the policy
-leader. The deep audit uses 1,000 primary worlds and runs a separate
-1,000-world confirmation only for a qualifying challenger; the playing agent
-uses 512 + optional 512. In the final round the dump also reports each candidate's match
-win fraction over the playouts (the last round decides the match exactly,
-so point EV stops being the objective there). Selecting by that win
+leader. A newly generated deep audit uses 2,048 primary worlds and runs a
+separate 2,048-world confirmation only for a qualifying challenger; the frozen
+showcase retains its original 1,000-world audit. The playing agent
+uses 512 plus an optional 512. An urgent one-sided wager correction compares
+only that challenger with the deployed baseline, using up to 16,384 primary
+worlds and exactly 16,384 fresh confirmation worlds. In the final round the
+dump also reports each candidate's match win fraction over
+the playouts (the last round decides the match exactly, so point EV stops
+being the objective there). Selecting by that win
 fraction is available (`win_q`) but off by default, because it measured no
 better than margin selection -- 50.4% ± 0.8% match wins pooled over 2,000
 head-to-head pairs (a 300-pair run at 48.0% ± 2.0% and a 1,700-pair
@@ -334,6 +393,38 @@ noisy binomial estimate, and the win-trained policy already carries the
 clutch behaviour into every playout. The same lesson as the candidate
 floor, from the other direction: at fixed compute, the statistically
 efficient objective beats the theoretically right one.
+
+**Frozen showcase checks.** The detailed review uses the original random
+trajectory, not a regenerated match. At ply 7, three independent high-world
+continuation families agreed that play G5 and play W5 are effectively tied:
+their pooled exact-policy estimates were 29.49 ± 0.38 and 29.60 ± 0.39,
+with W5 only +0.11 ± 0.35 over G5. Premature Y4 was decisively worse at
+7.63 ± 0.37, or -21.86 ± 0.40 against G5. The correct conclusion is that the
+original G5 is defensible, W5 is equally plausible, and Y4 is not.
+
+The focused one-sided-wager trigger corrects two later reviewed positions
+without opening the whole move list. Under the production 16,384-world path,
+discard Bx then take R beat the deployed baseline at ply 59 by
++5.16 ± 0.40 in the primary audit and +4.77 ± 0.40 in fresh confirmation.
+At ply 61 it measured +4.26 ± 0.39 and +4.04 ± 0.40 respectively. The frozen
+viewer also retains the earlier, directionally matching 4,096-world ply-59
+analysis rather than rewriting the historical artifact.
+With one deck card left at ply 96, the exact rule
+chooses the same play followed by a deck draw: ending the round weakly
+dominates taking a pile and gifting the opponent another turn. These are
+specific validated corrections, not evidence that every rollout estimate is
+now reliable.
+
+Two reviewed blind spots remain explicit. At ply 17, forcing a 4,096-world
+comparison still favored play R8; discard B5 then take R measured
+-2.20 ± 0.73 against it under the current continuation model. Broad rollout
+therefore stays off before its validated late-round window instead of turning
+that biased estimate into a confident override. At ply 25, the semantic
+generator now admits taking Bx, but uniform-world rollout still rejected it
+(-5.52 ± 0.58 in the locked audit). Conditioning hidden worlds on the
+opponent's public behavior moves that estimate substantially, but not yet
+enough for a stable playing rule; it remains a belief/continuation-training
+target rather than a hand-authored correction.
 
 **Dead-discard pruning was tested upstream** and measured strength-neutral
 over 300 pairs. It is now off by default: the replacement can cover a
@@ -385,13 +476,17 @@ move. Independent confirmation uses this mode as well, so it perturbs
 symmetry-sensitive discontinuities without changing the evaluated player
 into a much weaker high-entropy policy.
 
-The strongest validated default is the round-ply-20 rollout actor printed at
-the top of this README. Objective mode `2` remains available for research and
-uses round margin in rounds 0/1 plus the champion's `0.05 × final match margin
-+ 50 × result` return only in real round index 2. The measured production
-actor uses objective mode `0`; changing the objective would require another
-locked strength test. The maintained high-compute post-hoc audit spec is
-printed into every analysis artifact by `tools/analyze`.
+The maintained default is the measured round-ply-20 rollout actor printed at
+the top of this README. The scheduler and semantic challenger generator remain
+enabled in the explicitly labelled post-hoc evaluator and component tools,
+not in live play. Objective mode `2` remains available for research and uses
+round margin in rounds 0/1 plus
+the champion's `0.05 × final match margin + 50 × result` return only in real
+round index 2. The measured production actor uses objective mode `0`;
+changing the objective would require another locked strength test. The
+last-round-only win objective is intentionally preserved. The maintained
+high-compute post-hoc audit spec is printed into every analysis artifact by
+`tools/analyze`.
 
 ## Reproducing
 
@@ -430,11 +525,13 @@ make audit-test   # slow locked checks for the reviewed UI positions
 
 The analysis console replays a match ply by ply: board, both hands (marked
 where publicly known), the policy distribution, actual playing-search
-decision, independent post-hoc Q values for only the top four policy moves,
-the experimental fixed-cardinality hand estimate next to omniscient truth,
-and the value trajectory. It distinguishes the numerical
+decision, and independent post-hoc Q values for the focused top-policy
+shortlist plus any rule-derived semantic challenger. It does not score every
+legal move. The experimental fixed-cardinality and actor-history hand
+estimates sit next to omniscient truth only for retrospective calibration,
+along with the value trajectory. The UI distinguishes the numerical
 leader from a supported policy correction. A correction must clear a
-family-wise discovery test and then repeat on 1,000 freshly seeded worlds;
+family-wise discovery test and then repeat on 2,048 freshly seeded worlds;
 unresolved gaps never receive an “audit pick” label. Recorded deck draws are
 explicitly marked as future information unavailable at decision time.
 
@@ -444,10 +541,12 @@ belief ablation), `mcts:PATH[...]`, and `net:PATH`. The complete rollout tail
 is `worlds:candidates:floor:gate:min_candidates:ply_lo:ply_hi:eval_candidates:`
 `objective:prune:override_k:override_min:sample:symmetries:policy_mass:`
 `batch_worlds:playout_symmetries:discard_guard:deck_max:confirm_worlds:`
-`playout_prune`; objective is
+`playout_prune:plan_deck_max:plan_block_gap:semantic_candidates`; objective is
 `0` for round margin, `1` for pure final-round match result, or `2` for the
 champion hybrid. Continuation mode `0` is exact-group greedy, `1` is the
 random-group/full-policy-sampling ablation, and `2` is random-group greedy.
+The maintained actor omits the optional tail. The post-hoc review tail is
+`:16:12:1`; `:0:0:0` disables all three additions explicitly.
 Supported symmetry modes are `1`, `5`, `10`, `20`, and `120`.
 
 All matches are paired: every deal (all three of them, in match mode) is

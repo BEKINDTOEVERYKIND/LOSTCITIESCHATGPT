@@ -70,9 +70,14 @@ void spec_parse(const char *spec, Agent *a)
             if ((v = strtok_r(NULL, ":", &save))) a->deck_max = atoi(v);
             if ((v = strtok_r(NULL, ":", &save))) a->confirm_dets = atoi(v);
             if ((v = strtok_r(NULL, ":", &save))) a->playout_prune = atoi(v);
+            if ((v = strtok_r(NULL, ":", &save))) a->plan_deck_max = atoi(v);
+            if ((v = strtok_r(NULL, ":", &save))) a->plan_block_gap = atoi(v);
+            if ((v = strtok_r(NULL, ":", &save))) a->semantic_cand = atoi(v);
         } else if (is_policy) {
             if ((v = strtok_r(NULL, ":", &save))) a->temp = (float)atof(v);
             if ((v = strtok_r(NULL, ":", &save))) a->symmetries = atoi(v);
+            if ((v = strtok_r(NULL, ":", &save))) a->plan_deck_max = atoi(v);
+            if ((v = strtok_r(NULL, ":", &save))) a->plan_block_gap = atoi(v);
         } else if (is_mcts) {
             if ((v = strtok_r(NULL, ":", &save))) a->dets = atoi(v);
             if ((v = strtok_r(NULL, ":", &save))) a->sims = atoi(v);

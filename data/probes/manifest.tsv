@@ -27,3 +27,14 @@ ui_R2_12	ui_seed2214615196_p12.state	2214615196	12	W4 p deck	W4 p R	human-review
 ui_belief_13	ui_seed2214615196_p13.state	2214615196	13	n/a	n/a	human-reviewed UI probe: fixed-K sym20 belief calibration
 ui_Y2_16	ui_seed2214615196_p16.state	2214615196	16	Y2 d deck	W7 p deck	human-reviewed UI probe: Y2 discard beats prematurely playing W7
 ui_W3_20	ui_seed2214615196_p20.state	2214615196	20	W3 d deck	W7 p deck	human-reviewed UI probe: W3 discard is audited and beats W7; Wx remains close
+showcase_belief_4	showcase_5726968372613385_p4.state	5726968372613385	4	n/a	n/a	actor-aware history posterior: high yellows must outrank the old learned Y4 estimate without hidden-card leakage
+showcase_choice_7	showcase_5726968372613385_p7.state	5726968372613385	7	G5 p deck	Y4 p deck	deep review: G5 and W5 are effectively tied; premature Y4 is decisively worse
+showcase_take_R4_17	showcase_5726968372613385_p17.state	5726968372613385	17	B5 d R	R8 p R	top-action draw interaction: taking R4 must be considered before held R8/R9
+showcase_take_Bw_25	showcase_5726968372613385_p25.state	5726968372613385	25	W6 p B	W6 p deck	public opponent pickup signal: taking the face-up blue wager must enter the focused shortlist
+showcase_third_Bw_32	showcase_5726968372613385_p32.state	5726968372613385	32	W10 p deck	Bx p deck	exact visible-hand planner rejects a score-losing third-wager commitment
+showcase_schedule_36	showcase_5726968372613385_p36.state	5726968372613385	36	W10 p deck	B6 p deck	commuting-sequence regression: planner preserves lower-card information and rollout must not invent a large ordering gap
+showcase_safe_Bw_59	showcase_5726968372613385_p59.state	5726968372613385	59	Bx d R	Y2 p deck	one-sided wager discard plus useful R-wager pickup; confirmed with 4096+4096 worlds
+showcase_safe_Bw_61	showcase_5726968372613385_p61.state	5726968372613385	61	Bx d R	Y4 p deck	one-sided wager discard; confirmed with 16384+16384 worlds
+showcase_schedule_85	showcase_5726968372613385_p85.state	5726968372613385	85	R10 p deck	W7 p deck	exact six-turn schedule: biased rollout may not undo the information-preserving baseline
+showcase_frontier_91	showcase_5726968372613385_p91.state	5726968372613385	91	W10 p deck	G10 p deck	delay G10 to retain the possible G9 insertion; safe tens beat the recorded green 10
+showcase_last_deck_96	showcase_5726968372613385_p96.state	5726968372613385	96	G9 p deck	G9 p W	with one deck card, ending the round weakly dominates granting the opponent another turn

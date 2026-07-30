@@ -52,6 +52,25 @@ take Yellow.”
   candidate slots.
 - Keep the optional dead-discard pruning heuristic off by default because it is
   not true state dominance.
+- Added an exact visible-hand scheduler. With at most 16 deck cards it
+  enumerates playable subsets of the current hand within the guaranteed
+  remaining turn budget, normalizes equivalent play orders, and prefers a
+  first play that leaves lower unseen cards insertable. The root correction is
+  deliberately conservative: it requires either a 12-point reduction in
+  blocked lower-card options or at least two points of visible-hand regret
+  from spending a turn on a policy move outside every best guaranteed plan.
+  It never reads a hidden card.
+- With one deck card left, replace a pile draw by the deck draw after the same
+  action. Ending the round weakly dominates granting the opponent another
+  optional scoring turn.
+- Added focused semantic rollout challengers rather than an exhaustive legal
+  move scan: useful face-up pile draws attached to one of the top three
+  card/disposition actions, and one one-sided isolated wager discard when the
+  opponent cannot score it directly. The discard is not presumed safe because
+  the opponent may still pick it up to stall. Outside the ordinary rollout
+  window it is compared alone with the baseline using a 16,384-world primary
+  cap plus 16,384 fresh confirmation worlds; ordinary broad early rollout
+  remains disabled.
 - Add rollout objective mode 2: round margin in rounds 0/1, then
   `0.05 * final match margin + 50 * result` only in actual round index 2.
   Candidate choice, uncertainty gates, sampled confirmation, reported Q, and
@@ -111,6 +130,13 @@ take Yellow.”
 - Analyzer belief dumps can now contain every uncertain card and the
   card-count prior. The evaluator reports within-state AUC, Brier score, log
   loss, top-hand-size recall, calibration error, and baseline lift.
+- Added perspective-scrubbed actor-history inference for offline review.
+  `tools/history_belief.py` passes only the observer's original hand, public
+  action prefix, and that observer's own deck draws to a deterministic
+  rejection worker. Hidden opponent cards and future draws never enter its
+  wire format. The v1 wrapper rejects stochastic, planner-adjusted, semantic,
+  or rollout-search prefixes that its raw-policy likelihood cannot model, and
+  hashes both checkpoints before accepting the recorded actor attribution.
 - Build all maintained tools from `make`; add cross-module regression tests
   and GCC/Clang plus sanitizer CI.
 - Updated working defaults to `data/champion.bin`; interactive policy defaults
@@ -195,9 +221,16 @@ instrument, not as a source of authoritative labels:
 
 - The actor, deals, and evaluator have independent deterministic RNG streams,
   so changing audit compute cannot change the recorded match.
-- Only the shortest top-policy prefix covering 99.5% mass is considered,
-  subject to a two-move minimum and four-move cap. Near-zero draw variants
-  are never forced into the audit.
+- Ordinary candidates are the shortest top-policy prefix covering 99.5% mass,
+  subject to a two-move minimum and four-move cap. Semantic mode may add only
+  a purposeful pile draw paired with one of the top three card/disposition
+  actions and one isolated wager discard that the opponent cannot score
+  directly.
+  This is a focused exception, not a scan of every legal move or draw variant.
+- At 16 or fewer deck cards, the exact visible-hand scheduler supplies the
+  deployed baseline when its conservative regret or lower-card-preservation
+  guard fires. A noisy continuation is not allowed to undo that exact
+  information-set-safe correction.
 - Hidden hands use the uniform card-count prior. The learned hand model is
   displayed separately and cannot bias Q.
 - Fast continuation evaluation no longer conflates suit randomization with
@@ -213,25 +246,34 @@ instrument, not as a source of authoritative labels:
 - Adaptive stopping uses a 3.5-SE family-wise guard. Every challenger is
   tested directly against the policy leader, so one biased numerical leader
   cannot hide a smaller real correction. Every discovery that qualifies must
-  then repeat on 1,000 fresh hidden worlds at 99% confidence. Otherwise the
-  result is explicitly inconclusive or failed confirmation.
+  then repeat on 2,048 fresh hidden worlds at 99% confidence in newly
+  generated analysis. Otherwise the
+  result is explicitly inconclusive or failed confirmation. The narrow early
+  one-sided-wager trigger instead compares exactly that candidate with the
+  baseline, using a 16,384-world primary cap and 16,384 fresh confirmation
+  worlds. Only support from both batches may supersede the generic discard
+  guard.
 
 The second human-reviewed match exposed the key distinction between variance
 and continuation-policy bias. Simply increasing the world count made several
-bad conclusions more certain. The corrected method instead (1) spends worlds
-only on the top four policy moves, (2) preserves a greedy continuation actor,
+bad conclusions more certain. The revised method instead (1) spends ordinary
+worlds only on the top-policy prefix, with narrowly defined semantic additions
+rather than all legal moves, (2) preserves a greedy continuation actor,
 (3) uses independent candidate-wise confirmation, and (4) keeps root and
 continuation pruning separate. At the locked positions, the green-start
-overrides at plies 21/23 disappear; low-prior green distractions at 25/29/31
-never enter the shortlist; and B10 at ply 36 is independently confirmed over
-Y10 (`+2.42 ± 0.34` discovery, `+1.48 ± 0.36` confirmation for the locked
-seed). Two additional seeds independently selected B10 as well.
+overrides at plies 21/23 disappear; low-prior green discards remain excluded;
+and B10 at ply 36 is independently confirmed over Y10 (`+2.42 ± 0.34`
+discovery, `+1.48 ± 0.36` confirmation for the locked seed). Two additional
+seeds independently selected B10 as well. With the later scheduler tail, one
+fifth-prior G5 *play* at ply 29 may enter as the single visible-plan
+challenger; the criticized G5 discard remains out. That is the intended
+focused exception, not a reopening of the legal move list.
 
-The corrected method was then tested as an actual player rather than inferred
-from individual positions. The locked configuration uses the raw 20-way policy
-before round ply 20, then 512 uniform hidden worlds over at most four
-policy-ranked moves, a 3.5-SE/two-point primary gate, and 512 freshly seeded
-random-symmetry-greedy confirmation worlds:
+The late-round rollout method was then tested as an actual player rather than
+inferred from individual positions. The locked maintained configuration uses
+the raw 20-way policy before round ply 20, then 512 uniform hidden worlds over
+at most four policy-ranked moves, a 3.5-SE/two-point primary gate, and 512
+freshly seeded random-symmetry-greedy confirmation worlds:
 
 ```text
 rolloutu:data/champion.bin:512:4:0.02:0:1:20:0:0:0:0:3.5:2:2:20:0:0:20:1:0:512:1
@@ -245,6 +287,37 @@ for making rollout an actual late-round decision-maker. No early-round search
 is deployed: exploratory phase screens did not justify it, and the reviewed
 failures showed that increasing world count cannot repair a biased
 continuation policy.
+
+The scheduler was also isolated from rollout on an independent 2,000-pair
+test. `policy:data/champion.bin:0:20:16:12` beat the raw exact-20 policy by
+**+2.38 ± 0.33 SE points per match** with **51.9% ± 0.4% SE match score**.
+This validates the conservative visible-hand layer, but it does not imply an
+additive gain after late rollout has already corrected many of the same
+positions.
+
+The combined selection screen therefore compared three actors:
+
+- A: the maintained late rollout above;
+- B: A plus the planner-only `:16:12:0` tail;
+- C: A plus the planner and semantic `:16:12:1` tail.
+
+On the same 40-pair seed against raw policy, A scored +22.04 ± 4.25 points and
+58.8% ± 3.5%, while B scored +16.18 ± 5.34 and 57.5% ± 4.2%. A fresh direct
+20-pair B-versus-A check was +1.60 ± 5.34 and 55.0% ± 5.0% for B: compatible
+with either a modest gain or loss, and nowhere near a promotion result.
+Direct C versus A over 40 pairs was -6.06 ± 4.36 and 46.2% ± 3.8%. The
+strength-optimal choice from the evidence is therefore A. Planner and semantic
+mode remain explicit component/post-hoc tools; they are not hidden inside the
+live default.
+
+The full review configuration remains available as:
+
+```text
+rolloutu:data/champion.bin:512:4:0.02:0:1:20:0:0:0:0:3.5:2:2:20:0:0:20:1:0:512:1:16:12:1
+```
+
+Its focused semantic additions are validated below on frozen positions, not
+as a global match-strength claim.
 
 The original UI critique is preserved as fixed-state semantic regressions:
 
@@ -268,6 +341,58 @@ matches and 20 untouched validation matches. Twenty-way suit averaging with
 and log loss from 0.53272 to 0.49622. Its marginals and sampler now describe
 the same exact-K joint distribution. It remains labelled experimental and is
 not used by the decision audit.
+
+### Frozen random-showcase review
+
+The later review did not regenerate or screen for a friendlier game. The
+original random seed `5726968372613385`, deals, and all 144 historical actions
+remain unchanged. The UI now attaches stronger offline analysis to those same
+positions and explicitly distinguishes the historical action from the current
+planner/audit recommendation.
+
+At ply 4, the old current-state belief head incorrectly ranked Y4 above the
+high yellows. Perspective-scrubbed actor-history inference proposed 100,000
+deals and accepted 4,433 whose visible prefix was plausible under the frozen
+actor. Its opponent-hand marginals were Y4 21.93%, Y9 22.94%, and Y10 22.96%.
+This restores the expected near-flat yellow ordering without leaking the
+opponent's true hand or future deck draws.
+
+Ply 7 received a deeper three-family continuation audit. The pooled
+exact-policy estimates for G5 and W5 were 29.49 ± 0.38 and 29.60 ± 0.39;
+W5's paired difference over G5 was only +0.11 ± 0.35. Y4 was decisively worse
+at 7.63 ± 0.37, or -21.86 ± 0.40 against G5. The defensible answer is
+G5-or-W5, not the premature Y4 commitment.
+
+Two one-sided wager cases motivated the urgent semantic path:
+
+| position | focused correction | primary audit | fresh confirmation |
+| --- | --- | ---: | ---: |
+| ply 59 | discard Bx, take R | **+5.16 ± 0.40** (16,384 worlds) | **+4.77 ± 0.40** (16,384) |
+| ply 61 | discard Bx, take R | **+4.26 ± 0.39** (16,384 worlds) | **+4.04 ± 0.40** (16,384) |
+
+The useful draw is chosen together with the wager discard, rather than forcing
+the deck variant or evaluating every draw source. The move still must pass
+both maintained 16,384-world comparisons because the opponent can pick up the
+wager to stall. At ply 96, an exact
+one-card-deck rule selects G9 then deck over the historical G9 then White:
+both score the same immediately, but the pile draw can only grant the
+opponent an extra optional turn.
+
+These corrections do not mean rollout is globally fixed. Review also found
+positions where a biased continuation attached high confidence to a poor
+ordering. Exact visible-hand corrections therefore take precedence and cannot
+be undone by rollout, broad early search remains disabled, and unrecognized
+low-prior moves can still require a dedicated `qpair` probe or future policy
+training.
+
+In particular, ply 17 remains an honest miss: when forced to compare the
+reviewed alternatives over 4,096 worlds, the current continuation still
+favored play R8 and put discard B5 then take R at -2.20 ± 0.73. At ply 25,
+taking Bx now enters the focused shortlist, but the locked uniform-world audit
+still put it at -5.52 ± 0.58. Behavior-conditioned hidden worlds improve the
+latter estimate materially without yet producing a stable override. Those
+cases are retained as belief/continuation-model targets rather than encoded as
+position-specific rules.
 
 ## Conservative correction distillation
 
@@ -338,6 +463,7 @@ The current snapshot passes:
 make
 make test
 make audit-test  # slower semantic probes; optional in the fast CI loop
+make history-belief-test
 python3 tools/referee.py --selftest data/champion.bin 424242 --dumpfeat bin/dumpfeat
 python3 tools/verify_transcript.py data/game.txt
 ```
@@ -347,6 +473,8 @@ permutation round trips and ensemble equivariance, wager knowledge and
 parameter/gradient tying, pile-order distinguishability, v4-to-v6 migration,
 interaction-head isolation, model round trips, hybrid final-round utility,
 robust sampling, fixed-cardinality marginal/sampler agreement, exact
-policy-prefix selection, raw-policy phase gating, and one-versus-four-thread
-identity for both ordinary and rollout matches. The slow suite locks the
-reviewed W2, R2, Y2/W7, W3/W7, G5, B10/Y10, and discard-guard positions.
+policy-prefix selection, visible-hand planning and regret guards, raw-policy
+phase gating, final-deck dominance, perspective-scrubbed history inference,
+and one-versus-four-thread identity for both ordinary and rollout matches. The
+slow suite locks the reviewed W2, R2, Y2/W7, W3/W7, G5, B10/Y10, one-sided
+wager plies 59/61, final-deck ply 96, and discard-guard positions.

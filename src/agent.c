@@ -1,5 +1,6 @@
 #include "agent.h"
 #include "heuristic.h"
+#include "planner.h"
 #include "search.h"
 #include <math.h>
 
@@ -511,6 +512,22 @@ Move agent_move(const Agent *a, const State *st, Rng *rng)
         }
         int best = 0;
         for (int i = 1; i < n; i++) if (prob[i] > prob[best]) best = i;
+        if (a->plan_deck_max > 0 && a->plan_block_gap > 0 &&
+            st->deck_left <= a->plan_deck_max) {
+            int order[MAX_MOVES];
+            for (int i = 0; i < n; i++) order[i] = i;
+            int keep = n < 8 ? n : 8;
+            for (int i = 0; i < keep; i++) {
+                int top = i;
+                for (int j = i + 1; j < n; j++)
+                    if (prob[order[j]] > prob[order[top]]) top = j;
+                int tmp = order[i]; order[i] = order[top]; order[top] = tmp;
+            }
+            int planned = hand_plan_conservative_choose(
+                st, st->turn, mv, prob, order, keep,
+                (st->deck_left + 1) / 2, a->plan_block_gap);
+            if (planned >= 0) best = planned;
+        }
         return mv[best];
     }
     int n = agent_move_values(a, st, rng, mv, val);

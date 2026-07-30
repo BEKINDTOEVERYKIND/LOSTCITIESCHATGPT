@@ -67,12 +67,17 @@ def main() -> None:
             raise RuntimeError(
                 f"ply {ply['n']} is not the deterministic champion argmax"
             )
-        if rollout_actor and not any(
-            same_move(candidate, ply["move"]) for candidate in ply["policy"]
+        actor_candidates = ply.get("actor_decision", {}).get("candidates", [])
+        if rollout_actor and not (
+            any(same_move(candidate, ply["move"]) for candidate in ply["policy"])
+            or any(
+                same_move(candidate, ply["move"])
+                for candidate in actor_candidates
+            )
         ):
             raise RuntimeError(
-                f"ply {ply['n']} rollout move is outside the recorded "
-                "top-policy diagnostics"
+                f"ply {ply['n']} rollout move is absent from both the policy "
+                "and targeted actor diagnostics"
             )
         # Forced and confidence-gated positions did not run a comparison.
         # Keep their sole diagnostic row descriptive, never "confirmed".
