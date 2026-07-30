@@ -24,15 +24,17 @@
 #include "heuristic.h"
 #include <math.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define MAX_CAND 8
 
 /* Rank the legal moves of s for the player to move.  With a network that is
  * the policy head; without one it is the hand-crafted evaluation, which gives
  * the classical "heuristic + perfect-information Monte Carlo" baseline. */
-static int rank_moves(const Net *net, const State *s, Move *mv, float *score)
+static int rank_moves(const Net *net, const State *s, Move *mv, float *score,
+                      int symmetries)
 {
-    if (net) return policy_probs(net, s, mv, score, NULL);
+    if (net) return policy_probs_sym(net, s, mv, score, NULL, symmetries);
     int n = lc_moves(s, mv);
     for (int i = 0; i < n; i++) score[i] = heur_move_value_det(s, mv[i]);
     return n;
@@ -48,12 +50,12 @@ static int rank_moves(const Net *net, const State *s, Move *mv, float *score)
  * paired worlds, which can manufacture large fake Q gaps with tiny paired
  * errors; sampling breaks that correlation. */
 static int playout(const Net *net, State *s, int p, int prune, Rng *srng,
-                   double *winpts)
+                   int symmetries, double *winpts)
 {
     Move mv[MAX_MOVES];
     float score[MAX_MOVES];
     while (!s->over) {
-        int n = rank_moves(net, s, mv, score);
+        int n = rank_moves(net, s, mv, score, symmetries);
         if (n <= 0) break;
         uint64_t dead = prune ? (lc_dead_cards(s) & s->hand[s->turn]) : 0;
         int best = -1;
@@ -109,6 +111,10 @@ double rollout_terminal_objective(const State *terminal, int p, int mode)
 Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
                   float *out_value, SearchStats *stats)
 {
+    if (stats) {
+        memset(stats, 0, sizeof *stats);
+        for (int i = 0; i < MAX_MOVES; i++) stats->qw[i] = -1.0;
+    }
     Move mv[MAX_MOVES];
     float prob[MAX_MOVES];
     float value = 0.0f;
@@ -141,13 +147,20 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
         if (out_value) *out_value = value;
         if (stats) {
             stats->n = n;
+            stats->nlegal = n;
+            stats->worlds = 0;
+            stats->max_worlds = a->dets;
+            stats->resolved = n == 1;
+            stats->raw_best = 0;
+            stats->policy_mass = n == 1 ? 1.0 : 0.0;
             if (n == 1) {
-                stats->mv[0] = mv[0]; stats->visits[0] = 1; stats->q[0] = value;
-                stats->se[0] = 0.0; stats->qw[0] = -1.0;
+                stats->mv[0] = mv[0]; stats->visits[0] = 0; stats->q[0] = value;
+                stats->se[0] = 0.0; stats->prior[0] = 1.0;
             }
             stats->value = value;
         }
-        return mv[0];
+        Move none = { 0, 0, 0 };
+        return n == 1 ? mv[0] : none;
     }
 
     /* ply window: outside it the raw policy plays (see agent.h) */
@@ -158,10 +171,16 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
         if (out_value) *out_value = value;
         if (stats) {
             stats->n = 1;
+            stats->nlegal = n;
+            stats->worlds = 0;
+                stats->max_worlds = a->dets;
+                stats->resolved = 0;
+            stats->raw_best = 0;
+            stats->policy_mass = prob[top];
             stats->mv[0] = mv[top];
             stats->visits[0] = 0;
             stats->q[0] = value;
-            stats->se[0] = 0.0; stats->qw[0] = -1.0;
+            stats->se[0] = 0.0; stats->prior[0] = prob[top];
             stats->value = value;
         }
         return mv[top];
@@ -177,55 +196,61 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
             if (out_value) *out_value = value;
             if (stats) {
                 stats->n = 1;
+                stats->nlegal = n;
+                stats->worlds = 0;
+                stats->max_worlds = a->dets;
+            stats->resolved = 0;
+                stats->raw_best = 0;
+                stats->policy_mass = prob[top];
                 stats->mv[0] = mv[top];
                 stats->visits[0] = 0;
                 stats->q[0] = value;
-                stats->se[0] = 0.0; stats->qw[0] = -1.0;
+                stats->se[0] = 0.0; stats->prior[0] = prob[top];
                 stats->value = value;
             }
             return mv[top];
         }
     }
 
-    /* candidates: the most likely moves, cut off once the policy stops caring */
+    /* Candidates are a policy-guided prefix.  Analysis compute belongs on
+     * moves the champion genuinely considers, not forced variants with
+     * effectively zero prior.  A cumulative-mass target is more stable than a
+     * fixed width when the policy ranges from near-certain to genuinely broad. */
     int order[MAX_MOVES];
     for (int i = 0; i < n; i++) order[i] = i;
-    int ncand = a->root_width < MAX_CAND ? a->root_width : MAX_CAND;
-    if (ncand > n) ncand = n;
-    for (int i = 0; i < ncand; i++) {
+    int maxcand = a->root_width < MAX_CAND ? a->root_width : MAX_CAND;
+    if (maxcand < 1) maxcand = 1;
+    if (maxcand > n) maxcand = n;
+    int nsorted = maxcand;
+    if (a->eval_cand > nsorted) {
+        nsorted = a->eval_cand < MAX_CAND ? a->eval_cand : MAX_CAND;
+        if (nsorted > n) nsorted = n;
+    }
+    for (int i = 0; i < nsorted; i++) {
         int best = i;
         for (int j = i + 1; j < n; j++) if (prob[order[j]] > prob[order[best]]) best = j;
         int t = order[i]; order[i] = order[best]; order[best] = t;
     }
-    int nsorted = ncand;                     /* prefix of order[] that is sorted */
-    if (a->net) {
+    int keep = a->min_cand > 1 ? a->min_cand : 1;
+    if (keep > maxcand) keep = maxcand;
+    int ncand = maxcand;
+    if (a->net && a->cand_mass > 0.0f) {
+        ncand = 0;
+        double mass = 0.0;
+        while (ncand < maxcand &&
+               (ncand < keep || mass < (double)a->cand_mass)) {
+            mass += prob[order[ncand]];
+            ncand++;
+        }
+    } else if (a->net) {
         float floor_p = a->cand_floor > 0.0f ? a->cand_floor : 0.02f;
-        int keep = a->min_cand > 1 ? a->min_cand : 1;
-        if (keep > ncand) keep = ncand;
         while (ncand > keep && prob[order[ncand - 1]] < floor_p) ncand--;
     }
-    /* advisory candidates: evaluated and reported but never selected, so an
-     * analysis dump can show what the search thinks of moves the policy has
-     * written off without letting that opinion change the game (forcing the
-     * floor open for *selection* measured 42.8% vs the baseline) */
+    /* Optional advisory candidates are simply the next policy-ranked moves.
+     * They are diagnostic only and never displace the eligible prefix. */
     int neval = ncand;
     if (a->eval_cand > neval) {
         neval = a->eval_cand < nsorted ? a->eval_cand : nsorted;
-    }
-    /* draw-variant expansion: "same action, another draw" shares every
-     * sampled world and costs almost nothing extra, yet those variants are
-     * the alternatives an analyst asks about most -- make sure the two
-     * top-prior actions have all their legal draw sources on the board */
-    if (a->eval_cand > 0) {
-        for (int t = 0; t < 2 && t < neval; t++) {
-            Move top = mv[order[t]];
-            for (int i = 0; i < n && neval < MAX_CAND; i++) {
-                if (mv[i].card != top.card || mv[i].discard != top.discard) continue;
-                int seen = 0;
-                for (int c = 0; c < neval; c++) if (order[c] == i) { seen = 1; break; }
-                if (!seen) order[neval++] = i;
-            }
-        }
     }
 
     double sum[MAX_CAND], sumw[MAX_CAND], sumobj[MAX_CAND];
@@ -235,13 +260,36 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
         sumobj[i] = 0.0;
     }
     const int p = st->turn;
-    int reps = a->dets > 0 ? a->dets : 1;
+    int cap = a->dets > 0 ? a->dets : 1;
+    int batch = a->batch_dets > 0 ? a->batch_dets : cap;
+    if (batch > cap) batch = cap;
     int lastround = st->round == MATCH_ROUNDS - 1;
-    double *val = (double *)malloc(sizeof(double) * (size_t)neval * (size_t)reps);
+    double *val = (double *)malloc(sizeof(double) * (size_t)neval * (size_t)cap);
+    if (!val) {
+        if (out_value) *out_value = value;
+        return mv[order[0]];
+    }
 
-    for (int d = 0; d < reps; d++) {
+    /* The root belief distribution is constant across all worlds.  Preparing
+     * it once removes hundreds of duplicate network forwards. */
+    BeliefDist belief;
+    int have_belief = a->net && !a->no_belief &&
+                      belief_dist_init(a->net, st, p, a->symmetries,
+                                       1.0f, &belief);
+
+    int reps = 0;
+    int resolved = 0;
+    int rawbest = 0;
+    /* Ordinary 1.96-SE intervals are not valid after repeatedly checking up
+     * to eight leaders at several batch boundaries.  3.5 is a conservative
+     * family-wise guard for as many as 16 looks across eight candidates. */
+    double resolve_z = a->override_k > 3.5f ? a->override_k : 3.5;
+    int cont_sym = a->playout_symmetries > 0 ? a->playout_symmetries : 1;
+
+    for (int d = 0; d < cap; d++) {
         State world;
-        determinize_b(st, p, rng, a->no_belief ? NULL : a->net, &world);
+        if (have_belief) belief_dist_sample(st, p, rng, &belief, &world);
+        else determinize(st, p, rng, &world);
         uint64_t wseed = 0x9E3779B97F4A7C15ULL * (uint64_t)(d + 1) ^ rng->s[0];
         for (int c = 0; c < neval; c++) {
             State s = world;                 /* same world for every candidate */
@@ -250,90 +298,98 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
             Rng pr;
             if (a->playout_sample) rng_seed(&pr, wseed);   /* same seed per world */
             int m = playout(a->net, &s, p, a->prune_dom,
-                            a->playout_sample ? &pr : NULL, &w);
+                            a->playout_sample ? &pr : NULL,
+                            cont_sym, &w);
             double obj = rollout_terminal_objective(&s, p, a->win_q);
-            if (val) val[(size_t)c * reps + d] = obj;
+            if (val) val[(size_t)c * cap + d] = obj;
             sum[c] += m;
             if (w >= 0.0) sumw[c] += w;
             sumobj[c] += obj;
         }
+        reps = d + 1;
+
+        /* Sequential paired evaluation: stop once the numerical leader clears
+         * every alternative's two-sided confidence bar.  Ambiguous decisions
+         * receive more worlds up to cap; obvious ones release the compute. */
+        if (reps % batch == 0 || reps == cap) {
+            rawbest = 0;
+            for (int c = 1; c < neval; c++)
+                if (sumobj[c] > sumobj[rawbest]) rawbest = c;
+            resolved = reps > 1;
+            for (int c = 0; c < neval && resolved; c++) {
+                if (c == rawbest) continue;
+                double dm = (sumobj[rawbest] - sumobj[c]) / reps;
+                double v2 = 0.0;
+                for (int j = 0; j < reps; j++) {
+                    double x = val[(size_t)rawbest * cap + j]
+                             - val[(size_t)c * cap + j] - dm;
+                    v2 += x * x;
+                }
+                double sed = sqrt(v2 / (reps - 1) / reps);
+                if (!(dm > resolve_z * sed)) resolved = 0;
+            }
+            if (a->batch_dets > 0 && resolved) break;
+        }
     }
 
-    /* Every downstream selection and confidence calculation uses the same
-     * objective.  Margin remains a deterministic tiebreak. */
-    int best = 0;
+    /* The raw leader is descriptive.  Move selection is deliberately more
+     * conservative: only eligible candidates can win, and a challenger must
+     * clear the configured paired-error and practical-effect gates. */
+    int eligible_best = 0;
     for (int c = 1; c < ncand; c++) {
-        if (sumobj[c] > sumobj[best] ||
-            (sumobj[c] == sumobj[best] && sum[c] > sum[best]))
-            best = c;
+        if (sumobj[c] > sumobj[eligible_best] ||
+            (sumobj[c] == sumobj[eligible_best] && sum[c] > sum[eligible_best]))
+            eligible_best = c;
     }
-    /* significance-gated override: an advisory candidate may take the move
-     * only when its lead over the eligible best exceeds override_k paired
-     * standard errors AND override_min points.  The SE gate rejects noise
-     * (what blanket forcing lacked: it overrode on any gap and lost 42.8%);
-     * the points gate rejects playout bias, which more worlds sharpen
-     * rather than shrink.  The reference is the eligible best, fixed, and
-     * the highest-Q qualifier wins -- chaining comparisons through interim
-     * winners made the outcome depend on candidate order. */
-    if (a->override_k > 0.0f && val && reps > 1) {
-        int elig = best;
-        for (int c = ncand; c < neval; c++) {
-            double dm = (sumobj[c] - sumobj[elig]) / reps;
-            if (dm <= 0.0) continue;
-            double v2 = 0.0;
-            for (int d = 0; d < reps; d++) {
-                double x = val[(size_t)c * reps + d] - val[(size_t)elig * reps + d] - dm;
-                v2 += x * x;
-            }
-            double sed = sqrt(v2 / (reps - 1) / reps);
-            if (dm > a->override_k * sed && dm > a->override_min &&
-                sumobj[c] > sumobj[best]) best = c;
+    /* override_k == 0 preserves the historical rollout agent: take its
+     * numerical leader.  Positive values opt into the conservative mode used
+     * by the audit and by any rollout player that must resist noisy changes. */
+    int best = a->override_k <= 0.0f ? eligible_best : 0;
+    if (eligible_best != 0 && eligible_best == rawbest && resolved &&
+        a->override_k > 0.0f && reps > 1) {
+        double dm = (sumobj[eligible_best] - sumobj[0]) / reps;
+        double v2 = 0.0;
+        for (int d = 0; d < reps; d++) {
+            double x = val[(size_t)eligible_best * cap + d]
+                     - val[d] - dm;
+            v2 += x * x;
         }
-        /* sampled confirmation: a qualifying gap must survive stochastic
-         * continuations at half the floor, or it was determinism bias --
-         * measured concretely: a +5.0 +- 0.14 argmax gap that collapsed to
-         * +0.6 under sampling, from one knife-edge downstream decision
-         * repeating across every paired world */
-        if (best != elig) {
-            double ds = 0.0;
-            for (int d = 0; d < reps; d++) {
-                State world;
-                determinize_b(st, p, rng, a->no_belief ? NULL : a->net, &world);
-                uint64_t wseed = 0x9E3779B97F4A7C15ULL * (uint64_t)(d + 1) ^ rng->s[0];
-                Rng r1, r2;
-                rng_seed(&r1, wseed);
-                rng_seed(&r2, wseed);
-                State sa = world, sb = world;
-                lc_apply(&sa, mv[order[best]]);
-                lc_apply(&sb, mv[order[elig]]);
-                (void)playout(a->net, &sa, p, a->prune_dom, &r1, NULL);
-                (void)playout(a->net, &sb, p, a->prune_dom, &r2, NULL);
-                ds += rollout_terminal_objective(&sa, p, a->win_q)
-                    - rollout_terminal_objective(&sb, p, a->win_q);
-            }
-            if (ds / reps < 0.5 * a->override_min) best = elig;
-        }
+        double sed = sqrt(v2 / (reps - 1) / reps);
+        if (dm > a->override_k * sed && dm > a->override_min)
+            best = eligible_best;
     }
     float bestq = (float)(sumobj[best] / reps);
     if (stats) {
         stats->n = neval;
+        stats->nlegal = n;
+        stats->worlds = reps;
+        stats->max_worlds = cap;
+        stats->resolved = resolved;
+        stats->raw_best = rawbest;
+        stats->policy_mass = 0.0;
+        for (int c = 0; c < ncand; c++)
+            stats->policy_mass += prob[order[c]];
         for (int c = 0; c < neval; c++) {
             stats->mv[c] = mv[order[c]];
             stats->visits[c] = reps;
             stats->q[c] = sumobj[c] / reps;
             stats->qw[c] = lastround ? sumw[c] / reps : -1.0;
-            double v = 0.0;
-            if (val && reps > 1) {
-                double mean =
-                    (sumobj[c] - (c == best ? 0.0 : sumobj[best])) / reps;
+            stats->prior[c] = prob[order[c]];
+            double qv = 0.0, dv = 0.0;
+            double dm = (sumobj[c] - sumobj[0]) / reps;
+            if (reps > 1) {
                 for (int d = 0; d < reps; d++) {
-                    double x = val[(size_t)c * reps + d]
-                             - (c == best ? 0.0 : val[(size_t)best * reps + d]);
-                    v += (x - mean) * (x - mean);
+                    double qx = val[(size_t)c * cap + d] - stats->q[c];
+                    double dx = val[(size_t)c * cap + d] - val[d] - dm;
+                    qv += qx * qx;
+                    dv += dx * dx;
                 }
-                v = sqrt(v / (reps - 1) / reps);
+                qv = sqrt(qv / (reps - 1) / reps);
+                dv = sqrt(dv / (reps - 1) / reps);
             }
-            stats->se[c] = v;
+            stats->se[c] = qv;
+            stats->delta[c] = dm;
+            stats->dse[c] = c == 0 ? 0.0 : dv;
         }
         stats->value = bestq;
     }

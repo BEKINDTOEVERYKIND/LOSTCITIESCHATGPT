@@ -18,10 +18,13 @@ void agent_default(Agent *a, AgentKind k, const Net *net)
     a->node_width = 8;
     a->cpuct = 1.4f;
     a->cand_floor = 0.02f;
+    a->cand_mass = 0.0f;
     a->min_cand = 1;
     a->ply_lo = 0;
     a->ply_hi = 0;
     a->eval_cand = 0;
+    a->batch_dets = 0;
+    a->playout_symmetries = 1;
     a->win_q = 0;
     /* This is an optional search-focus heuristic, not true dominance:
      * changing which discard pile is covered can change later play.  Keep it
@@ -63,55 +66,140 @@ void determinize(const State *st, int p, Rng *rng, State *out)
     out->deck_left = (uint8_t)d;
 }
 
-/* Sample the opponent's unknown cards from the belief posterior using
- * Gumbel-top-k on the logits: an exact draw from the Plackett-Luce
- * distribution the logits induce, so likelier hands appear in more worlds. */
-void determinize_b(const State *st, int p, Rng *rng, const Net *net, State *out)
+/* Average belief logits under the same exact suit groups used by the policy
+ * ensemble, mapping every card score back to the original state. */
+static void belief_logits_sym(const Net *net, const State *st, int p,
+                              const uint8_t *card, int n, int symmetries,
+                              float *logit)
 {
-    if (!net) { determinize(st, p, rng, out); return; }
-    *out = *st;
-    uint8_t unseen[NCARD];
-    int n = 0;
-    lc_unseen(st, p, unseen, &n);
+    for (int i = 0; i < n; i++) logit[i] = 0.0f;
+    uint8_t perms[120][NSUIT];
+    int nsym = suit_permutations(symmetries, perms);
+    for (int k = 0; k < nsym; k++) {
+        State ps;
+        lc_permute_suits(st, &ps, perms[k]);
+        Features f;
+        feat_extract(&ps, p, &f);
+        NetAct act;
+        net_trunk(net, &f, &act);
+        uint8_t mapped[NCARD];
+        float plogit[NCARD];
+        for (int i = 0; i < n; i++)
+            mapped[i] = lc_permute_card(card[i], perms[k]);
+        net_belief_act(net, &act, mapped, n, plogit);
+        for (int i = 0; i < n; i++) logit[i] += plogit[i];
+    }
+    float inv = 1.0f / (float)nsym;
+    for (int i = 0; i < n; i++) logit[i] *= inv;
+}
+
+int belief_dist_init(const Net *net, const State *st, int p, int symmetries,
+                     float alpha, BeliefDist *dist)
+{
+    memset(dist, 0, sizeof *dist);
+    lc_unseen(st, p, dist->card, &dist->n);
     const int o = p ^ 1;
-    int need = (int)st->hand_n[o] - __builtin_popcountll(st->known[o]);
-    if (need <= 0 || n == 0) { determinize(st, p, rng, out); return; }
+    dist->need = (int)st->hand_n[o] - __builtin_popcountll(st->known[o]);
+    if (dist->need < 0 || dist->need > HAND_SIZE || dist->need > dist->n)
+        return 0;
 
-    Features f;
-    feat_extract(st, p, &f);
-    NetAct act;
-    net_trunk(net, &f, &act);
-    float logit[NCARD];
-    net_belief_act(net, &act, unseen, n, logit);
+    /* Before the opponent has acted there is no behavioural evidence.  Make
+     * the exact card-count prior a hard invariant instead of allowing a suit
+     * slot artefact to masquerade as information. */
+    if (!net || alpha <= 0.0f || st->nply == 0) {
+        for (int i = 0; i < dist->n; i++) dist->weight[i] = 1.0;
+    } else {
+        float logit[NCARD];
+        belief_logits_sym(net, st, p, dist->card, dist->n, symmetries, logit);
+        double mean = 0.0;
+        for (int i = 0; i < dist->n; i++) mean += logit[i];
+        if (dist->n > 0) mean /= dist->n;
+        for (int i = 0; i < dist->n; i++) {
+            double u = (double)alpha * ((double)logit[i] - mean);
+            if (u > 20.0) u = 20.0;
+            if (u < -20.0) u = -20.0;
+            dist->weight[i] = exp(u);
+        }
+    }
 
-    /* keys = logit + Gumbel noise; the top `need` keys form the hand */
-    float key[NCARD];
-    int order[NCARD];
-    for (int i = 0; i < n; i++) {
-        float u = rng_float(rng) + 1e-7f;
-        float l = logit[i];
-        if (l > 15.0f) l = 15.0f;
-        if (l < -15.0f) l = -15.0f;
-        key[i] = l - logf(-logf(u));
-        order[i] = i;
+    /* Elementary-symmetric-polynomial DP.  Conditioning independent odds on
+     * exactly K held cards yields a coherent joint hand distribution:
+     * P(S | |S|=K) is proportional to the product of its card weights. */
+    dist->suffix[dist->n][0] = 1.0;
+    for (int i = dist->n - 1; i >= 0; i--) {
+        dist->suffix[i][0] = 1.0;
+        for (int r = 1; r <= dist->need; r++)
+            dist->suffix[i][r] = dist->suffix[i + 1][r]
+                               + dist->weight[i] * dist->suffix[i + 1][r - 1];
     }
-    for (int i = 0; i < need; i++) {
-        int best = i;
-        for (int j = i + 1; j < n; j++) if (key[order[j]] > key[order[best]]) best = j;
-        int t = order[i]; order[i] = order[best]; order[best] = t;
+    double z = dist->suffix[0][dist->need];
+    if (!(z > 0.0) || !isfinite(z)) return 0;
+
+    double prefix[NCARD + 1][HAND_SIZE + 1];
+    memset(prefix, 0, sizeof prefix);
+    prefix[0][0] = 1.0;
+    for (int i = 0; i < dist->n; i++) {
+        double include = 0.0;
+        for (int r = 0; r < dist->need; r++)
+            include += prefix[i][r]
+                     * dist->suffix[i + 1][dist->need - 1 - r];
+        dist->marginal[i] = (float)(dist->weight[i] * include / z);
+        prefix[i + 1][0] = 1.0;
+        for (int r = 1; r <= dist->need; r++)
+            prefix[i + 1][r] = prefix[i][r]
+                             + dist->weight[i] * prefix[i][r - 1];
     }
+    return 1;
+}
+
+void belief_dist_sample(const State *st, int p, Rng *rng,
+                        const BeliefDist *dist, State *out)
+{
+    *out = *st;
+    const int o = p ^ 1;
     out->hand[o] = st->known[o];
-    for (int i = 0; i < need; i++) out->hand[o] |= 1ULL << unseen[order[i]];
-    /* remaining cards form the deck in random order */
+    uint8_t selected[NCARD] = { 0 };
+    int need = dist->need;
+    for (int i = 0; i < dist->n; i++) {
+        int remaining = dist->n - i;
+        int take = 0;
+        if (need == remaining) {
+            take = 1;
+        } else if (need > 0) {
+            double den = dist->suffix[i][need];
+            double num = dist->weight[i] * dist->suffix[i + 1][need - 1];
+            double probability = den > 0.0 ? num / den : 0.0;
+            take = (double)rng_float(rng) < probability;
+        }
+        if (take) {
+            selected[i] = 1;
+            out->hand[o] |= 1ULL << dist->card[i];
+            need--;
+        }
+    }
+
+    /* Every unselected unseen card is in the deck; its order remains uniform. */
     out->deck_pos = 0;
     memset(out->deck, 0, sizeof(out->deck));
     int d = 0;
-    for (int i = need; i < n; i++) out->deck[d++] = unseen[order[i]];
+    for (int i = 0; i < dist->n; i++)
+        if (!selected[i]) out->deck[d++] = dist->card[i];
     for (int i = d - 1; i > 0; i--) {
         uint32_t j = rng_below(rng, (uint32_t)i + 1);
         uint8_t t = out->deck[i]; out->deck[i] = out->deck[j]; out->deck[j] = t;
     }
     out->deck_left = (uint8_t)d;
+}
+
+void determinize_b(const State *st, int p, Rng *rng, const Net *net, State *out)
+{
+    if (!net) { determinize(st, p, rng, out); return; }
+    BeliefDist dist;
+    if (!belief_dist_init(net, st, p, 1, 1.0f, &dist)) {
+        determinize(st, p, rng, out);
+        return;
+    }
+    belief_dist_sample(st, p, rng, &dist, out);
 }
 
 void draw_samples_init(const State *st, int p, Rng *rng, int k, DrawSamples *ds)
@@ -218,7 +306,7 @@ static int policy_probs_raw(const Net *net, const State *st, Move *mv,
  * affine group s -> a*s+b (mod 5) is 2-transitive, so every ordered pair of
  * suits visits every pair of network slots equally often at one sixth of the
  * cost of the full group. */
-static int suit_permutations(int requested, uint8_t out[120][NSUIT])
+int suit_permutations(int requested, uint8_t out[120][NSUIT])
 {
     if (requested != 5 && requested != 10 &&
         requested != 20 && requested != 120) {

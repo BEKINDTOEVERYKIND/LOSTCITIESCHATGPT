@@ -15,14 +15,19 @@ struct Agent;
 
 typedef struct {
     int n;
+    int nlegal;             /* legal moves before policy-shortlist filtering */
+    int worlds;             /* paired worlds actually evaluated              */
+    int max_worlds;         /* configured cap                                */
+    int resolved;           /* highest mean clears the paired confidence bar */
+    int raw_best;           /* index of highest mean in mv/q                 */
+    double policy_mass;     /* policy probability covered by mv[]            */
     Move mv[MAX_MOVES];
     double visits[MAX_MOVES];
     double q[MAX_MOVES];   /* mean selection objective, mover's view */
-    double se[MAX_MOVES];  /* rollout only: standard error of the *paired
-                              difference* against the selected move (the
-                              selected move's entry is the SE of its own
-                              mean).  A q gap smaller than ~2 of these is
-                              sampling noise, not a real preference. */
+    double se[MAX_MOVES];  /* standard error of each candidate's own mean */
+    double delta[MAX_MOVES]; /* paired difference against policy candidate 0 */
+    double dse[MAX_MOVES];   /* SE of that paired difference                 */
+    double prior[MAX_MOVES]; /* root policy probability                      */
     double qw[MAX_MOVES];  /* rollout, final round only: match wins as a
                               fraction of playouts (draws count half);
                               -1 when not applicable */

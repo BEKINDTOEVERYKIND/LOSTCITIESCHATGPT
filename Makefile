@@ -37,11 +37,14 @@ test: $(BIN)/test_engine $(BIN)/test_runtime $(DATA)/champion.bin
 	./$(BIN)/test_engine
 	./$(BIN)/test_runtime
 
+audit-test: $(BIN)/qpair $(DATA)/champion.bin
+	python3 tools/audit_regression.py
+
 clean:
 	rm -rf $(BIN)
 	rm -f $(DATA)/champion.bin
 
-.PHONY: all test clean
+.PHONY: all test audit-test clean
 
 $(BIN)/probe: tools/probe.c $(CORE) $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)

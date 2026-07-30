@@ -16,7 +16,7 @@
  * analysis JSON.  Multi-round replay follows the match loop of analyze.c.
  *
  *   ./bin/qpair -n NET.bin -s SEED -f moves.txt -p 5 -w 4000 \
- *               -c "Y2 d deck" -c "W4 p deck"
+ *               -y 20 -c "Y2 d deck" -c "W4 p deck"
  */
 #include "../src/lc.h"
 #include "../src/agent.h"
@@ -198,6 +198,7 @@ int main(int argc, char **argv)
     const char *statepath = NULL;
     uint64_t seed = 1;
     int target = 1, worlds = 2000;
+    int uniform_worlds = 0, trajectory_symmetries = 1;
     float temp = 0.0f;
     const char *cand_str[MAXC];
     int ncand = 0;
@@ -210,10 +211,16 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "-w") && i + 1 < argc) worlds = atoi(argv[++i]);
         else if (!strcmp(argv[i], "-T") && i + 1 < argc) temp = (float)atof(argv[++i]);
         else if (!strcmp(argv[i], "-A") && i + 1 < argc) contspec = argv[++i];
+        else if (!strcmp(argv[i], "-U")) uniform_worlds = 1;
+        else if (!strcmp(argv[i], "-y") && i + 1 < argc)
+            trajectory_symmetries = atoi(argv[++i]);
         else if (!strcmp(argv[i], "-H") && i + 1 < argc) holdcard = argv[++i];
         else if (!strcmp(argv[i], "-c") && i + 1 < argc && ncand < MAXC) cand_str[ncand++] = argv[++i];
         else {
-            fprintf(stderr, "usage: %s -n NET -s SEED -f MOVES -p PLY [-w WORLDS] [-T temp] [-A contspec] -c \"CARD p|d DRAW\" [-c ...]\n", argv[0]);
+            fprintf(stderr, "usage: %s -n NET -s SEED -f MOVES -p PLY "
+                    "[-w WORLDS] [-T temp] [-A contspec] [-U] "
+                    "[-y trajectory_symmetries] "
+                    "-c \"CARD p|d DRAW\" [-c ...]\n", argv[0]);
             return 1;
         }
     }
@@ -285,7 +292,8 @@ int main(int argc, char **argv)
     /* the policy's own opinion of each candidate, for context */
     Move pmv[MAX_MOVES];
     float prob[MAX_MOVES], value;
-    int nleg = policy_probs(net, &st, pmv, prob, &value);
+    int nleg = policy_probs_sym(net, &st, pmv, prob, &value,
+                                trajectory_symmetries);
     /* policy_probs already reports the value in points. */
     printf("value head: %+.1f   policy priors:", value);
     for (int c = 0; c < ncand; c++) {
@@ -303,7 +311,12 @@ int main(int argc, char **argv)
         printf("continuations: %s%s\n", contspec, temp > 0 ? " (temp ignored)" : "");
     } else if (temp > 0.0f) {
         printf("continuations: policy sampled at temp %.2f\n", temp);
+    } else {
+        printf("continuations: exact %d-way policy ensemble\n",
+               trajectory_symmetries);
     }
+    printf("hidden worlds: %s\n",
+           uniform_worlds ? "uniform card-count prior" : "learned belief");
 
     /* -H CARD: split the report by whether the sampled world put CARD in the
      * opponent's hand -- a direct test of "this move is about what THEY hold" */
@@ -319,15 +332,29 @@ int main(int argc, char **argv)
 
     double *val = (double *)malloc(sizeof(double) * (size_t)ncand * (size_t)worlds);
     uint8_t *held = (uint8_t *)calloc((size_t)worlds, 1);
+    uint8_t perms[120][NSUIT];
+    int nsym = suit_permutations(trajectory_symmetries, perms);
     for (int d = 0; d < worlds; d++) {
         State world;
-        determinize_b(&st, p, &rng, net, &world);
+        if (uniform_worlds) determinize(&st, p, &rng, &world);
+        else determinize_b(&st, p, &rng, net, &world);
         if (hold_id >= 0) held[d] = (uint8_t)((world.hand[p ^ 1] >> hold_id) & 1ULL);
         uint64_t wseed = seed ^ (0x9E3779B97F4A7C15ULL * (uint64_t)(d + 1));
         for (int c = 0; c < ncand; c++) {
             State s = world;               /* same world for every candidate */
             lc_apply(&s, cand[c]);
-            val[c * worlds + d] = playout(net, contspec ? &cont : NULL, temp, &s, p, wseed);
+            if (!contspec && temp <= 0.0f && nsym > 1) {
+                /* playout()'s raw path is intentionally small.  An exact
+                 * policy Agent supplies the requested ensemble at every
+                 * downstream information set. */
+                Agent sym;
+                agent_default(&sym, AG_POLICY, net);
+                sym.symmetries = trajectory_symmetries;
+                val[c * worlds + d] = playout(net, &sym, 0.0f, &s, p, wseed);
+            } else {
+                val[c * worlds + d] =
+                    playout(net, contspec ? &cont : NULL, temp, &s, p, wseed);
+            }
         }
     }
 

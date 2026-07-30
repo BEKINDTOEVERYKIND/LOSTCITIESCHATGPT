@@ -27,8 +27,7 @@ typedef struct Agent {
     float eps;          /* probability of a uniformly random legal move    */
     int symmetries;     /* policy ensemble over exact suit relabellings:
                            1 (off), 5 (rotations), 10 (dihedral),
-                           20 (affine), or 120 (all permutations).  Search
-                           applies this at the root only, where it is cheap. */
+                           20 (affine), or 120 (all permutations). */
     /* AG_MCTS */
     int dets;           /* determinizations                                */
     int sims;           /* simulations per determinization                 */
@@ -36,6 +35,9 @@ typedef struct Agent {
     int node_width;     /* interior moves kept                             */
     float cpuct;
     float cand_floor;   /* AG_ROLLOUT: ignore candidates below this policy  */
+    float cand_mass;    /* AG_ROLLOUT: when >0, keep the shortest top-policy
+                           prefix reaching this cumulative mass (subject to
+                           min_cand/root_width), instead of a fixed floor */
     int min_cand;       /* AG_ROLLOUT: but always keep at least this many --
                            a sharp prior otherwise leaves the search a single
                            candidate, able to confirm the policy but never to
@@ -45,12 +47,15 @@ typedef struct Agent {
                            the window the raw policy plays.  For measuring
                            WHERE in a round the search actually earns its
                            keep (0,0 = search everywhere) */
-    int eval_cand;      /* AG_ROLLOUT: evaluate (and report in stats) at
-                           least this many candidates, but selection stays
-                           restricted to the floor-passing set -- analysis
-                           gets Q values for written-off moves without the
-                           measured strength cost of letting 96-world noise
-                           overrule a near-certain policy (0 = off) */
+    int eval_cand;      /* AG_ROLLOUT: report at least this many policy-ranked
+                           candidates.  Extra entries are diagnostic only and
+                           cannot be selected (0 = off). */
+    int batch_dets;     /* AG_ROLLOUT: paired worlds per adaptive batch.
+                           dets is the cap; 0 evaluates exactly dets worlds */
+    int playout_symmetries; /* AG_ROLLOUT: exact policy ensemble used at every
+                               continuation decision.  This is separate from
+                               the root ensemble so a 5-way continuation can
+                               cheaply approximate the 20-way actor. */
     int win_q;          /* AG_ROLLOUT objective: 0 = round margin; 1 = pure
                            match result in real round index 2; 2 = champion
                            hybrid (0.05 * final margin + 50 * result) there.
@@ -63,10 +68,10 @@ typedef struct Agent {
                            playout argmax -- frees candidate slots and stops
                            playouts gifting live cards when a dead one is in
                            hand */
-    float override_k;   /* AG_ROLLOUT: let an advisory (eval_cand) candidate
-                           take the move when it beats the eligible best by
-                           more than this many paired standard errors
-                           (0 = advisory candidates never selected) */
+    float override_k;   /* AG_ROLLOUT: let an eligible challenger take the
+                           move only after it is the resolved leader and beats
+                           the policy top by this many paired standard errors
+                           (0 = legacy behavior: take the numerical leader) */
     int playout_sample; /* AG_ROLLOUT: sample the policy in playouts instead
                            of argmaxing it (common per-world seeds keep the
                            candidate comparison paired).  Argmax repeats
@@ -113,6 +118,26 @@ void agent_default(Agent *a, AgentKind k, const Net *net);
 int  policy_probs(const Net *net, const State *st, Move *mv, float *prob, float *value);
 int  policy_probs_sym(const Net *net, const State *st, Move *mv, float *prob,
                       float *value, int symmetries);
+/* Fill an exact subgroup of suit relabellings.  Invalid sizes return only the
+ * identity.  The returned maps send original suit -> permuted suit. */
+int  suit_permutations(int requested, uint8_t out[120][NSUIT]);
+
+/* Fixed-cardinality opponent-hand posterior.  `marginal[i]` is the true
+ * inclusion probability of card[i] under the same distribution sample()
+ * uses, and the marginals sum to `need`.  alpha=0 is the exact uniform
+ * card-count prior. */
+typedef struct {
+    int n, need;
+    uint8_t card[NCARD];
+    double weight[NCARD];
+    double suffix[NCARD + 1][HAND_SIZE + 1];
+    float marginal[NCARD];
+} BeliefDist;
+
+int  belief_dist_init(const Net *net, const State *st, int p, int symmetries,
+                      float alpha, BeliefDist *dist);
+void belief_dist_sample(const State *st, int p, Rng *rng,
+                        const BeliefDist *dist, State *out);
 
 /* Evaluate every legal move from st for the player to move.  Returns the
  * number of moves and fills mv[] and val[] (values in points, mover's view). */

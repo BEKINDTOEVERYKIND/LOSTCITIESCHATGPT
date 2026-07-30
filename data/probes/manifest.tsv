@@ -19,3 +19,11 @@ g424_G10_111	g424_p111.state	424242	111	G10 p deck	Y5 d deck	G10 +1.23 over the 
 g424_drawY_112	g424_p112.state	424242	112	R4 p Y	R4 p deck	useful-pile-draw undervalued: +4.99 for taking the yellow; policy 0.01% on it
 g424_G8Y_118	g424_p118.state	424242	118	G8 p Y	Y7 p deck	the never-evaluated combo was +5.03 better; motivated draw-variant expansion
 g424_takeG6_126	g424_p126.state	424242	126	W6 p G	W6 p deck	drawing the just-discarded G6 is +8.61; combo was never a candidate pre-expansion
+ui_W2_3	ui_seed2214615196_p3.state	2214615196	3	Bx p deck	Bx p W	human-reviewed UI probe: low W2 pile draw must not rival the deck
+ui_W2_4	ui_seed2214615196_p4.state	2214615196	4	Bx p deck	Bx p W	human-reviewed UI probe: low W2 pile draw must not rival the deck
+ui_W2_8	ui_seed2214615196_p8.state	2214615196	8	B3 p deck	B3 p W	human-reviewed UI probe: low W2 pile draw must not rival the deck
+ui_W2_10	ui_seed2214615196_p10.state	2214615196	10	Wx p deck	Wx p W	human-reviewed UI probe: W2 is at most inconclusive after opening White
+ui_R2_12	ui_seed2214615196_p12.state	2214615196	12	W4 p deck	W4 p R	human-reviewed UI probe: low R2 pile draw must rank below the deck
+ui_belief_13	ui_seed2214615196_p13.state	2214615196	13	n/a	n/a	human-reviewed UI probe: fixed-K sym20 belief calibration
+ui_Y2_16	ui_seed2214615196_p16.state	2214615196	16	Y2 d deck	W7 p deck	human-reviewed UI probe: Y2 discard beats prematurely playing W7
+ui_W3_20	ui_seed2214615196_p20.state	2214615196	20	W3 d deck	W7 p deck	human-reviewed UI probe: W3 discard is audited and beats W7; Wx remains close

@@ -37,6 +37,27 @@ def logloss(rows):
     ) / len(rows)
 
 
+def top_k_recall(rows, k):
+    """Expected recall with fractional credit for ties at the cutoff.
+
+    Sorting raw ``(probability, held)`` tuples leaks truth into tie-breaking:
+    held cards sort ahead of non-held cards and make a uniform predictor look
+    perfect.  Every card tied at the cutoff must receive the same inclusion
+    fraction.
+    """
+    if k <= 0 or not rows:
+        return float("nan")
+    cutoff = sorted((p for p, _ in rows), reverse=True)[min(k, len(rows)) - 1]
+    above = [(p, held) for p, held in rows if p > cutoff]
+    tied = [(p, held) for p, held in rows if p == cutoff]
+    slots = max(0, min(len(tied), k - len(above)))
+    expected_hits = sum(held for _, held in above)
+    if tied:
+        expected_hits += slots / len(tied) * sum(held for _, held in tied)
+    held_total = sum(held for _, held in rows)
+    return expected_hits / held_total if held_total else float("nan")
+
+
 def calibration(rows):
     buckets = [[] for _ in range(5)]
     for p, held in rows:
@@ -94,10 +115,9 @@ def main(path):
 
         need = belief.get("unknown_hand")
         if need is not None and complete and need > 0:
-            top = sorted(state, reverse=True)[:int(need)]
-            held_total = sum(held for _, held in state)
-            if held_total:
-                recalls.append(sum(held for _, held in top) / held_total)
+            recall = top_k_recall(state, int(need))
+            if math.isfinite(recall):
+                recalls.append(recall)
 
     if not rows:
         print("no belief records in", path)

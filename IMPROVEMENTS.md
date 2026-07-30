@@ -188,6 +188,51 @@ Rollout hybrid objective mode 2 is implemented but remains opt-in. At the full
 were directionally similar, but the full result is much too noisy to count as
 a strength claim; a 1,500–2,000-pair locked comparison is still needed.
 
+## Decision-audit hardening
+
+The interactive match audit now treats rollout as a post-hoc measurement
+instrument, not as a source of authoritative labels:
+
+- The actor, deals, and evaluator have independent deterministic RNG streams,
+  so changing audit compute cannot change the recorded match.
+- Only the shortest top-policy prefix covering 99.5% mass is considered,
+  subject to a two-move minimum and eight-move cap. Near-zero draw variants
+  are never forced into the audit.
+- Hidden hands use the uniform card-count prior. The learned hand model is
+  displayed separately and cannot bias Q.
+- Continuations use an exact deterministic policy ensemble at every decision
+  (five rotations in the static UI; full 20-way in the locked probes).
+- Every candidate shares the same hidden worlds. The JSON reports Q's own
+  standard error separately from the paired difference and its SE versus the
+  policy leader.
+- Adaptive stopping uses a 3.5-SE family-wise guard. A challenger can only
+  displace the policy after it is the resolved leader against every audited
+  move and clears a practical one-point threshold. Otherwise the result is
+  explicitly `inconclusive`.
+
+The original UI critique is preserved as fixed-state semantic regressions:
+
+| reviewed position | full/primary audit result |
+| --- | ---: |
+| ply 3, Bx then deck vs W2 | deck **+5.51 ± 1.81** paired SE |
+| ply 4, Bx then deck vs W2 | deck **+5.34 ± 1.79** |
+| ply 8, B3 then deck vs W2 | deck **+3.11 ± 1.73** |
+| ply 10, Wx then deck vs W2 | **inconclusive**, W2 +0.19 ± 1.17 |
+| ply 12, W4 then deck vs R2 | deck **+5.62 ± 1.57** |
+| ply 16, discard Y2 vs play W7 | discard Y2 **+1.72 ± 0.70** |
+| ply 20, discard W3 vs play W7 | discard W3 **+2.77 ± 0.57** |
+| ply 20, discard W3 vs discard Wx | **inconclusive**, W3 +0.70 ± 0.68 |
+
+`make audit-test` reruns these slower checks. The ordinary runtime suite also
+locks exact policy-prefix selection and prevents the old forced W2 variants.
+
+The hand diagnostic was separately calibrated on 12 unfiltered calibration
+matches and 20 untouched validation matches. Twenty-way suit averaging with
+`alpha=1.15` improved held-out Brier score from 0.17538 (uniform) to 0.16194
+and log loss from 0.53272 to 0.49622. Its marginals and sampler now describe
+the same exact-K joint distribution. It remains labelled experimental and is
+not used by the decision audit.
+
 ## Remaining high-value work
 
 1. Give earlier-round MCTS one consistent utility. Final-round terminals are
@@ -200,11 +245,11 @@ a strength claim; a 1,500–2,000-pair locked comparison is still needed.
    evaluation-only; self-play never anchors against a fixed opponent.
 4. Train v6 over several independent seeds, select on fixed validation deals,
    and report only once on a locked final set.
-5. Calibrate the belief head on held-out games, then evaluate a
-   cardinality-aware joint hand posterior rather than converting independently
-   trained marginal logits into a Plackett-Luce subset. On the current
-   all-card seed-424 analysis it ranks cards above chance but loses to the
-   card-count prior on Brier score and log loss.
+5. Re-measure playing strength for learned-world search. The calibrated
+   fixed-cardinality posterior now beats the card-count prior on held-out
+   Brier score and log loss, but the decision audit deliberately remains
+   uniform until a locked match-strength ablation shows that learned worlds
+   improve choices.
 6. Measure and report the 300-ply cap rate. Consider an explicit repetition or
    adjudication rule for evaluation.
 7. Replace raw native C-struct persistence with a canonical endian-stable,
@@ -217,6 +262,7 @@ The current snapshot passes:
 ```text
 make
 make test
+make audit-test  # slower semantic probes; optional in the fast CI loop
 python3 tools/referee.py --selftest data/champion.bin 424242 --dumpfeat bin/dumpfeat
 python3 tools/verify_transcript.py data/game.txt
 ```
@@ -225,4 +271,6 @@ The tests include randomized card conservation, unique semantic moves, suit
 permutation round trips and ensemble equivariance, wager knowledge and
 parameter/gradient tying, pile-order distinguishability, v4-to-v6 migration,
 interaction-head isolation, model round trips, hybrid final-round utility,
-robust sampling, and one-versus-four-thread match identity.
+robust sampling, fixed-cardinality marginal/sampler agreement, exact
+policy-prefix selection, and one-versus-four-thread match identity. The slow
+suite locks the reviewed W2, R2, Y2/W7, and W3/W7 positions.

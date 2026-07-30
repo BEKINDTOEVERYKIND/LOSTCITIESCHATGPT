@@ -96,19 +96,22 @@ Build and test: `make && make test`.
   "cards of mine they know about"), and the world-sampler treats known cards
   as certainties, never as unknowns.
 
-**Learned opponent inference.** A third network head predicts, for every card
-whose location the player cannot pin down, the probability that the opponent
-holds it. It is trained on self-play states where the true opponent hand is
-known — every position is a free supervised example — so it learns behavioural
-inference from the same data that trains the policy: an opponent who opened
-Yellow with a wager is Yellow-heavy, while their expeditions, discards, known
-cards, and the exact current discard-pile order all constrain what they can
-hold. The determinized search then
-samples opponent hands from this posterior (Gumbel-top-k over the belief
-logits) instead of uniformly, so every rollout plays against plausible
-opponents rather than random ones. The same inference reaches the raw policy
-implicitly: the policy/value heads share the trunk with the belief head and
-see all the same signals.
+**Learned opponent inference.** A third network head scores every card whose
+location the player cannot pin down. Those scores are converted into one
+coherent fixed-cardinality distribution: a hand with exactly K unknown cards
+has probability proportional to the product of its card weights. Dynamic
+programming gives analytic inclusion probabilities that sum exactly to K and
+an exact sampler from the same joint distribution. The diagnostic viewer
+averages belief logits over 20 suit relabellings and applies a held-out
+self-play calibration temperature (`alpha=1.15`). Opening positions are a hard
+uniform-card-count invariant, before either opponent has supplied behavioural
+evidence.
+
+This learned posterior remains experimental. The authoritative decision audit
+samples hidden hands from the uniform card-count prior, so questionable belief
+calibration cannot distort its Q comparisons. Learned-world rollout and MCTS
+remain available for research, but their playing-strength measurements must be
+rerun after the fixed-cardinality sampler change.
 
 **Match play, not just round play.** The network's inputs include the round
 number and the cumulative score difference. Training is staged: early PPO
@@ -132,9 +135,11 @@ exact suit-permutation groups. The default 20-element affine group is
 cost of all 120 permutations. These are rules-preserving transformations, not
 heuristic augmentations. The 20-way mode is invariant to that affine subgroup,
 while only the 120-way mode is invariant to every possible suit permutation.
-For rollout and MCTS, averaging is applied to the root policy/value only;
-rollout continuations and MCTS interior nodes keep raw single-network
-evaluations to avoid multiplying the full search cost.
+MCTS averages only at the root. Rollout has a separate
+`playout_symmetries` setting and can apply an exact ensemble at every
+continuation decision. The static viewer uses the exact 20-way actor at the
+root and a deterministic five-rotation continuation to control offline audit
+cost; the locked human-reviewed probes use full 20-way continuations.
 
 **Stalling.** Drawing a useless card from a pile to deny the opponent a turn
 of deck progress is in the action space, and nothing hand-crafted decides it:
@@ -156,9 +161,11 @@ card-and-disposition and draw-source terms, then adds a full 720-way
 interaction residual. Consequently, whether drawing from Yellow is preferred
 over the deck can depend on which card is played or discarded. The value head
 serves as a PPO baseline where its errors cancel, and search is principally
-done by *rollouts*: play each candidate move out to the end of the round with
-the policy in belief-sampled worlds, sharing worlds across candidates so the
-comparison is paired.
+done by *rollouts*: play a policy-ranked shortlist to the end of the round in
+shared hidden worlds. Pairing every candidate on the same worlds sharply
+reduces uncertainty in the move-to-move difference. The audit reports the
+standard error of each Q mean separately from the paired standard error of
+each difference.
 
 Training is: imitate the heuristic for a sane start (it knows nothing about
 match context or beliefs), then PPO over full three-round matches with the
@@ -225,6 +232,9 @@ confidence late-deck decisions have the largest tail, up to ~5 points).
 
 The rollout agent therefore takes a gate parameter -- skip the search when the
 policy's confidence is already >= the gate (`rollout:NET:worlds:cands:floor:gate`).
+The maintained audit also uses the shortest cumulative policy-mass prefix
+(minimum two, maximum eight moves), never forces negligible draw variants into
+the list, and spends its paired worlds only on that shortlist.
 Measured (3-round paired matches vs the raw policy):
 
 | configuration | margin/match | match wins | speed |
@@ -256,10 +266,11 @@ scored only **42.8% ± 3.5%** (-10.8 ± 4.2/match, 100 pairs) against the
 baseline. A 96-world Q difference carries ±2-4 points of paired noise, most
 true gaps between a near-certain policy move and its alternatives are
 smaller than that, and taking the argmax of several noisy estimates
-systematically flatters the winner. So `min_cand` selects among noise, while
-`eval_cand` (the analysis setting) evaluates and *reports* extra candidates
-without letting them be selected -- the viewer shows what written-off moves
-were worth at zero strength cost.
+systematically flatters the winner. So `min_cand` selects among noise.
+`eval_cand` can report extra policy-ranked diagnostics without making them
+eligible, but the maintained viewer leaves it off: analysis compute is
+reserved for the top-policy prefix. Human questions about a written-off move
+belong in the locked `qpair` probe suite, not in every ply of the UI.
 
 **Where the search earns its keep: late, not early** (all vs the raw policy,
 3-round paired matches):
@@ -382,24 +393,29 @@ index 2. A high-compute analysis spec is
 ./bin/showgame -a policy:data/champion.bin:0:20 -r 3
 python3 tools/verify_transcript.py <transcript>    # independent rules audit
 ./bin/analyze -r 3 > data/analysis.json
+python3 tools/make_showcase.py --seed SEED --output /path/to/showcase.json
 ./bin/arena -a policy:data/champion.bin:0:20 -b heur -n 300 -r 3
 python3 tools/referee.py match NETA NETB --pairs 400 --rounds 3
 # what was move X worth at ply N of an analysed game? (paired, with SE)
 ./bin/qpair -n data/champion.bin -s SEED -f moves.txt -p N -w 4000 \
-            -c "Y2 d deck" -c "W4 p deck"
+            -U -y 20 -c "Y2 d deck" -c "W4 p deck"
+make audit-test   # slow locked checks for the reviewed UI positions
 ```
 
-The analysis console (`web/viewer.html`, embedded game included) replays a
-match ply by ply: board, both hands (marked where publicly known), the policy
-distribution, rollout Q values per candidate, the network's belief about the
-opponent's hidden hand next to the omniscient truth, and the value trajectory
-across all three rounds.
+The analysis console replays a match ply by ply: board, both hands (marked
+where publicly known), the policy distribution, post-hoc Q values for only the
+top-policy moves, the calibrated fixed-cardinality hand estimate next to
+omniscient truth, and the value trajectory. It distinguishes the numerical
+leader from a statistically resolved best move; unresolved gaps never receive
+an “audit pick” label. Recorded deck draws are explicitly marked as future
+information unavailable at decision time.
 
 Agent specs include `random`, `heur`,
 `policy:PATH[:temperature[:symmetries]]`, `rolloutu:...` (uniform-world
 belief ablation), `mcts:PATH[...]`, and `net:PATH`. The complete rollout tail
 is `worlds:candidates:floor:gate:min_candidates:ply_lo:ply_hi:eval_candidates:`
-`objective:prune:override_k:override_min:sample:symmetries`; objective is
+`objective:prune:override_k:override_min:sample:symmetries:policy_mass:`
+`batch_worlds:playout_symmetries`; objective is
 `0` for round margin, `1` for pure final-round match result, or `2` for the
 champion hybrid. Supported symmetry modes are `1`, `5`, `10`, `20`, and
 `120`.

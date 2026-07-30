@@ -16,6 +16,41 @@ static int failures = 0;
     printf(__VA_ARGS__); printf("\n"); failures++; \
 } } while (0)
 
+static uint64_t mix64(uint64_t x)
+{
+    x += 0x9E3779B97F4A7C15ULL;
+    x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ULL;
+    x = (x ^ (x >> 27)) * 0x94D049BB133111EBULL;
+    return x ^ (x >> 31);
+}
+
+/* Reproduce the first round of the human-reviewed UI replay.  Evaluator RNG
+ * is deliberately absent: the deployed actor has its own stream. */
+static State reviewed_state(const Net *net, int target_ply)
+{
+    const uint64_t seed = 2214615196ULL;
+    Rng deal_rng, actor_rng;
+    rng_seed(&deal_rng, seed);
+    rng_seed(&actor_rng, mix64(seed ^ 0xA17C0AULL));
+    State st;
+    lc_deal(&st, &deal_rng);
+    st.round = 0;
+    st.turn = 0;
+    Agent actor;
+    agent_default(&actor, AG_POLICY, net);
+    actor.symmetries = 20;
+    for (int ply = 1; ply < target_ply && !st.over; ply++)
+        lc_apply(&st, agent_move(&actor, &st, &actor_rng));
+    return st;
+}
+
+static int named_move(Move m, const char *card, int discard, int draw)
+{
+    char name[8];
+    lc_card_name(m.card, name);
+    return !strcmp(name, card) && m.discard == discard && m.draw == draw;
+}
+
 static void test_sampler(void)
 {
     Rng rng;
@@ -96,6 +131,179 @@ static void test_rollout_value_scale(void)
     (void)rollout_move(&a, &st, &rng, &searched_value, NULL);
     CHECK(searched_value == raw_value,
           "rollout out_value changed scale when search ran");
+    free(net);
+}
+
+static void test_belief_distribution(void)
+{
+    Net *net = malloc(sizeof(*net));
+    CHECK(net != NULL, "network allocation for belief distribution");
+    if (!net) return;
+    CHECK(net_load(net, "data/champion.bin") == 0,
+          "load champion for belief distribution");
+
+    uint8_t deck[NCARD];
+    for (int i = 0; i < NCARD; i++) deck[i] = (uint8_t)i;
+    State initial;
+    lc_deal_from_deck(&initial, deck);
+    BeliefDist uniform;
+    CHECK(belief_dist_init(net, &initial, initial.turn, 20, 1.15f, &uniform),
+          "initialize opening belief");
+    float opening = (float)uniform.need / (float)uniform.n;
+    double opening_sum = 0.0;
+    for (int i = 0; i < uniform.n; i++) {
+        opening_sum += uniform.marginal[i];
+        CHECK(fabsf(uniform.marginal[i] - opening) < 1e-6f,
+              "opening belief is not exact card-count prior");
+    }
+    CHECK(fabs(opening_sum - uniform.need) < 1e-5,
+          "opening marginals do not sum to hand size");
+
+    State st = reviewed_state(net, 13);
+    CHECK(st.nply == 12 && st.turn == 0,
+          "reviewed ply 13 did not replay");
+    BeliefDist dist;
+    CHECK(belief_dist_init(net, &st, st.turn, 20, 1.15f, &dist),
+          "initialize reviewed belief");
+    double sum = 0.0;
+    for (int i = 0; i < dist.n; i++) {
+        CHECK(dist.marginal[i] >= 0.0f && dist.marginal[i] <= 1.0f,
+              "belief marginal outside [0,1]");
+        sum += dist.marginal[i];
+    }
+    CHECK(fabs(sum - dist.need) < 2e-5,
+          "reviewed marginals sum %.8f, need %d", sum, dist.need);
+
+    Rng rng;
+    rng_seed(&rng, 130013);
+    int inclusion[NCARD] = { 0 };
+    const int nsample = 5000;
+    for (int sample = 0; sample < nsample; sample++) {
+        State world;
+        belief_dist_sample(&st, st.turn, &rng, &dist, &world);
+        int o = st.turn ^ 1;
+        CHECK(__builtin_popcountll(world.hand[o]) == st.hand_n[o],
+              "sampled opponent hand has wrong cardinality");
+        CHECK((world.hand[o] & st.known[o]) == st.known[o],
+              "sample dropped a publicly known card");
+        CHECK(world.deck_left == st.deck_left,
+              "sampled deck has wrong cardinality");
+        uint64_t deck_bits = 0;
+        for (int d = 0; d < world.deck_left; d++)
+            deck_bits |= 1ULL << world.deck[d];
+        CHECK((deck_bits & world.hand[o]) == 0,
+              "sampled deck overlaps opponent hand");
+        for (int i = 0; i < dist.n; i++)
+            inclusion[i] += (int)((world.hand[o] >> dist.card[i]) & 1ULL);
+    }
+    for (int i = 0; i < dist.n; i++)
+        CHECK(fabs((double)inclusion[i] / nsample - dist.marginal[i]) < 0.04,
+              "sampled frequency for card %d disagrees with analytic marginal",
+              dist.card[i]);
+
+    const uint8_t perm[NSUIT] = { 1, 3, 0, 2, 4 };
+    State ps;
+    lc_permute_suits(&st, &ps, perm);
+    BeliefDist pd;
+    CHECK(belief_dist_init(net, &ps, ps.turn, 20, 1.15f, &pd),
+          "initialize permuted belief");
+    float mapped[NCARD];
+    for (int i = 0; i < NCARD; i++) mapped[i] = -1.0f;
+    for (int i = 0; i < pd.n; i++) mapped[pd.card[i]] = pd.marginal[i];
+    for (int i = 0; i < dist.n; i++) {
+        int c = lc_permute_card(dist.card[i], perm);
+        CHECK(mapped[c] >= 0.0f &&
+              fabsf(mapped[c] - dist.marginal[i]) < 2e-5f,
+              "20-way belief is not affine-suit equivariant");
+    }
+    free(net);
+}
+
+static void test_rollout_policy_shortlist(void)
+{
+    Net *net = malloc(sizeof(*net));
+    CHECK(net != NULL, "network allocation for rollout shortlist");
+    if (!net) return;
+    CHECK(net_load(net, "data/champion.bin") == 0,
+          "load champion for rollout shortlist");
+
+    Agent audit;
+    agent_default(&audit, AG_ROLLOUT, net);
+    audit.no_belief = 1;
+    audit.dets = 2;
+    audit.root_width = 8;
+    audit.min_cand = 2;
+    audit.gate = 0.98f;
+    audit.symmetries = 20;
+    audit.cand_mass = 0.995f;
+    audit.batch_dets = 1;
+    audit.playout_symmetries = 1;
+    audit.override_k = 1.96f;
+    audit.override_min = 1.0f;
+
+    State p3 = reviewed_state(net, 3);
+    SearchStats s3;
+    Rng rng;
+    rng_seed(&rng, 3003);
+    (void)rollout_move(&audit, &p3, &rng, NULL, &s3);
+    CHECK(s3.worlds == 0 && !s3.resolved && s3.n == 1,
+          "near-certain ply 3 should skip comparative worlds");
+    CHECK(named_move(s3.mv[0], "Bx", 0, 0),
+          "ply 3 did not retain the policy leader");
+
+    State p20 = reviewed_state(net, 20);
+    SearchStats s20;
+    rng_seed(&rng, 3020);
+    (void)rollout_move(&audit, &p20, &rng, NULL, &s20);
+    CHECK(s20.worlds >= 1 && s20.n >= 6 && s20.n < s20.nlegal,
+          "ply 20 did not use a compact policy shortlist");
+    Move pmv[MAX_MOVES];
+    float prior[MAX_MOVES];
+    int pn = policy_probs_sym(net, &p20, pmv, prior, NULL, 20);
+    int order[MAX_MOVES];
+    for (int i = 0; i < pn; i++) order[i] = i;
+    for (int i = 0; i < pn; i++) {
+        int best = i;
+        for (int j = i + 1; j < pn; j++)
+            if (prior[order[j]] > prior[order[best]]) best = j;
+        int t = order[i]; order[i] = order[best]; order[best] = t;
+    }
+    int expected = 0;
+    double expected_mass = 0.0;
+    while (expected < 8 &&
+           (expected < 2 || expected_mass < 0.995)) {
+        expected_mass += prior[order[expected]];
+        expected++;
+    }
+    CHECK(s20.n == expected,
+          "shortlist has %d moves, expected policy prefix of %d",
+          s20.n, expected);
+    int saw_w3 = 0;
+    for (int i = 0; i < s20.n; i++) {
+        CHECK(MOVE_PACK(s20.mv[i]) == MOVE_PACK(pmv[order[i]]) &&
+              fabs(s20.prior[i] - prior[order[i]]) < 1e-7,
+              "shortlist entry %d is not the exact policy prefix", i);
+        if (named_move(s20.mv[i], "W3", 1, 0)) saw_w3 = 1;
+    }
+    CHECK(saw_w3, "ply 20 shortlist omitted W3 discard");
+    CHECK(fabs(s20.policy_mass - expected_mass) < 1e-6,
+          "shortlist reports %.6f mass, expected %.6f",
+          s20.policy_mass, expected_mass);
+    CHECK(s20.delta[0] == 0.0 && s20.dse[0] == 0.0,
+          "policy baseline paired statistics are nonzero");
+
+    /* The original audit forcibly added same-card pile-draw variants with
+     * effectively zero prior.  Those exact W2 cases must stay outside the
+     * top-policy shortlist at the reviewed positions. */
+    for (int target = 8; target <= 10; target += 2) {
+        State st = reviewed_state(net, target);
+        SearchStats ss;
+        rng_seed(&rng, (uint64_t)(4000 + target));
+        (void)rollout_move(&audit, &st, &rng, NULL, &ss);
+        for (int i = 0; i < ss.n; i++)
+            CHECK(ss.mv[i].draw != 3,
+                  "ply %d reintroduced a forced W2 draw variant", target);
+    }
     free(net);
 }
 
@@ -424,6 +632,8 @@ int main(void)
     test_sampler();
     test_rollout_terminal_objective();
     test_rollout_value_scale();
+    test_belief_distribution();
+    test_rollout_policy_shortlist();
     test_wager_interaction_head();
     test_wager_parameter_projection();
     test_wager_tied_gradients();

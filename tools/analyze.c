@@ -8,9 +8,8 @@
  * public state plus the mover's hand(s), the round and cumulative totals, the
  * publicly known cards in each hand, the value head from both perspectives,
  * the policy distribution over legal moves, and the rollout search
- * statistics.  rollout_move is called exactly once per ply and its returned
- * move is the move played, so the dump describes the game that was actually
- * generated.
+ * statistics.  The actor and evaluator have independent RNG streams:
+ * rollout_move is post-hoc only and its return value never changes the match.
  *
  * Output is a single JSON object on stdout; redirect to a file.
  */
@@ -145,27 +144,57 @@ static int move_eq(Move a, Move b)
     return a.card == b.card && a.discard == b.discard && a.draw == b.draw;
 }
 
+static uint64_t mix64(uint64_t x)
+{
+    x += 0x9E3779B97F4A7C15ULL;
+    x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ULL;
+    x = (x ^ (x >> 27)) * 0x94D049BB133111EBULL;
+    return x ^ (x >> 31);
+}
+
 int main(int argc, char **argv)
 {
-    const char *spec =
-        "rollout:data/champion.bin:128:6:0.02:0:1:0:0:6:2:1:3:4:0:20";
+    const char *actor_spec = "policy:data/champion.bin:0:20";
+    const char *eval_spec =
+        "rolloutu:data/champion.bin:1000:8:0.01:0.98:2:0:0:0:2:0:1.96:1:0:20:0.995:250:5";
     uint64_t seed = 1;
     int rounds = MATCH_ROUNDS;
+    float belief_alpha = 1.15f;
+    int belief_symmetries = 20;
     for (int i = 1; i < argc; i++) {
-        if (!strcmp(argv[i], "-a") && i + 1 < argc) spec = argv[++i];
+        if (!strcmp(argv[i], "-a") && i + 1 < argc) actor_spec = argv[++i];
+        else if (!strcmp(argv[i], "-e") && i + 1 < argc) eval_spec = argv[++i];
         else if (!strcmp(argv[i], "-s") && i + 1 < argc) seed = strtoull(argv[++i], NULL, 10);
         else if (!strcmp(argv[i], "-r") && i + 1 < argc) rounds = atoi(argv[++i]);
-        else { fprintf(stderr, "usage: %s [-a SPEC] [-s seed] [-r rounds]\n", argv[0]); return 1; }
+        else if (!strcmp(argv[i], "--belief-alpha") && i + 1 < argc)
+            belief_alpha = (float)atof(argv[++i]);
+        else if (!strcmp(argv[i], "--belief-symmetries") && i + 1 < argc)
+            belief_symmetries = atoi(argv[++i]);
+        else {
+            fprintf(stderr, "usage: %s [-a ACTOR] [-e EVALUATOR] [-s seed] "
+                            "[-r rounds] [--belief-alpha A] "
+                            "[--belief-symmetries N]\n", argv[0]);
+            return 1;
+        }
     }
     if (rounds < 1) rounds = 1;
     if (rounds > MATCH_ROUNDS) rounds = MATCH_ROUNDS;
 
-    Agent ag;
-    spec_parse(spec, &ag);
-    if (!ag.net) { fprintf(stderr, "analyze: spec '%s' has no network\n", spec); return 1; }
+    Agent actor, evaluator;
+    spec_parse(actor_spec, &actor);
+    spec_parse(eval_spec, &evaluator);
+    if (!actor.net) {
+        fprintf(stderr, "analyze: actor '%s' has no network\n", actor_spec);
+        return 1;
+    }
+    if (evaluator.kind != AG_ROLLOUT || !evaluator.net) {
+        fprintf(stderr, "analyze: evaluator must be a network rollout spec\n");
+        return 1;
+    }
 
-    Rng rng;
-    rng_seed(&rng, seed);
+    Rng deal_rng, actor_rng;
+    rng_seed(&deal_rng, seed);
+    rng_seed(&actor_rng, mix64(seed ^ 0xA17C0AULL));
 
     /* the ply array is streamed into memory while the match is played, because
      * meta (which needs the final scores) comes first in the output */
@@ -181,7 +210,7 @@ int main(int argc, char **argv)
 
     for (int rd = 0; rd < rounds; rd++) {
     State st;
-    lc_deal(&st, &rng);
+    lc_deal(&st, &deal_rng);
     st.round = (uint8_t)rd;
     st.cum[0] = (int16_t)cum[0];
     st.cum[1] = (int16_t)cum[1];
@@ -224,54 +253,60 @@ int main(int argc, char **argv)
         float v[2];
         for (int q = 0; q < 2; q++) {
             feat_extract(&st, q, &feat);
-            v[q] = net_value(ag.net, &feat) * VAL_SCALE;
+            v[q] = net_value(actor.net, &feat) * VAL_SCALE;
         }
         fprintf(pf, ",\"values\":[%.1f,%.1f]", v[0], v[1]);
 
-        /* belief head from the MOVER's perspective: for every card whose
-         * location the mover cannot pin down, the learned probability that
-         * the opponent holds it -- with the omniscient truth beside it so the
-         * viewer can show how good the inference actually is */
+        /* Coherent fixed-cardinality belief diagnostic.  These are analytic
+         * inclusion marginals of one joint K-card distribution, so they sum
+         * exactly to the number of unknown opponent cards.  The production
+         * audit uses uniform worlds until this learned ranking clears locked
+         * validation; the diagnostic remains visible and honestly labelled. */
         {
             int mp = st.turn, mo = mp ^ 1;
-            uint8_t bcards[NCARD];
-            int nb = 0;
-            lc_unseen(&st, mp, bcards, &nb);
-            Features bf;
-            feat_extract(&st, mp, &bf);
-            NetAct bact;
-            net_trunk(ag.net, &bf, &bact);
-            float blg[NCARD];
-            net_belief_act(ag.net, &bact, bcards, nb, blg);
+            BeliefDist bd;
+            float effective_alpha = st.nply == 0 ? 0.0f : belief_alpha;
+            if (!belief_dist_init(actor.net, &st, mp, belief_symmetries,
+                                  effective_alpha, &bd)) {
+                fprintf(stderr, "analyze: belief distribution failed at ply %d\n", ply);
+                return 1;
+            }
             int bord[NCARD];
-            for (int i = 0; i < nb; i++) bord[i] = i;
-            for (int i = 0; i < nb; i++)
-                for (int j2 = i + 1; j2 < nb; j2++)
-                    if (blg[bord[j2]] > blg[bord[i]]) { int t = bord[i]; bord[i] = bord[j2]; bord[j2] = t; }
-            int need = (int)st.hand_n[mo] - __builtin_popcountll(st.known[mo]);
-            float prior = nb > 0 ? (float)need / (float)nb : 0.0f;
+            for (int i = 0; i < bd.n; i++) bord[i] = i;
+            for (int i = 0; i < bd.n; i++)
+                for (int j2 = i + 1; j2 < bd.n; j2++)
+                    if (bd.marginal[bord[j2]] > bd.marginal[bord[i]]) {
+                        int t = bord[i]; bord[i] = bord[j2]; bord[j2] = t;
+                    }
+            float prior = bd.n > 0 ? (float)bd.need / (float)bd.n : 0.0f;
+            double msum = 0.0;
+            for (int i = 0; i < bd.n; i++) msum += bd.marginal[i];
             fprintf(pf, ",\"belief\":{\"persp\":%d,\"unknown_hand\":%d,"
-                        "\"unknown_pool\":%d,\"prior\":%.6f,\"cards\":[",
-                    mp, need, nb, prior);
-            int bkeep = nb < 14 ? nb : 14;
+                        "\"unknown_pool\":%d,\"prior\":%.6f,"
+                        "\"method\":\"fixed_cardinality\","
+                        "\"alpha\":%.3f,\"symmetries\":%d,"
+                        "\"used_by_rollout\":false,\"marginal_sum\":%.6f,"
+                        "\"cards\":[",
+                    mp, bd.need, bd.n, prior, effective_alpha,
+                    belief_symmetries, msum);
+            int bkeep = bd.n < 14 ? bd.n : 14;
             for (int i = 0; i < bkeep; i++) {
                 int ci = bord[i];
-                float bp = 1.0f / (1.0f + expf(-blg[ci]));
                 if (i) fputc(',', pf);
                 fprintf(pf, "{\"card\":");
-                j_card(pf, bcards[ci]);
+                j_card(pf, bd.card[ci]);
                 fprintf(pf, ",\"p\":%.3f,\"held\":%s}",
-                        bp, ((st.hand[mo] >> bcards[ci]) & 1ULL) ? "true" : "false");
+                        bd.marginal[ci],
+                        ((st.hand[mo] >> bd.card[ci]) & 1ULL) ? "true" : "false");
             }
             fprintf(pf, "],\"all_cards\":[");
-            for (int i = 0; i < nb; i++) {
+            for (int i = 0; i < bd.n; i++) {
                 int ci = bord[i];
-                float bp = 1.0f / (1.0f + expf(-blg[ci]));
                 if (i) fputc(',', pf);
                 fprintf(pf, "{\"card\":");
-                j_card(pf, bcards[ci]);
+                j_card(pf, bd.card[ci]);
                 fprintf(pf, ",\"p\":%.6f,\"held\":%s}",
-                        bp, ((st.hand[mo] >> bcards[ci]) & 1ULL)
+                        bd.marginal[ci], ((st.hand[mo] >> bd.card[ci]) & 1ULL)
                                 ? "true" : "false");
             }
             fprintf(pf, "]}");
@@ -280,8 +315,8 @@ int main(int argc, char **argv)
         /* policy head over all legal moves, best first, capped at 10 */
         Move pmv[MAX_MOVES];
         float prob[MAX_MOVES], pv;
-        int nleg = policy_probs_sym(ag.net, &st, pmv, prob, &pv,
-                                    ag.symmetries);
+        int nleg = policy_probs_sym(actor.net, &st, pmv, prob, &pv,
+                                    actor.symmetries);
         int ord[MAX_MOVES];
         for (int i = 0; i < nleg; i++) ord[i] = i;
         for (int i = 0; i < nleg; i++)
@@ -296,11 +331,27 @@ int main(int argc, char **argv)
         }
         fputc(']', pf);
 
-        /* one rollout_move call decides the ply and yields the search stats */
+        /* The actor chooses first.  A stateless evaluator seed then makes the
+         * post-hoc audit reproducible without consuming deal/actor randomness. */
+        Move played = agent_move(&actor, &st, &actor_rng);
         SearchStats ss;
-        memset(&ss, 0, sizeof ss);
         float sval = 0.0f;
-        Move m = rollout_move(&ag, &st, &rng, &sval, &ss);
+        Rng eval_rng;
+        rng_seed(&eval_rng, mix64(seed ^ 0xE7A100ULL
+                                 ^ ((uint64_t)rd << 48)
+                                 ^ (uint64_t)ply));
+        Move recommended = rollout_move(&evaluator, &st, &eval_rng, &sval, &ss);
+        const char *analysis_status;
+        if (ss.worlds == 0) {
+            analysis_status = nleg == 1 ? "forced_move"
+                : "skipped_policy_confidence";
+        } else if (!ss.resolved) {
+            analysis_status = "inconclusive";
+        } else if (move_eq(ss.mv[ss.raw_best], recommended)) {
+            analysis_status = "resolved";
+        } else {
+            analysis_status = "resolved_below_action_threshold";
+        }
 
         int sord[MAX_MOVES];
         for (int i = 0; i < ss.n; i++) sord[i] = i;
@@ -312,23 +363,63 @@ int main(int argc, char **argv)
             if (i) fputc(',', pf);
             int k = sord[i];
             j_move_open(pf, ss.mv[k]);
-            fprintf(pf, ",\"q\":%.1f,\"se\":%.1f,\"visits\":%.0f,\"chosen\":%s",
-                    ss.q[k], ss.se[k], ss.visits[k], move_eq(ss.mv[k], m) ? "true" : "false");
+            fprintf(pf, ",\"q\":%.3f,\"q_se\":%.3f,"
+                        "\"delta_vs_policy\":%.3f,\"delta_se\":%.3f,"
+                        "\"policy_prob\":%.6f,\"visits\":%.0f,"
+                        "\"played\":%s,\"policy_top\":%s,\"retained\":%s,"
+                        "\"highest_mean\":%s,\"confirmed_best\":%s",
+                    ss.q[k], ss.se[k], ss.delta[k], ss.dse[k],
+                    ss.prior[k], ss.visits[k],
+                    move_eq(ss.mv[k], played) ? "true" : "false",
+                    k == 0 ? "true" : "false",
+                    move_eq(ss.mv[k], recommended) ? "true" : "false",
+                    k == ss.raw_best ? "true" : "false",
+                    ss.worlds > 0 && ss.resolved && k == ss.raw_best
+                        ? "true" : "false");
             if (ss.qw[k] >= 0.0) fprintf(pf, ",\"qw\":%.3f", ss.qw[k]);
             fputc('}', pf);
         }
         fputc(']', pf);
+        fprintf(pf, ",\"actor_value\":%.3f,"
+                    "\"analysis\":{\"kind\":\"posthoc_rollout\","
+                    "\"objective\":\"%s\",\"worlds\":%d,\"max_worlds\":%d,"
+                    "\"used_to_choose\":false,\"searched\":%s,"
+                    "\"status\":\"%s\",\"resolved\":%s,"
+                    "\"confidence_guard_se\":3.5,"
+                    "\"practical_threshold\":%.3f,\"policy_mass\":%.6f,"
+                    "\"target_policy_mass\":%.6f,\"shortlist_capped\":%s,"
+                    "\"audited_moves\":%d,\"omitted_moves\":%d,"
+                    "\"world_model\":\"%s\","
+                    "\"continuation_policy\":\"%s\","
+                    "\"continuation_symmetries\":%d}",
+                pv,
+                rd == MATCH_ROUNDS - 1 && evaluator.win_q == 2
+                    ? "final_hybrid"
+                    : (rd == MATCH_ROUNDS - 1 && evaluator.win_q == 1
+                        ? "final_result" : "round_margin"),
+                ss.worlds, ss.max_worlds, ss.worlds > 0 ? "true" : "false",
+                analysis_status, ss.resolved ? "true" : "false",
+                evaluator.override_min, ss.policy_mass, evaluator.cand_mass,
+                ss.worlds > 0 && evaluator.cand_mass > 0.0f &&
+                        ss.policy_mass + 1e-6 < evaluator.cand_mass &&
+                        ss.n >= evaluator.root_width
+                    ? "true" : "false",
+                ss.n, nleg - ss.n,
+                evaluator.no_belief ? "uniform_card_count"
+                                    : "learned_fixed_cardinality",
+                evaluator.playout_sample ? "sampled" : "deterministic_argmax",
+                evaluator.playout_symmetries);
 
         /* the card that will be drawn: read before lc_apply */
-        int drawn = m.draw == 0 ? st.deck[st.deck_pos]
-                                : st.pile[m.draw - 1][st.pile_n[m.draw - 1] - 1];
+        int drawn = played.draw == 0 ? st.deck[st.deck_pos]
+                                : st.pile[played.draw - 1][st.pile_n[played.draw - 1] - 1];
         fprintf(pf, ",\"move\":");
-        j_move_open(pf, m);
+        j_move_open(pf, played);
         fprintf(pf, ",\"drawn\":");
         j_card(pf, drawn);
         fprintf(pf, "}}");
 
-        lc_apply(&st, m);
+        lc_apply(&st, played);
     }
 
     round_scores[rd][0] = lc_score(&st, 0);
@@ -338,9 +429,13 @@ int main(int argc, char **argv)
     }   /* rounds */
     fclose(pf);
 
-    printf("{\"meta\":{\"agent\":");
-    j_string(stdout, spec);
-    printf(",\"seed\":%llu,\"plies\":%d,\"rounds\":%d,\"round_scores\":[",
+    printf("{\"meta\":{\"actor\":");
+    j_string(stdout, actor_spec);
+    printf(",\"evaluator\":");
+    j_string(stdout, eval_spec);
+    printf(",\"belief_alpha\":%.3f,\"belief_symmetries\":%d,"
+           "\"seed\":%llu,\"plies\":%d,\"rounds\":%d,\"round_scores\":[",
+           belief_alpha, belief_symmetries,
            (unsigned long long)seed, ply, rounds);
     for (int rd = 0; rd < rounds; rd++)
         printf("%s[%d,%d]", rd ? "," : "", round_scores[rd][0], round_scores[rd][1]);

@@ -142,6 +142,10 @@ static float simulate(Tree *t, State *s, int node)
 Move search_move(const struct Agent *a, const State *st, Rng *rng,
                  float *out_value, SearchStats *stats)
 {
+    if (stats) {
+        memset(stats, 0, sizeof *stats);
+        for (int i = 0; i < MAX_MOVES; i++) stats->qw[i] = -1.0;
+    }
     Move rmv[MAX_MOVES];
     float rprob[MAX_MOVES];
     float rvalue = 0.0f;
@@ -151,7 +155,15 @@ Move search_move(const struct Agent *a, const State *st, Rng *rng,
         if (out_value) *out_value = rvalue;
         if (stats) {
             stats->n = rn;
-            if (rn == 1) { stats->mv[0] = rmv[0]; stats->visits[0] = 1; stats->q[0] = rvalue; }
+            stats->nlegal = rn;
+            stats->resolved = 1;
+            if (rn == 1) {
+                stats->mv[0] = rmv[0];
+                stats->visits[0] = 1;
+                stats->q[0] = rvalue;
+                stats->prior[0] = 1.0;
+                stats->policy_mass = 1.0;
+            }
             stats->value = rvalue;
         }
         return rmv[0];
@@ -209,12 +221,18 @@ Move search_move(const struct Agent *a, const State *st, Rng *rng,
     float rootq = totv > 0 ? (float)(totw / totv) * VAL_SCALE : rvalue;
     if (stats) {
         stats->n = nroot;
+        stats->nlegal = rn;
+        stats->worlds = a->dets;
+        stats->max_worlds = a->dets;
+        stats->raw_best = best;
         for (int i = 0; i < nroot; i++) {
             uint16_t pk = root_tmpl.mv[i];
             Move m = { MOVE_CARD(pk), MOVE_DISC(pk), MOVE_DRAW(pk) };
             stats->mv[i] = m;
             stats->visits[i] = agg_visits[i];
             stats->q[i] = agg_visits[i] > 0 ? agg_w[i] / agg_visits[i] * VAL_SCALE : 0.0;
+            stats->prior[i] = root_tmpl.prior[i];
+            stats->policy_mass += root_tmpl.prior[i];
         }
         stats->value = rootq;
     }
