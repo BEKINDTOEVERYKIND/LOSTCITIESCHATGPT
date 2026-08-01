@@ -17,6 +17,7 @@
 #include "../src/match.h"
 #include "../src/search.h"
 #include "../src/spec.h"
+#include "train_target.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -209,17 +210,16 @@ static void *gen_worker(void *arg)
                 SearchStats ss;
                 played = rollout_move(&j->agent, &st, &rng, NULL, &ss);
                 expert_chose = 1;
-                n = ss.n;
-                /* The rollout values are margins in points, so the softmax
-                 * temperature is in points too: wide enough not to trust
-                 * differences smaller than the sampling error. */
-                double mx = -1e30;
-                for (int i = 0; i < n; i++) if (ss.q[i] > mx) mx = ss.q[i];
-                for (int i = 0; i < n; i++) {
-                    mv[i] = ss.mv[i];
-                    pr[i] = (j->tau > 0.0f && finite_float_bits(j->tau))
-                          ? (float)exp((ss.q[i] - mx) / j->tau)
-                          : (ss.q[i] == mx ? 1.0f : 0.0f);
+                /* Preserve a soft Q target only when its leader agrees with
+                 * the move the rollout selection rule actually returned.  In
+                 * particular, a failed fresh consensus panel must not train
+                 * toward the primary-panel proposal it just rejected. */
+                n = rollout_training_weights(
+                    &ss, played, j->tau, mv, pr, NULL);
+                if (n <= 0) {
+                    fprintf(stderr,
+                            "rollout target omitted its selected move\n");
+                    exit(EXIT_FAILURE);
                 }
             } else if (j->agent.kind == AG_MCTS) {
                 SearchStats ss;
@@ -625,39 +625,10 @@ int main(int argc, char **argv)
         } else if (!strcmp(gen_spec, "selfpolicy")) {
             agent_default(&gen, AG_POLICY, net);
         } else if (!strncmp(gen_spec, "selfrollout", 11)) {
-            /* live-net rollout generator, same parameter tail as the rollout
-             * spec: dets:cands:floor:gate:minc:plylo:plyhi:evalc.  evalc
-             * matters for expert iteration: advisory candidates enter the
-             * Q-softmax target, so the trainer can pull probability toward
-             * moves the policy has written off while the generated games
-             * still play the selection rule. */
-            agent_default(&gen, AG_ROLLOUT, net);
-            char tmp[128];
-            snprintf(tmp, sizeof tmp, "%s", gen_spec);
-            char *save = NULL;
-            strtok_r(tmp, ":", &save);
-            char *v;
-            if ((v = strtok_r(NULL, ":", &save))) gen.dets = atoi(v);
-            if ((v = strtok_r(NULL, ":", &save))) gen.root_width = atoi(v);
-            if ((v = strtok_r(NULL, ":", &save))) gen.cand_floor = (float)atof(v);
-            if ((v = strtok_r(NULL, ":", &save))) gen.gate = (float)atof(v);
-            if ((v = strtok_r(NULL, ":", &save))) gen.min_cand = atoi(v);
-            if ((v = strtok_r(NULL, ":", &save))) gen.ply_lo = atoi(v);
-            if ((v = strtok_r(NULL, ":", &save))) gen.ply_hi = atoi(v);
-            if ((v = strtok_r(NULL, ":", &save))) gen.eval_cand = atoi(v);
-            if ((v = strtok_r(NULL, ":", &save))) gen.win_q = atoi(v);
-            if ((v = strtok_r(NULL, ":", &save))) gen.prune_dom = atoi(v);
-            if ((v = strtok_r(NULL, ":", &save))) gen.override_k = (float)atof(v);
-            if ((v = strtok_r(NULL, ":", &save))) gen.override_min = (float)atof(v);
-            if ((v = strtok_r(NULL, ":", &save))) gen.playout_sample = atoi(v);
-            if ((v = strtok_r(NULL, ":", &save))) gen.symmetries = atoi(v);
-            if ((v = strtok_r(NULL, ":", &save))) gen.cand_mass = (float)atof(v);
-            if ((v = strtok_r(NULL, ":", &save))) gen.batch_dets = atoi(v);
-            if ((v = strtok_r(NULL, ":", &save))) gen.playout_symmetries = atoi(v);
-            if ((v = strtok_r(NULL, ":", &save))) gen.discard_guard = atoi(v);
-            if ((v = strtok_r(NULL, ":", &save))) gen.deck_max = atoi(v);
-            if ((v = strtok_r(NULL, ":", &save))) gen.confirm_dets = atoi(v);
-            if ((v = strtok_r(NULL, ":", &save))) gen.playout_prune = atoi(v);
+            /* Live-net generator with the same complete rollout tail as the
+             * command-line rollout agent.  The shared parser preserves the
+             * caller-owned training network and rejects unknown late fields. */
+            spec_parse_selfrollout(gen_spec, net, &gen);
         } else {
             spec_parse(gen_spec, &gen);
             gen.net = net;

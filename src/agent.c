@@ -36,6 +36,10 @@ void agent_default(Agent *a, AgentKind k, const Net *net)
     a->override_k = 0.0f;
     a->override_min = 4.0f;
     a->playout_sample = 0;
+    a->confirm_exact5 = 0;
+    a->draw_variant_cores = 0;
+    a->draw_variant_deck_max = 0;
+    a->policy_prefix_mode = 0;
     switch (k) {
     case AG_RANDOM: a->name = "random"; break;
     case AG_HEUR:   a->name = "heuristic"; break;
@@ -380,6 +384,29 @@ int policy_probs_sym(const Net *net, const State *st, Move *mv, float *prob,
     return n;
 }
 
+int policy_probs_perm(const Net *net, const State *st, Move *mv, float *prob,
+                      float *value, const uint8_t perm[NSUIT])
+{
+    State ps;
+    lc_permute_suits(st, &ps, perm);
+    Move pmv[MAX_MOVES];
+    float pp[MAX_MOVES];
+    float pv = 0.0f;
+    int pn = policy_probs_raw(net, &ps, pmv, pp, value ? &pv : NULL);
+
+    int n = lc_moves(st, mv);
+    int by_pack[MOVE_NPACK];
+    for (int i = 0; i < MOVE_NPACK; i++) by_pack[i] = -1;
+    for (int i = 0; i < pn; i++) by_pack[MOVE_PACK(pmv[i])] = i;
+    for (int i = 0; i < n; i++) {
+        Move mapped = lc_permute_move(mv[i], perm);
+        int j = by_pack[MOVE_PACK(mapped)];
+        prob[i] = j >= 0 ? pp[j] : 0.0f;
+    }
+    if (value) *value = pv;
+    return n;
+}
+
 int policy_probs_random_sym(const Net *net, const State *st, Move *mv,
                             float *prob, Rng *rng, int symmetries)
 {
@@ -388,23 +415,7 @@ int policy_probs_random_sym(const Net *net, const State *st, Move *mv,
     if (nsym <= 1)
         return policy_probs_raw(net, st, mv, prob, NULL);
     int k = (int)rng_below(rng, (uint32_t)nsym);
-
-    State ps;
-    lc_permute_suits(st, &ps, perms[k]);
-    Move pmv[MAX_MOVES];
-    float pp[MAX_MOVES];
-    int pn = policy_probs_raw(net, &ps, pmv, pp, NULL);
-
-    int n = lc_moves(st, mv);
-    int by_pack[MOVE_NPACK];
-    for (int i = 0; i < MOVE_NPACK; i++) by_pack[i] = -1;
-    for (int i = 0; i < pn; i++) by_pack[MOVE_PACK(pmv[i])] = i;
-    for (int i = 0; i < n; i++) {
-        Move mapped = lc_permute_move(mv[i], perms[k]);
-        int j = by_pack[MOVE_PACK(mapped)];
-        prob[i] = j >= 0 ? pp[j] : 0.0f;
-    }
-    return n;
+    return policy_probs_perm(net, st, mv, prob, NULL, perms[k]);
 }
 
 int policy_probs(const Net *net, const State *st, Move *mv, float *prob,

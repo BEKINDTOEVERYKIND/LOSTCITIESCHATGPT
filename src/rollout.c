@@ -34,9 +34,12 @@
  * the policy head; without one it is the hand-crafted evaluation, which gives
  * the classical "heuristic + perfect-information Monte Carlo" baseline. */
 static int rank_moves(const Net *net, const State *s, Move *mv, float *score,
-                      int symmetries, Rng *symrng)
+                      int symmetries, Rng *symrng,
+                      const uint8_t fixed_perm[NSUIT])
 {
     if (net) {
+        if (fixed_perm)
+            return policy_probs_perm(net, s, mv, score, NULL, fixed_perm);
         if (symrng && symmetries > 1)
             return policy_probs_random_sym(net, s, mv, score, symrng,
                                            symmetries);
@@ -52,20 +55,23 @@ static int rank_moves(const Net *net, const State *s, Move *mv, float *score,
  * *winpts gets the match result (1 win, 0.5 draw, 0 loss) from the carried
  * cumulative totals; in earlier rounds it gets -1 (margin is the only
  * available objective there, and it doubles as the natural proxy).
- * symrng != NULL draws one suit-group member at each downstream decision,
- * avoiding a 20-forward exact average while preserving a greedy actor.
+ * symrng without fixed_perm draws one suit-group member at each downstream
+ * decision.  fixed_perm instead retains one member for the full sampled
+ * world, avoiding a temporally inconsistent change of network orientation.
  * sample_actions is a separate robustness ablation: it samples from that
  * member's full policy rather than taking its best move.  Conflating these
  * two sources of randomness made the old fast mode evaluate a much weaker,
  * high-entropy continuation policy instead of approximating the champion. */
 static int playout(const Net *net, State *s, int p, int prune, Rng *symrng,
-                   int sample_actions, int symmetries, int plan_deck_max,
-                   int plan_block_gap, double *winpts)
+                   const uint8_t fixed_perm[NSUIT], int sample_actions,
+                   int symmetries, int plan_deck_max, int plan_block_gap,
+                   double *winpts)
 {
     Move mv[MAX_MOVES];
     float score[MAX_MOVES];
     while (!s->over) {
-        int n = rank_moves(net, s, mv, score, symmetries, symrng);
+        int n = rank_moves(net, s, mv, score, symmetries, symrng,
+                           fixed_perm);
         if (n <= 0) break;
         uint64_t dead = prune ? (lc_dead_cards(s) & s->hand[s->turn]) : 0;
         int best = -1;
@@ -167,6 +173,69 @@ static int same_semantic_action(Move a, Move b)
     if (CARD_IS_WAGER(a.card) && CARD_IS_WAGER(b.card))
         return CARD_SUIT(a.card) == CARD_SUIT(b.card);
     return a.card == b.card;
+}
+
+/* Add only pile-draw variants of the highest-prior distinct play/discard
+ * actions.  The complete-move policy factorization can make one global draw
+ * preference suppress every pile alternative at once; ranking action cores
+ * first preserves the policy's card decision while allowing rollout to value
+ * late-round tempo.  First guarantee one best pile option per requested core,
+ * then fill the audit's remaining slots by prior.  The caller adds planner
+ * and semantic challengers first so this optional expansion cannot crowd out
+ * the more targeted corrections. */
+static int add_top_action_pile_variants(
+    const Move *mv, const float *prob, int n,
+    const int *ranked, int nsorted, int wanted_cores,
+    int *order, int *ncand)
+{
+    if (wanted_cores < 1) return 0;
+    if (wanted_cores > 2) wanted_cores = 2;
+    int core[2], ncore = 0;
+    for (int r = 0; r < nsorted && ncore < wanted_cores; r++) {
+        int distinct = 1;
+        for (int c = 0; c < ncore; c++)
+            if (same_semantic_action(mv[ranked[r]], mv[core[c]])) {
+                distinct = 0;
+                break;
+            }
+        if (distinct) core[ncore++] = ranked[r];
+    }
+
+    int added = 0;
+    for (int c = 0; c < ncore && *ncand < MAX_CAND; c++) {
+        int best = -1;
+        for (int i = 0; i < n; i++) {
+            if (mv[i].draw == 0 ||
+                !same_semantic_action(mv[i], mv[core[c]]))
+                continue;
+            int present = 0;
+            for (int k = 0; k < *ncand; k++)
+                if (order[k] == i) { present = 1; break; }
+            if (!present && (best < 0 || prob[i] > prob[best])) best = i;
+        }
+        added += append_unique(order, ncand, MAX_CAND, best);
+    }
+
+    while (*ncand < MAX_CAND) {
+        int best = -1;
+        for (int i = 0; i < n; i++) {
+            if (mv[i].draw == 0) continue;
+            int selected_core = 0;
+            for (int c = 0; c < ncore; c++)
+                if (same_semantic_action(mv[i], mv[core[c]])) {
+                    selected_core = 1;
+                    break;
+                }
+            if (!selected_core) continue;
+            int present = 0;
+            for (int k = 0; k < *ncand; k++)
+                if (order[k] == i) { present = 1; break; }
+            if (!present && (best < 0 || prob[i] > prob[best])) best = i;
+        }
+        if (best < 0) break;
+        added += append_unique(order, ncand, MAX_CAND, best);
+    }
+    return added;
 }
 
 static int top_action_group(const Move *mv, const float *prob, int n,
@@ -313,6 +382,68 @@ static int useful_pile_pickup(
         }
     }
     return best;
+}
+
+/* Recheck a proposed ordinary policy-prefix override on fresh worlds with a
+ * coherent continuation actor.  Suit mappings are balanced (counts differ by
+ * at most one), fixed for each complete trajectory, and shared by every root
+ * candidate.  The proposal survives only when the independent panel selects
+ * the same numerical leader; disagreement falls back to the raw policy. */
+static int confirm_trusted_prefix(
+    const Agent *a, const State *st, int p,
+    const Move *mv, const int *order, int ntrusted, int proposed,
+    int cont_prune, int cont_sym, const BeliefDist *belief, int have_belief,
+    uint64_t seed, int cap, int *worlds_out,
+    double *q_out, double *se_out)
+{
+    *worlds_out = 0;
+    if (proposed <= 0 || ntrusted <= 1) return proposed;
+    int worlds = a->confirm_dets > 0 ? a->confirm_dets : cap;
+    if (worlds < 2) worlds = 2;
+
+    uint8_t perms[120][NSUIT];
+    int nperm = suit_permutations(cont_sym, perms);
+    Rng perm_rng;
+    rng_seed(&perm_rng, seed ^ UINT64_C(0x8CB92BA72F3D8DD7));
+    int offset = (int)rng_below(&perm_rng, (uint32_t)nperm);
+    Rng world_rng;
+    rng_seed(&world_rng, seed ^ UINT64_C(0xDB4F0B9175AE2165));
+
+    double total[MAX_CAND] = { 0 };
+    double total2[MAX_CAND] = { 0 };
+    double margin[MAX_CAND] = { 0 };
+    for (int d = 0; d < worlds; d++) {
+        State world;
+        if (have_belief)
+            belief_dist_sample(st, p, &world_rng, belief, &world);
+        else
+            determinize(st, p, &world_rng, &world);
+        const uint8_t *perm = perms[(offset + d) % nperm];
+        for (int c = 0; c < ntrusted; c++) {
+            State s = world;
+            lc_apply(&s, mv[order[c]]);
+            int m = playout(a->net, &s, p, cont_prune, NULL, perm, 0,
+                            cont_sym, a->plan_deck_max,
+                            a->plan_block_gap, NULL);
+            double obj = rollout_terminal_objective(&s, p, a->win_q);
+            total[c] += obj;
+            total2[c] += obj * obj;
+            margin[c] += m;
+        }
+    }
+    *worlds_out = worlds;
+    for (int c = 0; c < ntrusted; c++) {
+        q_out[c] = total[c] / worlds;
+        double centered = total2[c] - total[c] * total[c] / worlds;
+        if (centered < 0.0) centered = 0.0;
+        se_out[c] = sqrt(centered / (worlds - 1) / worlds);
+    }
+    int leader = 0;
+    for (int c = 1; c < ntrusted; c++)
+        if (total[c] > total[leader] ||
+            (total[c] == total[leader] && margin[c] > margin[leader]))
+            leader = c;
+    return leader == proposed ? proposed : 0;
 }
 
 Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
@@ -603,7 +734,8 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
         nsorted = a->eval_cand < MAX_CAND ? a->eval_cand : MAX_CAND;
         if (nsorted > n) nsorted = n;
     }
-    if ((a->semantic_cand || a->plan_deck_max > 0) && nsorted < MAX_CAND) {
+    if ((a->semantic_cand || a->plan_deck_max > 0 ||
+         a->draw_variant_cores > 0) && nsorted < MAX_CAND) {
         nsorted = n < MAX_CAND ? n : MAX_CAND;
     }
     for (int i = 0; i < nsorted; i++) {
@@ -642,6 +774,7 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
         changed_baseline = 0;
     }
     append_unique(order, &ncand, MAX_CAND, current_baseline);
+    int trusted_candidates = ncand;
 
     /* One exact hand-scheduling challenger is enough.  It comes from the
      * policy's top eight, so this remains a focused audit rather than a scan
@@ -662,6 +795,14 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
         semantic_added +=
             append_unique(order, &ncand, MAX_CAND, pile_discard_index);
     }
+    int draw_variant_added = 0;
+    if (a->net && a->draw_variant_cores > 0 &&
+        (a->draw_variant_deck_max <= 0 ||
+         st->deck_left <= a->draw_variant_deck_max)) {
+        draw_variant_added = add_top_action_pile_variants(
+            mv, prob, n, ranked, nsorted, a->draw_variant_cores,
+            order, &ncand);
+    }
     /*
      * An early one-sided-wager trigger is deliberately a two-move test.  Its
      * purpose is to rescue one low-prior semantic blind spot, not to turn the
@@ -673,6 +814,8 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
         ncand = 1;
         semantic_added =
             append_unique(order, &ncand, MAX_CAND, safe_discard_index);
+        draw_variant_added = 0;
+        trusted_candidates = 1;
     }
 
     /* Candidate zero is the deployed actor's baseline: ordinarily the raw
@@ -746,6 +889,9 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
             stats->planned_baseline = baseline_from_planner;
             stats->deck_end_baseline = deck_end_baseline;
             stats->semantic_candidates = semantic_added;
+            stats->draw_variant_candidates = draw_variant_added;
+            stats->trusted_candidates = trusted_candidates;
+            stats->selection_reference = 0;
             stats->policy_mass = prob[order[0]];
             stats->mv[0] = mv[order[0]];
             stats->visits[0] = 0;
@@ -790,7 +936,6 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
         rng->s[0] ^ rotl64(rng->s[1], 13) ^
         rotl64(rng->s[2], 29) ^ rotl64(rng->s[3], 47) ^
         UINT64_C(0xA0761D6478BD642F);
-
     int reps = 0;
     int resolved = 0;
     int rawbest = 0;
@@ -803,6 +948,18 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
         a->playout_prune < 0 ? a->prune_dom : a->playout_prune != 0;
     int random_cont_sym = a->playout_sample > 0;
     int sample_cont_actions = a->playout_sample == 1;
+    int fixed_world_sym = a->playout_sample == 3 && cont_sym > 1;
+    uint8_t cont_perms[120][NSUIT];
+    int ncont_perms = fixed_world_sym
+        ? suit_permutations(cont_sym, cont_perms) : 0;
+    /* Mode 3 is a coherent sampled member of the suit ensemble.  Stratify the
+     * panel instead of independently redrawing that member in every world:
+     * over any complete group cycle each relabelling receives exactly the
+     * same number of hidden worlds, while the offset remains seed-dependent.
+     * This removes a needless source of audit variance without changing the
+     * hidden-card distribution or spending worlds on extra root moves. */
+    int fixed_perm_offset = fixed_world_sym
+        ? (int)(confirm_seed_base % (uint64_t)ncont_perms) : 0;
 
     for (int d = 0; d < cap; d++) {
         State world;
@@ -815,9 +972,14 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
             double w;
             Rng pr;
             if (random_cont_sym) rng_seed(&pr, wseed); /* same seed per world */
+            const uint8_t *fixed_perm = NULL;
+            if (fixed_world_sym) {
+                fixed_perm =
+                    cont_perms[(fixed_perm_offset + d) % ncont_perms];
+            }
             int m = playout(a->net, &s, p, cont_prune,
                             random_cont_sym ? &pr : NULL,
-                            sample_cont_actions, cont_sym,
+                            fixed_perm, sample_cont_actions, cont_sym,
                             a->plan_deck_max, a->plan_block_gap, &w);
             double obj = rollout_terminal_objective(&s, p, a->win_q);
             if (val) val[(size_t)c * cap + d] = obj;
@@ -861,10 +1023,35 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
             (sumobj[c] == sumobj[eligible_best] && sum[c] > sum[eligible_best]))
             eligible_best = c;
     }
-    /* override_k == 0 preserves the historical rollout agent: take its
-     * numerical leader.  Positive values opt into the conservative mode used
-     * by the audit and by any rollout player that must resist noisy changes. */
-    int best = a->override_k <= 0.0f ? eligible_best : 0;
+    /* The optional two-tier mode trusts only the ordinary policy-floor prefix
+     * as a direct numerical comparison.  Purposefully admitted low-prior pile
+     * and semantic variants must still clear both statistical gates. */
+    int reference = 0;
+    if (a->policy_prefix_mode > 0) {
+        for (int c = 1; c < trusted_candidates; c++)
+            if (sumobj[c] > sumobj[reference] ||
+                (sumobj[c] == sumobj[reference] && sum[c] > sum[reference]))
+                reference = c;
+    }
+    int proposed_reference = reference;
+    int prefix_confirm_worlds = 0;
+    int prefix_confirmed = 0;
+    double prefix_q[MAX_CAND] = { 0 };
+    double prefix_se[MAX_CAND] = { 0 };
+    if (a->policy_prefix_mode == 2 && proposed_reference != 0) {
+        reference = confirm_trusted_prefix(
+            a, st, p, mv, order, trusted_candidates, proposed_reference,
+            cont_prune, cont_sym, &belief, have_belief,
+            confirm_seed_base ^ UINT64_C(0xE7037ED1A0B428DB),
+            cap, &prefix_confirm_worlds, prefix_q, prefix_se);
+        prefix_confirmed = reference == proposed_reference;
+    }
+    /* override_k == 0 preserves the fully ungated historical rollout agent
+     * only when prefix selection is disabled.  Once a prefix mode is enabled,
+     * its numerical or fresh-panel consensus result owns the trusted-prefix
+     * decision even when the low-prior challenger gate is off. */
+    int best = a->override_k <= 0.0f && a->policy_prefix_mode == 0
+        ? eligible_best : reference;
     int confirmed = 0, confirm_worlds = 0;
     int qual[MAX_CAND], nqual = 0;
     double csum[MAX_CAND] = { 0 }, csum2[MAX_CAND] = { 0 };
@@ -878,11 +1065,15 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
          * leader to survive made a biased leader hide a smaller real
          * correction: when that leader failed confirmation the old code fell
          * all the way back to the baseline. */
-        for (int c = 1; c < ncand; c++) {
-            double dm = (sumobj[c] - sumobj[0]) / reps;
+        for (int c = 0; c < ncand; c++) {
+            if (c == reference ||
+                (a->policy_prefix_mode > 0 && c < trusted_candidates))
+                continue;
+            double dm = (sumobj[c] - sumobj[reference]) / reps;
             double v2 = 0.0;
             for (int d = 0; d < reps; d++) {
-                double x = val[(size_t)c * cap + d] - val[d] - dm;
+                double x = val[(size_t)c * cap + d]
+                         - val[(size_t)reference * cap + d] - dm;
                 v2 += x * x;
             }
             double sed = sqrt(v2 / (reps - 1) / reps);
@@ -920,11 +1111,18 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
                     UINT64_C(0xD1B54A32D192ED03) * (uint64_t)(d + 1)
                     ^ confirm_rng.s[0];
                 State baseline = world;
-                lc_apply(&baseline, mv[order[0]]);
+                lc_apply(&baseline, mv[order[reference]]);
                 Rng brng;
                 rng_seed(&brng, wseed);
+                const uint8_t *confirm_perm = NULL;
+                if (fixed_world_sym && !a->confirm_exact5) {
+                    int pk = (int)rng_below(&brng, (uint32_t)ncont_perms);
+                    confirm_perm = cont_perms[pk];
+                }
                 (void)playout(a->net, &baseline, p, cont_prune,
-                              &brng, 0, cont_sym,
+                              a->confirm_exact5 || confirm_perm ? NULL : &brng,
+                              confirm_perm, 0,
+                              a->confirm_exact5 ? 5 : cont_sym,
                               a->plan_deck_max, a->plan_block_gap, NULL);
                 double bobj =
                     rollout_terminal_objective(&baseline, p, a->win_q);
@@ -935,8 +1133,13 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
                     lc_apply(&challenger, mv[order[c]]);
                     Rng crng;
                     rng_seed(&crng, wseed);
+                    if (confirm_perm)
+                        (void)rng_below(&crng, (uint32_t)ncont_perms);
                     (void)playout(a->net, &challenger, p, cont_prune,
-                                  &crng, 0, cont_sym,
+                                  a->confirm_exact5 || confirm_perm
+                                      ? NULL : &crng,
+                                  confirm_perm, 0,
+                                  a->confirm_exact5 ? 5 : cont_sym,
                                   a->plan_deck_max, a->plan_block_gap, NULL);
                     double x =
                         rollout_terminal_objective(&challenger, p, a->win_q)
@@ -968,7 +1171,7 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
                     csupported[c] = 1;
                     uint64_t dead = lc_dead_cards(st);
                     int baseline_guarded =
-                        lc_discard_dominated(st, mv[order[0]], dead);
+                        lc_discard_dominated(st, mv[order[reference]], dead);
                     /*
                      * The generic discard guard predates the semantic
                      * shortlist and can reject a one-sided wager even after
@@ -990,13 +1193,13 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
                         guard_rejected[c] = 1;
                         continue;
                     }
-                    if (best == 0 || cdelta[c] > cdelta[best] ||
+                    if (best == reference || cdelta[c] > cdelta[best] ||
                         (cdelta[c] == cdelta[best] &&
                          sumobj[c] > sumobj[best]))
                         best = c;
                 }
             }
-            confirmed = best != 0;
+            confirmed = best != reference;
         }
     }
     float bestq = (float)(sumobj[best] / reps);
@@ -1011,6 +1214,14 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
         stats->planned_baseline = baseline_from_planner;
         stats->deck_end_baseline = deck_end_baseline;
         stats->semantic_candidates = semantic_added;
+        stats->draw_variant_candidates = draw_variant_added;
+        stats->trusted_candidates = trusted_candidates;
+        stats->prefix_proposed = proposed_reference;
+        stats->selection_reference = reference;
+        stats->trusted_prefix_override =
+            a->policy_prefix_mode > 0 && reference != 0;
+        stats->prefix_confirmed = prefix_confirmed;
+        stats->prefix_confirm_worlds = prefix_confirm_worlds;
         stats->metric_kind = SEARCH_METRIC_ROLLOUT;
         stats->confirmed = confirmed;
         stats->confirm_worlds = confirm_worlds;
@@ -1023,23 +1234,33 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
             stats->q[c] = sumobj[c] / reps;
             stats->qw[c] = lastround ? sumw[c] / reps : -1.0;
             stats->prior[c] = prob[order[c]];
-            double qv = 0.0, dv = 0.0;
+            double qv = 0.0, dv = 0.0, rdv = 0.0;
             double dm = (sumobj[c] - sumobj[0]) / reps;
+            double rdm =
+                (sumobj[c] - sumobj[reference]) / reps;
             if (reps > 1) {
                 for (int d = 0; d < reps; d++) {
                     double qx = val[(size_t)c * cap + d] - stats->q[c];
                     double dx = val[(size_t)c * cap + d] - val[d] - dm;
+                    double rdx = val[(size_t)c * cap + d]
+                               - val[(size_t)reference * cap + d] - rdm;
                     qv += qx * qx;
                     dv += dx * dx;
+                    rdv += rdx * rdx;
                 }
                 qv = sqrt(qv / (reps - 1) / reps);
                 dv = sqrt(dv / (reps - 1) / reps);
+                rdv = sqrt(rdv / (reps - 1) / reps);
             }
             stats->se[c] = qv;
             stats->delta[c] = dm;
             stats->dse[c] = c == 0 ? 0.0 : dv;
+            stats->rdelta[c] = rdm;
+            stats->rdse[c] = c == reference ? 0.0 : rdv;
             stats->cdelta[c] = cdelta[c];
             stats->cdse[c] = cdse[c];
+            stats->prefix_q[c] = prefix_q[c];
+            stats->prefix_se[c] = prefix_se[c];
             stats->pqualified[c] = pqualified[c];
             stats->csupported[c] = csupported[c];
             stats->guard_rejected[c] = guard_rejected[c];

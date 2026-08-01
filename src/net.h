@@ -1,4 +1,4 @@
-/* net.h -- two-headed network with a sparse input layer.
+/* net.h -- value, policy, and belief network with a sparse input layer.
  *
  * Input  : FEAT_DIM features (FEAT_BIN sparse binary + FEAT_DENSE scalars)
  * Trunk  : NET_H1 -> NET_H2, ReLU

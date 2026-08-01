@@ -24,13 +24,13 @@ $(BIN):
 $(BIN)/test_engine: tests/test_engine.c $(SRC)/lc.c $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
 
-$(BIN)/test_runtime: tests/test_runtime.c $(CORE) $(HDRS) | $(BIN)
+$(BIN)/test_runtime: tests/test_runtime.c tools/train_target.h $(CORE) $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
 
 $(BIN)/arena: tools/arena.c $(CORE) $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
 
-$(BIN)/train: tools/train.c $(CORE) $(HDRS) | $(BIN)
+$(BIN)/train: tools/train.c tools/train_target.h $(CORE) $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
 
 $(BIN)/bench: tools/bench.c $(CORE) $(HDRS) | $(BIN)

@@ -171,6 +171,12 @@ static const char *search_status(const SearchStats *ss, Move recommended)
     if (ss->confirmed && ss->n > 0 &&
         !move_eq(ss->mv[0], recommended))
         return "supported_baseline_override";
+    if (ss->trusted_prefix_override)
+        return ss->prefix_confirmed
+            ? "confirmed_policy_prefix_override"
+            : "selected_policy_prefix_leader";
+    if (ss->prefix_confirm_worlds > 0 && !ss->prefix_confirmed)
+        return "failed_policy_prefix_confirmation";
     if (search_guard_blocked(ss))
         return "blocked_by_discard_guard";
     if (ss->confirm_worlds > 0)
@@ -211,26 +217,41 @@ static void j_search_rows(FILE *fp, const SearchStats *ss, Move played,
         j_move_open(fp, ss->mv[k]);
         fprintf(fp, ",\"q\":%.3f,\"q_se\":%.3f,"
                     "\"delta_vs_baseline\":%.3f,\"delta_se\":%.3f,"
+                    "\"delta_vs_reference\":%.3f,"
+                    "\"delta_reference_se\":%.3f,"
                     "\"policy_prob\":%.6f,\"visits\":%.0f,"
                     "\"played\":%s,\"baseline\":%s,"
                     "\"policy_top\":%s,\"retained\":%s,"
+                    "\"trusted_prefix\":%s,\"prefix_proposed\":%s,"
+                    "\"selection_reference\":%s,"
                     "\"highest_mean\":%s,\"confirmed_best\":%s,"
                     "\"primary_pass\":%s,"
                     "\"confirmation_delta\":%.3f,"
                     "\"confirmation_se\":%.3f,"
+                    "\"coherent_evaluated\":%s,"
+                    "\"coherent_q\":%.3f,\"coherent_q_se\":%.3f,"
                     "\"confirmation_pass\":%s,"
                     "\"guard_rejected\":%s",
                 ss->q[k], ss->se[k], ss->delta[k], ss->dse[k],
+                ss->rdelta[k], ss->rdse[k],
                 ss->prior[k], ss->visits[k],
                 move_eq(ss->mv[k], played) ? "true" : "false",
                 k == 0 ? "true" : "false",
                 k == ss->policy_top ? "true" : "false",
                 move_eq(ss->mv[k], recommended) ? "true" : "false",
+                k < ss->trusted_candidates ? "true" : "false",
+                k == ss->prefix_proposed && ss->prefix_proposed != 0
+                    ? "true" : "false",
+                k == ss->selection_reference ? "true" : "false",
                 k == ss->raw_best ? "true" : "false",
                 ss->csupported[k] && move_eq(ss->mv[k], recommended)
                     ? "true" : "false",
                 ss->pqualified[k] ? "true" : "false",
                 ss->cdelta[k], ss->cdse[k],
+                ss->prefix_confirm_worlds > 0 &&
+                        k < ss->trusted_candidates
+                    ? "true" : "false",
+                ss->prefix_q[k], ss->prefix_se[k],
                 ss->csupported[k] ? "true" : "false",
                 ss->guard_rejected[k] ? "true" : "false");
         if (ss->qw[k] >= 0.0) fprintf(fp, ",\"qw\":%.3f", ss->qw[k]);
@@ -251,7 +272,8 @@ int main(int argc, char **argv)
 {
     const char *actor_spec = LC_CHAMPION_AGENT_SPEC;
     const char *eval_spec =
-        "rolloutu:data/champion.bin:2048:4:0.01:0.995:2:20:0:0:2:0:3.5:1:2:20:0.995:0:20:1:0:2048:1:16:12:1";
+        "rolloutu:data/champion.bin:2048:5:0.01:0:1:0:0:0:0:0:3.5:2:2:"
+        "20:0:0:20:1:0:2048:1:0:0:0:0:0:0:2";
     uint64_t seed = 1;
     int rounds = MATCH_ROUNDS;
     float belief_alpha = 1.15f;
@@ -473,6 +495,12 @@ int main(int argc, char **argv)
                     "\"policy_score\":%d,\"policy_regret\":%d,"
                     "\"policy_block_cost\":%d,\"selected_block_cost\":%d},"
                     "\"semantic_candidates\":%d,"
+                    "\"draw_variant_candidates\":%d,"
+                    "\"policy_prefix\":{\"mode\":%d,"
+                    "\"trusted_candidates\":%d,\"proposed\":%d,"
+                    "\"selected_reference\":%d,\"overrode\":%s,"
+                    "\"confirmation_required\":%s,"
+                    "\"confirmed\":%s,\"worlds\":%d},"
                     "\"confirmation\":{\"required\":%s,\"passed\":%s,"
                     "\"worlds\":%d,\"configured_worlds\":%d},"
                     "\"policy_move\":",
@@ -497,7 +525,9 @@ int main(int argc, char **argv)
                         ? "sampled_policy"
                         : (actor.playout_sample == 2
                             ? "random_symmetry_argmax"
-                            : "exact_ensemble_argmax"))
+                            : (actor.playout_sample == 3
+                                ? "fixed_world_symmetry_argmax"
+                                : "exact_ensemble_argmax")))
                     : "none",
                 actor.kind == AG_ROLLOUT ? actor.playout_symmetries : 0,
                 actor.kind == AG_ROLLOUT
@@ -517,6 +547,20 @@ int main(int argc, char **argv)
                 actor.kind == AG_ROLLOUT ? actor_ss.planner_selected_block : 0,
                 actor.kind == AG_ROLLOUT
                     ? actor_ss.semantic_candidates : 0,
+                actor.kind == AG_ROLLOUT
+                    ? actor_ss.draw_variant_candidates : 0,
+                actor.kind == AG_ROLLOUT ? actor.policy_prefix_mode : 0,
+                actor.kind == AG_ROLLOUT ? actor_ss.trusted_candidates : 0,
+                actor.kind == AG_ROLLOUT ? actor_ss.prefix_proposed : 0,
+                actor.kind == AG_ROLLOUT ? actor_ss.selection_reference : 0,
+                actor.kind == AG_ROLLOUT && actor_ss.trusted_prefix_override
+                    ? "true" : "false",
+                actor.kind == AG_ROLLOUT && actor.policy_prefix_mode == 2 &&
+                        actor_ss.prefix_proposed != 0
+                    ? "true" : "false",
+                actor.kind == AG_ROLLOUT && actor_ss.prefix_confirmed
+                    ? "true" : "false",
+                actor.kind == AG_ROLLOUT ? actor_ss.prefix_confirm_worlds : 0,
                 actor.kind == AG_ROLLOUT && actor.override_k > 0.0f
                     ? "true" : "false",
                 actor.kind == AG_ROLLOUT && actor_ss.confirmed
@@ -558,10 +602,16 @@ int main(int argc, char **argv)
                     "\"policy_score\":%d,\"policy_regret\":%d,"
                     "\"policy_block_cost\":%d,\"selected_block_cost\":%d},"
                     "\"semantic_candidates\":%d,"
+                    "\"draw_variant_candidates\":%d,"
+                    "\"policy_prefix\":{\"mode\":%d,"
+                    "\"trusted_candidates\":%d,\"proposed\":%d,"
+                    "\"selected_reference\":%d,\"overrode\":%s,"
+                    "\"confirmation_required\":%s,"
+                    "\"confirmed\":%s,\"worlds\":%d},"
                     "\"baseline_source\":\"%s\","
                     "\"confirmation\":{\"required\":%s,"
                     "\"passed\":%s,\"worlds\":%d,\"configured_worlds\":%d,"
-                    "\"continuation\":\"random_symmetry_argmax\"}}",
+                    "\"continuation\":\"%s\"}}",
                 pv,
                 rd == MATCH_ROUNDS - 1 && evaluator.win_q == 2
                     ? "final_hybrid"
@@ -582,12 +632,17 @@ int main(int argc, char **argv)
                     ? "sampled_policy"
                     : (evaluator.playout_sample == 2
                         ? "random_symmetry_argmax"
-                        : "exact_ensemble_argmax"),
+                        : (evaluator.playout_sample == 3
+                            ? "fixed_world_symmetry_argmax"
+                            : "exact_ensemble_argmax")),
                 evaluator.playout_symmetries,
-                evaluator.playout_sample > 0 &&
+                evaluator.playout_sample == 3 &&
+                        evaluator.playout_symmetries > 1
+                    ? "random_group_member_per_world"
+                    : (evaluator.playout_sample > 0 &&
                         evaluator.playout_symmetries > 1
                     ? "random_group_member_per_decision"
-                    : "exact_average",
+                    : "exact_average"),
                 evaluator.prune_dom ? "true" : "false",
                 (evaluator.playout_prune < 0
                      ? evaluator.prune_dom : evaluator.playout_prune)
@@ -604,13 +659,28 @@ int main(int argc, char **argv)
                 ss.planner_policy_block,
                 ss.planner_selected_block,
                 ss.semantic_candidates,
+                ss.draw_variant_candidates,
+                evaluator.policy_prefix_mode,
+                ss.trusted_candidates,
+                ss.prefix_proposed,
+                ss.selection_reference,
+                ss.trusted_prefix_override ? "true" : "false",
+                evaluator.policy_prefix_mode == 2 && ss.prefix_proposed != 0
+                    ? "true" : "false",
+                ss.prefix_confirmed ? "true" : "false",
+                ss.prefix_confirm_worlds,
                 ss.planned_baseline
                     ? "visible_hand_scheduler"
                     : (ss.deck_end_baseline
                         ? "last_deck_dominance" : "network_policy"),
                 evaluator.override_k > 0.0f ? "true" : "false",
                 ss.confirmed ? "true" : "false",
-                ss.confirm_worlds, evaluator.confirm_dets);
+                ss.confirm_worlds, evaluator.confirm_dets,
+                evaluator.confirm_exact5
+                    ? "exact_5way_argmax"
+                    : (evaluator.playout_sample == 3
+                        ? "fixed_world_symmetry_argmax"
+                        : "random_symmetry_argmax"));
 
         /* the card that will be drawn: read before lc_apply */
         int drawn = played.draw == 0 ? st.deck[st.deck_pos]

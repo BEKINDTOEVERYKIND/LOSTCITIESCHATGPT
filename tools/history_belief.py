@@ -8,11 +8,12 @@ and their own deck draws before the target position.  Opponent deck-draw
 identities, opponent hands, future actions, and truth labels are absent from
 the wire format accepted by ``bin/history_belief``.
 
-Version 1 is intentionally limited to positions at round ply 0..20.  Every
-opponent action in such a prefix was selected by the frozen exact-symmetry
-policy in the maintained actor.  Later rollout decisions contain private
-search randomness and require a sequential likelihood model rather than
-pretending they are deterministic policy actions.
+Version 1's transport format is limited to positions at round ply 0..20, but
+the actor-specific check is stricter: every preceding action must come from
+the deterministic exact-symmetry policy prefix.  The current maintained actor
+starts search at ply 14, so its safe targets end at ply 14.  Later rollout
+decisions contain private search randomness and require a sequential
+likelihood model rather than pretending they are deterministic policy actions.
 """
 from __future__ import annotations
 

@@ -2,20 +2,27 @@
 #define _POSIX_C_SOURCE 200809L
 
 /* robust_distill -- conservative distillation of independently confirmed
- * rollout corrections into the otherwise-unused full-move residual head.
+ * rollout corrections into zero-initialized v6 policy capacity.
  *
  * This tool is intentionally separate from train.c and rl.c.  It has two
  * safety boundaries:
  *
- *   1. Generation records a preference only when rollout's primary screen and
- *      a fresh random-symmetry/greedy confirmation both support a
- *      challenger to the frozen policy leader.
- *   2. Training updates only Net.wcomb and Net.bcomb.  Every older parameter
- *      remains byte-identical to the frozen network, and a full-legal-action
- *      KL loss anchors the residual policy at every recorded state.
+ *   1. Version-3 generation uses a suit mapping fixed for each complete
+ *      sampled trajectory and records a preference only when the primary
+ *      screen and a fresh exact-five confirmation both support a challenger
+ *      to the frozen policy leader.
+ *   2. Training always confines updates to Net.wcomb/Net.bcomb and may also
+ *      update the appended ordered-pile input rows when --train-pile-order is
+ *      explicit.  Every legacy parameter remains byte-identical to the frozen
+ *      network.  A full-legal-action KL loss anchors the policy over all 120
+ *      suit permutations of every recorded state, while fail-closed
+ *      value-drift and Bernoulli-belief-KL trust regions protect the other two
+ *      heads when ordered-pile rows alter the shared trunk.
  *
- * The correction file is tied to an exact hash of the frozen Net.  This
- * prevents accidentally applying labels produced by one policy to another.
+ * Correction shards are tied to the exact frozen-Net hash and complete label
+ * provenance.  --extra-records accepts only compatible shards.  Training
+ * fails closed on non-finite parameters, insufficient pile-order evidence,
+ * excessive policy/value/belief drift, or any changed frozen byte.
  *
  * Typical workflow (the defaults use 512, never 64, paired worlds):
  *
@@ -43,6 +50,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <float.h>
 #include <limits.h>
 #include <math.h>
 #include <stddef.h>
@@ -55,9 +63,10 @@
 #include <unistd.h>
 
 #define RD_MAGIC UINT32_C(0x4C435244) /* "LCRD" */
-#define RD_VERSION UINT32_C(2)
+#define RD_VERSION UINT32_C(3)
 #define RD_KIND_ANCHOR UINT32_C(0)
 #define RD_KIND_CORRECTION UINT32_C(1)
+#define RD_TRUST_SUIT_ORBIT UINT32_C(120)
 
 typedef struct {
     uint32_t magic;
@@ -107,6 +116,8 @@ typedef struct {
     float *vw;
     float *mb;
     float *vb;
+    float *mpile;
+    float *vpile;
     uint64_t t;
 } ResidualAdam;
 
@@ -116,7 +127,15 @@ typedef struct {
     double pair_target;
     double pair_probability;
     double lcb;
+    double max_state_kl;
+    double value_abs_drift;
+    double value_sq_drift;
+    double max_state_value_drift;
+    double belief_kl;
+    double max_state_belief_kl;
+    double max_card_belief_kl;
     uint64_t states;
+    uint64_t belief_outputs;
     uint64_t corrections;
 } Metrics;
 
@@ -164,7 +183,15 @@ typedef struct {
     float margin_cap;
     float max_pair_weight;
     float max_kl;
+    float max_state_kl;
+    float max_mean_value_drift;
+    float max_state_value_drift;
+    float max_belief_kl;
+    float max_state_belief_kl;
+    float max_card_belief_kl;
     float weight_decay;
+    int train_pile_order;
+    int min_pile_corrections;
     int suit_augment;
     int random_suit_augment;
     int force;
@@ -196,7 +223,7 @@ static void usage(FILE *f, const char *argv0)
         "  --root-width N            maximum top-policy moves (default 4)\n"
         "  --policy-mass X           shortest-prefix mass target (default .995)\n"
         "  --actor-symmetries N      root/actor suit ensemble (default 20)\n"
-        "  --playout-symmetries N    random-sym greedy continuation group (default 20)\n"
+        "  --playout-symmetries N    fixed-world symmetry group (default 20)\n"
         "  --ply-lo N                first searched round ply (default 14)\n"
         "  --ply-hi N                exclusive last searched ply, 0=off\n"
         "  --deck-max N              require deck_left <= N, 0=off\n"
@@ -209,7 +236,9 @@ static void usage(FILE *f, const char *argv0)
         "  --plan-deck-max N         use exact visible-hand scheduling with at\n"
         "                            most N deck cards (0=off, default 0)\n"
         "  --plan-block-gap N        scheduler information-preservation threshold\n"
-        "                            (0=off, default 0)\n"
+        "                            (0=off, default 0)\n",
+        argv0, argv0, argv0);
+    fprintf(f,
         "\n"
         "training options:\n"
         "  --extra-records FILE      add another validated record set tied to\n"
@@ -222,8 +251,22 @@ static void usage(FILE *f, const char *argv0)
         "  --lcb-scale X             points per target-logit unit (default 4)\n"
         "  --margin-cap X            maximum target pair logit gap (default 1)\n"
         "  --max-pair-weight X       cap on LCB-derived example weight (default 2)\n"
-        "  --max-kl X                reject an epoch above mean KL (default .01)\n"
-        "  --weight-decay X          residual-only weight decay (default 0)\n"
+        "  --max-kl X                reject above mean policy KL (default .01)\n"
+        "  --max-state-kl X          reject above worst-state policy KL (default .10)\n"
+        "  --max-mean-value-drift X  reject above mean absolute value drift,\n"
+        "                            in points (default .10)\n"
+        "  --max-state-value-drift X reject above any state's value drift,\n"
+        "                            in points (default 1)\n"
+        "  --max-belief-kl X         reject above mean per-card Bernoulli KL\n"
+        "                            (default 1e-5)\n"
+        "  --max-state-belief-kl X   reject above any state's mean belief KL\n"
+        "                            (default 1e-4)\n"
+        "  --max-card-belief-kl X    reject above any state/card belief KL\n"
+        "                            (default .01)\n"
+        "  --train-pile-order        also train only appended ordered-pile rows\n"
+        "  --min-pile-corrections N  require N corrections with buried cards\n"
+        "                            when training pile order (default 1)\n"
+        "  --weight-decay X          adapter-only weight decay (default 0)\n"
         "  --no-suit-augment         do not deterministically permute suits\n"
         "  --random-suit-augment     sample permutations with replacement\n"
         "                            (default; explicit reproducibility flag)\n"
@@ -237,9 +280,12 @@ static void usage(FILE *f, const char *argv0)
         "  -h, --help                show this help\n"
         "\n"
         "Safety notes: early search (--ply-lo below 14) requires at least 1024\n"
-        "primary and confirmation worlds.  Training refuses a nonzero residual\n"
-        "head and verifies that every pre-residual byte remains unchanged.\n",
-        argv0, argv0, argv0);
+        "primary and confirmation worlds. Version-3 records retain one suit\n"
+        "per sampled world and use exact five-way confirmation. Training\n"
+        "refuses a nonzero adapter and byte-verifies every frozen parameter.\n"
+        "Every epoch checks all 120 suit permutations of every record and\n"
+        "reports complete policy/value/belief coverage; --dry-run exercises\n"
+        "the same fail-closed validation without writing a model.\n");
 }
 
 static uint64_t mix64(uint64_t x)
@@ -335,6 +381,18 @@ static int parse_args(int argc, char **argv, Config *c)
     c->margin_cap = 1.0f;
     c->max_pair_weight = 2.0f;
     c->max_kl = 0.01f;
+    c->max_state_kl = 0.10f;
+    /* The ordered-pile rows feed the shared trunk.  Keep their worst value
+     * movement below half the rollout practical-gap gate (and the dataset
+     * mean an order tighter).  By Pinsker's inequality, the belief limits
+     * bound mean Bernoulli probability drift to about 0.22%, worst-state
+     * average drift to 0.71%, and any one card to 7.1%. */
+    c->max_mean_value_drift = 0.10f;
+    c->max_state_value_drift = 1.0f;
+    c->max_belief_kl = 1e-5f;
+    c->max_state_belief_kl = 1e-4f;
+    c->max_card_belief_kl = 0.01f;
+    c->min_pile_corrections = 1;
     c->weight_decay = 0.0f;
     c->suit_augment = 1;
     c->random_suit_augment = 1;
@@ -470,6 +528,40 @@ static int parse_args(int argc, char **argv, Config *c)
         } else if (!strcmp(a, "--max-kl")) {
             if (!next_value(argc, argv, &i, &v) ||
                 !parse_float(v, 0.0f, 10.0f, &c->max_kl)) goto bad_value;
+        } else if (!strcmp(a, "--max-state-kl")) {
+            if (!next_value(argc, argv, &i, &v) ||
+                !parse_float(v, 0.0f, 100.0f, &c->max_state_kl))
+                goto bad_value;
+        } else if (!strcmp(a, "--max-mean-value-drift")) {
+            if (!next_value(argc, argv, &i, &v) ||
+                !parse_float(v, 0.0f, 1000.0f,
+                             &c->max_mean_value_drift))
+                goto bad_value;
+        } else if (!strcmp(a, "--max-state-value-drift")) {
+            if (!next_value(argc, argv, &i, &v) ||
+                !parse_float(v, 0.0f, 10000.0f,
+                             &c->max_state_value_drift))
+                goto bad_value;
+        } else if (!strcmp(a, "--max-belief-kl")) {
+            if (!next_value(argc, argv, &i, &v) ||
+                !parse_float(v, 0.0f, 100.0f, &c->max_belief_kl))
+                goto bad_value;
+        } else if (!strcmp(a, "--max-state-belief-kl")) {
+            if (!next_value(argc, argv, &i, &v) ||
+                !parse_float(v, 0.0f, 100.0f,
+                             &c->max_state_belief_kl))
+                goto bad_value;
+        } else if (!strcmp(a, "--max-card-belief-kl")) {
+            if (!next_value(argc, argv, &i, &v) ||
+                !parse_float(v, 0.0f, 100.0f,
+                             &c->max_card_belief_kl))
+                goto bad_value;
+        } else if (!strcmp(a, "--train-pile-order")) {
+            c->train_pile_order = 1;
+        } else if (!strcmp(a, "--min-pile-corrections")) {
+            if (!next_value(argc, argv, &i, &v) ||
+                !parse_long(v, 1, INT_MAX, &iv)) goto bad_value;
+            c->min_pile_corrections = (int)iv;
         } else if (!strcmp(a, "--weight-decay")) {
             if (!next_value(argc, argv, &i, &v) ||
                 !parse_float(v, 0.0f, 1.0f, &c->weight_decay)) goto bad_value;
@@ -536,6 +628,10 @@ static int parse_args(int argc, char **argv, Config *c)
     }
     if (c->mode != MODE_TRAIN && c->extra_record_count > 0) {
         fprintf(stderr, "--extra-records is only valid with --train\n");
+        return 0;
+    }
+    if (c->mode != MODE_TRAIN && c->train_pile_order) {
+        fprintf(stderr, "--train-pile-order is only valid with --train\n");
         return 0;
     }
     if (c->mode == MODE_GENERATE) {
@@ -767,6 +863,32 @@ static int residual_is_zero(const Net *n)
     return 1;
 }
 
+static int pile_order_is_zero(const Net *n)
+{
+    for (int i = FEAT_LEGACY_DIM; i < FEAT_DIM; i++)
+        for (int h = 0; h < NET_H1; h++)
+            if (n->w1[i][h] != 0.0f) return 0;
+    return 1;
+}
+
+static int net_is_finite(const Net *n)
+{
+    const unsigned char *bytes = (const unsigned char *)n;
+    for (size_t off = 0; off < sizeof *n; off += sizeof(float)) {
+        float value;
+        memcpy(&value, bytes + off, sizeof value);
+        if (!lc_float_isfinite(value)) return 0;
+    }
+    return 1;
+}
+
+static int state_has_buried_pile(const State *st)
+{
+    for (int suit = 0; suit < NSUIT; suit++)
+        if (st->pile_n[suit] > 1) return 1;
+    return 0;
+}
+
 static Move unpack_move(uint16_t packed)
 {
     Move m = { MOVE_CARD(packed), MOVE_DISC(packed), MOVE_DRAW(packed) };
@@ -959,6 +1081,11 @@ static int generate_records(const Config *c)
 {
     Net *anchor = load_net(c->net_path);
     if (!anchor) return 1;
+    if (!net_is_finite(anchor)) {
+        fprintf(stderr, "%s contains a non-finite parameter\n", c->net_path);
+        free(anchor);
+        return 1;
+    }
     if (!residual_is_zero(anchor)) {
         fprintf(stderr, "%s has a nonzero full-move residual; this conservative "
                         "stage requires an unused residual head\n", c->net_path);
@@ -993,7 +1120,11 @@ static int generate_records(const Config *c)
     hdr.override_k = c->override_k;
     hdr.override_min = c->override_min;
     hdr.confirm_z = 2.58f;
-    hdr.playout_sample = 2;
+    /* Version 3 means one symmetry member is retained for the complete
+     * sampled world, with exact five-way symmetry only in fresh
+     * confirmation.  Keep this in the signed record metadata so labels from
+     * the older per-decision continuation cannot be mixed into this stage. */
+    hdr.playout_sample = 3;
     hdr.root_width = (uint32_t)c->root_width;
     hdr.discard_guard = (uint32_t)c->discard_guard;
     hdr.playout_prune = (uint32_t)c->playout_prune;
@@ -1035,12 +1166,11 @@ static int generate_records(const Config *c)
     evaluator.plan_block_gap = c->plan_block_gap;
     evaluator.override_k = c->override_k;
     evaluator.override_min = c->override_min;
-    /* One random member of the exact suit group per continuation decision,
-     * followed by a greedy action.  Repeated policy probabilities average to
-     * the exact ensemble, although argmax is nonlinear, so this is a cheap
-     * stochastic approximation rather than an exact one.  Crucially it is
-     * not mode 1's high-entropy policy-action sampling. */
-    evaluator.playout_sample = 2;
+    /* One random member of the exact suit group per sampled hidden world,
+     * retained for the complete continuation.  A qualifying challenger is
+     * then rechecked on fresh worlds with exact five-way symmetry. */
+    evaluator.playout_sample = 3;
+    evaluator.confirm_exact5 = 1;
 
     uint64_t count = 0, anchors = 0, corrections = 0;
     int searches = 0;
@@ -1274,7 +1404,7 @@ static int read_header(FILE *f, RecordHeader *h, const char *path)
         return 0;
     }
     if (h->magic != RD_MAGIC ||
-        (h->version != 1U && h->version != RD_VERSION) ||
+        (h->version < 1U || h->version > RD_VERSION) ||
         h->header_size != sizeof(RecordHeader) ||
         h->state_size != sizeof(State) ||
         h->record_size != sizeof(DistillRecord)) {
@@ -1296,7 +1426,9 @@ static int read_header(FILE *f, RecordHeader *h, const char *path)
         fprintf(stderr, "%s: invalid confirmation gates in header\n", path);
         return 0;
     }
-    if (h->playout_sample != 2 || h->root_width < 2 ||
+    int expected_playout_sample = h->version >= 3U ? 3 : 2;
+    if (h->playout_sample != (uint32_t)expected_playout_sample ||
+        h->root_width < 2 ||
         h->root_width > 8 || h->discard_guard > 1 ||
         h->playout_prune > 1 || !lc_float_isfinite(h->policy_mass) ||
         h->policy_mass < 0.5f || h->policy_mass > 1.0f ||
@@ -1361,6 +1493,33 @@ static DistillRecord *load_records(const char *path, RecordHeader *h)
     }
     fclose(f);
     return r;
+}
+
+/* Shards may differ in seed and record counts, but every choice that changes
+ * the statistical meaning of a label must match exactly before their losses
+ * are combined. */
+static int compatible_record_provenance(const RecordHeader *a,
+                                        const RecordHeader *b)
+{
+    return a->version == b->version &&
+           a->anchor_hash == b->anchor_hash &&
+           a->worlds == b->worlds &&
+           a->confirm_worlds == b->confirm_worlds &&
+           a->actor_symmetries == b->actor_symmetries &&
+           a->playout_symmetries == b->playout_symmetries &&
+           a->ply_lo == b->ply_lo && a->ply_hi == b->ply_hi &&
+           a->deck_max == b->deck_max &&
+           a->override_k == b->override_k &&
+           a->override_min == b->override_min &&
+           a->confirm_z == b->confirm_z &&
+           a->playout_sample == b->playout_sample &&
+           a->root_width == b->root_width &&
+           a->discard_guard == b->discard_guard &&
+           a->playout_prune == b->playout_prune &&
+           a->policy_mass == b->policy_mass &&
+           a->semantic_cand == b->semantic_cand &&
+           a->plan_deck_max == b->plan_deck_max &&
+           a->plan_block_gap == b->plan_block_gap;
 }
 
 /* Records are an input format, not trusted in-memory engine states.  Validate
@@ -1562,8 +1721,10 @@ static int inspect_records(const Config *c)
            h.actor_symmetries, h.playout_symmetries, h.ply_lo,
            h.ply_hi ? "configured" : "off", h.deck_max);
     printf("  shortlist: width %u, mass %.4f; continuation mode %u "
-           "(random-sym greedy), discard guard %u, playout prune %u\n",
+           "(%s), discard guard %u, playout prune %u\n",
            h.root_width, h.policy_mass, h.playout_sample,
+           h.version >= 3U ? "fixed-world symmetry, exact-5 confirmation"
+                           : "legacy per-decision random symmetry",
            h.discard_guard, h.playout_prune);
     printf("  focused challengers: semantic %s, scheduler deck <= %u "
            "with block gap %u\n",
@@ -1627,19 +1788,98 @@ static void sample_suit_permutation(uint64_t key, uint8_t perm[NSUIT])
     }
 }
 
-static void softmax(const float *logit, int n, float *prob)
+static int softmax(const float *logit, int n, float *prob)
 {
+    if (n <= 0 || !lc_float_isfinite(logit[0])) return 0;
     float mx = logit[0];
-    for (int i = 1; i < n; i++)
+    for (int i = 1; i < n; i++) {
+        if (!lc_float_isfinite(logit[i])) return 0;
         if (logit[i] > mx) mx = logit[i];
+    }
     double sum = 0.0;
     for (int i = 0; i < n; i++) {
         double e = exp((double)logit[i] - mx);
+        if (!lc_double_isfinite(e)) return 0;
         prob[i] = (float)e;
         sum += e;
     }
+    if (!lc_double_isfinite(sum) || sum <= 0.0) return 0;
     float inv = (float)(1.0 / sum);
-    for (int i = 0; i < n; i++) prob[i] *= inv;
+    for (int i = 0; i < n; i++) {
+        prob[i] *= inv;
+        if (!lc_float_isfinite(prob[i]) || prob[i] < 0.0f) return 0;
+    }
+    return 1;
+}
+
+/* Preserve subtraction order even in the project's -ffast-math build.  The
+ * volatile store prevents GCC/Clang from reassociating x-max-logsum into
+ * x-(max+logsum), which loses logsum when max is near FLT_MAX. */
+static double ordered_subtract(double x, double y)
+{
+    volatile double result = x - y;
+    return result;
+}
+
+/* Exact categorical KL from logits in double precision.  In particular,
+ * never floor the learner probability: doing so can hide an arbitrarily
+ * destructive change to an action that has material anchor mass. */
+static int categorical_kl_logits(const float *anchor_logit,
+                                 const float *learner_logit, int n,
+                                 double *out)
+{
+    if (n <= 0 || !lc_float_isfinite(anchor_logit[0]) ||
+        !lc_float_isfinite(learner_logit[0]))
+        return 0;
+    double anchor_max = anchor_logit[0];
+    double learner_max = learner_logit[0];
+    for (int i = 1; i < n; i++) {
+        if (!lc_float_isfinite(anchor_logit[i]) ||
+            !lc_float_isfinite(learner_logit[i]))
+            return 0;
+        if (anchor_logit[i] > anchor_max) anchor_max = anchor_logit[i];
+        if (learner_logit[i] > learner_max) learner_max = learner_logit[i];
+    }
+    double anchor_sum = 0.0, learner_sum = 0.0;
+    for (int i = 0; i < n; i++) {
+        anchor_sum += exp((double)anchor_logit[i] - anchor_max);
+        learner_sum += exp((double)learner_logit[i] - learner_max);
+    }
+    if (!lc_double_isfinite(anchor_sum) || anchor_sum <= 0.0 ||
+        !lc_double_isfinite(learner_sum) || learner_sum <= 0.0)
+        return 0;
+    double anchor_logsum = log(anchor_sum);
+    double learner_logsum = log(learner_sum);
+    if (!lc_double_isfinite(anchor_logsum) ||
+        !lc_double_isfinite(learner_logsum))
+        return 0;
+
+    double kl = 0.0;
+    for (int i = 0; i < n; i++) {
+        /* Subtract max before log(sum).  Forming max+log(sum) first loses the
+         * normalization term when a finite logit is near FLT_MAX. */
+        double anchor_centered =
+            ordered_subtract((double)anchor_logit[i], anchor_max);
+        double learner_centered =
+            ordered_subtract((double)learner_logit[i], learner_max);
+        double anchor_logp = ordered_subtract(anchor_centered, anchor_logsum);
+        double learner_logp =
+            ordered_subtract(learner_centered, learner_logsum);
+        double anchor_p = exp(anchor_logp);
+        if (!lc_double_isfinite(anchor_logp) ||
+            !lc_double_isfinite(learner_logp) ||
+            !lc_double_isfinite(anchor_p))
+            return 0;
+        if (anchor_p > 0.0)
+            kl += anchor_p * (anchor_logp - learner_logp);
+    }
+    if (!lc_double_isfinite(kl)) return 0;
+    if (kl < 0.0) {
+        if (kl < -64.0 * DBL_EPSILON) return 0;
+        kl = 0.0;
+    }
+    *out = kl;
+    return 1;
 }
 
 static float logistic(float x)
@@ -1652,6 +1892,79 @@ static float logistic(float x)
     return z / (1.0f + z);
 }
 
+/* Stable log-domain Bernoulli KL.  softplus gives finite log-probabilities
+ * even when sigmoid rounds to exactly zero or one; the corresponding
+ * zero-mass term is skipped.  All arithmetic is double even though the model
+ * outputs floats. */
+static double softplus(double x)
+{
+    if (x > 0.0) return x + log1p(exp(-x));
+    return log1p(exp(x));
+}
+
+static int bernoulli_kl_logits(float anchor_logit, float learner_logit,
+                               double *out)
+{
+    if (!lc_float_isfinite(anchor_logit) ||
+        !lc_float_isfinite(learner_logit))
+        return 0;
+    double a = anchor_logit;
+    double b = learner_logit;
+    double anchor_log1 = -softplus(-a);
+    double anchor_log0 = -softplus(a);
+    double learner_log1 = -softplus(-b);
+    double learner_log0 = -softplus(b);
+    double anchor_p1 = exp(anchor_log1);
+    double anchor_p0 = exp(anchor_log0);
+    if (!lc_double_isfinite(anchor_log1) ||
+        !lc_double_isfinite(anchor_log0) ||
+        !lc_double_isfinite(learner_log1) ||
+        !lc_double_isfinite(learner_log0) ||
+        !lc_double_isfinite(anchor_p1) ||
+        !lc_double_isfinite(anchor_p0))
+        return 0;
+    double kl = 0.0;
+    if (anchor_p1 > 0.0)
+        kl += anchor_p1 * ordered_subtract(anchor_log1, learner_log1);
+    if (anchor_p0 > 0.0)
+        kl += anchor_p0 * ordered_subtract(anchor_log0, learner_log0);
+    if (!lc_double_isfinite(kl)) return 0;
+    /* Roundoff can make a mathematically nonnegative KL a few ulps below
+     * zero when two saturated logits are nearly identical. */
+    if (kl < 0.0) {
+        if (kl < -32.0 * DBL_EPSILON) return 0;
+        kl = 0.0;
+    }
+    *out = kl;
+    return 1;
+}
+
+/* Cheap process-start regression for the trust-region math.  The second
+ * policy deliberately drives an anchor action with 0.3% mass to about
+ * exp(-1000).  A probability floor would incorrectly report less than the
+ * default state gate; the true KL is about 2.98 nats. */
+static int trust_math_selftest(void)
+{
+    float anchor[2] = { (float)log(0.003 / 0.997), 0.0f };
+    float collapsed[2] = { -1000.0f, 0.0f };
+    float extreme_anchor[2] = { FLT_MAX, FLT_MAX };
+    float extreme_learner[2] = { FLT_MAX, -FLT_MAX };
+    double kl = 0.0, identity = 0.0, extreme = 0.0;
+    double belief_identity = 0.0, belief_tail = 0.0;
+    return categorical_kl_logits(anchor, collapsed, 2, &kl) &&
+           kl > 2.9 && kl < 3.1 &&
+           categorical_kl_logits(anchor, anchor, 2, &identity) &&
+           identity <= 1e-12 &&
+           categorical_kl_logits(extreme_anchor, extreme_learner, 2,
+                                 &extreme) &&
+           extreme > 0.9 * (double)FLT_MAX &&
+           extreme < 1.1 * (double)FLT_MAX &&
+           bernoulli_kl_logits(3.25f, 3.25f, &belief_identity) &&
+           belief_identity <= 1e-12 &&
+           bernoulli_kl_logits(40.0f, FLT_MAX, &belief_tail) &&
+           belief_tail > 1e20 && belief_tail < 1e22;
+}
+
 static void metrics_add(Metrics *dst, const Metrics *src)
 {
     dst->kl += src->kl;
@@ -1659,7 +1972,19 @@ static void metrics_add(Metrics *dst, const Metrics *src)
     dst->pair_target += src->pair_target;
     dst->pair_probability += src->pair_probability;
     dst->lcb += src->lcb;
+    if (src->max_state_kl > dst->max_state_kl)
+        dst->max_state_kl = src->max_state_kl;
+    dst->value_abs_drift += src->value_abs_drift;
+    dst->value_sq_drift += src->value_sq_drift;
+    if (src->max_state_value_drift > dst->max_state_value_drift)
+        dst->max_state_value_drift = src->max_state_value_drift;
+    dst->belief_kl += src->belief_kl;
+    if (src->max_state_belief_kl > dst->max_state_belief_kl)
+        dst->max_state_belief_kl = src->max_state_belief_kl;
+    if (src->max_card_belief_kl > dst->max_card_belief_kl)
+        dst->max_card_belief_kl = src->max_card_belief_kl;
     dst->states += src->states;
+    dst->belief_outputs += src->belief_outputs;
     dst->corrections += src->corrections;
 }
 
@@ -1697,20 +2022,64 @@ static int evaluate_record(const Config *c, const Net *anchor,
     feat_extract(&r->st, r->st.turn, &feat);
     net_trunk(anchor, &feat, &aa);
     net_trunk(learner, &feat, &la);
-    net_policy_act(anchor, &aa, packed, n, alogit);
-    net_policy_act(learner, &la, packed, n, llogit);
-    softmax(alogit, n, aprob);
-    softmax(llogit, n, lprob);
 
     Metrics m;
     memset(&m, 0, sizeof m);
     m.states = 1;
-    for (int i = 0; i < n; i++) {
-        double ap = aprob[i] > 1e-12f ? aprob[i] : 1e-12;
-        double lp = lprob[i] > 1e-12f ? lprob[i] : 1e-12;
-        m.kl += ap * log(ap / lp);
-        dlog[i] = c->kl_weight * (lprob[i] - aprob[i]);
+    for (int i = 0; i < NET_H1; i++)
+        if (!lc_float_isfinite(aa.a1[i]) ||
+            !lc_float_isfinite(la.a1[i]))
+            return -1;
+    for (int i = 0; i < NET_H2; i++)
+        if (!lc_float_isfinite(aa.a2[i]) ||
+            !lc_float_isfinite(la.a2[i]))
+            return -1;
+
+    /* Updating an appended w1 row changes the shared trunk, not merely the
+     * policy.  Measure every other head on every record before accepting an
+     * epoch.  Value drift is reported in the point units used by search. */
+    float anchor_value = net_value_act(anchor, &aa);
+    float learner_value = net_value_act(learner, &la);
+    if (!lc_float_isfinite(anchor_value) ||
+        !lc_float_isfinite(learner_value))
+        return -1;
+    double value_drift =
+        fabs(((double)learner_value - (double)anchor_value) * VAL_SCALE);
+    if (!lc_double_isfinite(value_drift)) return -1;
+    m.value_abs_drift = value_drift;
+    m.value_sq_drift = value_drift * value_drift;
+    m.max_state_value_drift = value_drift;
+
+    uint8_t belief_card[NCARD];
+    float anchor_belief[NCARD], learner_belief[NCARD];
+    for (int card = 0; card < NCARD; card++)
+        belief_card[card] = (uint8_t)card;
+    net_belief_act(anchor, &aa, belief_card, NCARD, anchor_belief);
+    net_belief_act(learner, &la, belief_card, NCARD, learner_belief);
+    for (int card = 0; card < NCARD; card++) {
+        double card_kl;
+        if (!bernoulli_kl_logits(anchor_belief[card],
+                                 learner_belief[card], &card_kl))
+            return -1;
+        m.belief_kl += card_kl;
+        if (card_kl > m.max_card_belief_kl)
+            m.max_card_belief_kl = card_kl;
     }
+    m.belief_outputs = NCARD;
+    m.max_state_belief_kl = m.belief_kl / (double)NCARD;
+
+    net_policy_act(anchor, &aa, packed, n, alogit);
+    net_policy_act(learner, &la, packed, n, llogit);
+    if (!categorical_kl_logits(alogit, llogit, n, &m.kl))
+        return -1;
+    if (!softmax(alogit, n, aprob) || !softmax(llogit, n, lprob))
+        return -1;
+
+    for (int i = 0; i < n; i++) {
+        dlog[i] = c->kl_weight * (lprob[i] - aprob[i]);
+        if (!lc_float_isfinite(dlog[i])) return -1;
+    }
+    m.max_state_kl = m.kl;
 
     if (r->kind == RD_KIND_CORRECTION) {
         Move baseline = unpack_move(r->baseline);
@@ -1735,6 +2104,10 @@ static int evaluate_record(const Config *c, const Net *anchor,
         float g = example_weight * (pair_prob - target);
         dlog[ci] += g;
         dlog[bi] -= g;
+        if (!lc_float_isfinite(target) || !lc_float_isfinite(pair_prob) ||
+            !lc_float_isfinite(example_weight) || !lc_float_isfinite(g) ||
+            !lc_float_isfinite(dlog[ci]) || !lc_float_isfinite(dlog[bi]))
+            return -1;
 
         double q = pair_prob;
         if (q < 1e-12) q = 1e-12;
@@ -1748,6 +2121,12 @@ static int evaluate_record(const Config *c, const Net *anchor,
         m.lcb = r->lcb;
         m.corrections = 1;
     }
+
+    if (!lc_double_isfinite(m.pair_loss) ||
+        !lc_double_isfinite(m.pair_target) ||
+        !lc_double_isfinite(m.pair_probability) ||
+        !lc_double_isfinite(m.lcb))
+        return -1;
 
     if (grad)
         net_backward(learner, &feat, &la, 0.0f, packed, dlog, n,
@@ -1764,7 +2143,11 @@ static int residual_adam_init(ResidualAdam *a)
     a->vw = (float *)calloc(nw, sizeof(float));
     a->mb = (float *)calloc(NET_NCOMB, sizeof(float));
     a->vb = (float *)calloc(NET_NCOMB, sizeof(float));
-    return a->mw && a->vw && a->mb && a->vb;
+    size_t npile = (size_t)(FEAT_DIM - FEAT_LEGACY_DIM) * NET_H1;
+    a->mpile = (float *)calloc(npile, sizeof(float));
+    a->vpile = (float *)calloc(npile, sizeof(float));
+    return a->mw && a->vw && a->mb && a->vb &&
+           a->mpile && a->vpile;
 }
 
 static int residual_wagers_are_tied(const Net *n)
@@ -1792,17 +2175,40 @@ static int residual_wagers_are_tied(const Net *n)
     return 1;
 }
 
+static int v6_adapter_frozen_bytes_match(const Net *anchor,
+                                         const Net *learner)
+{
+    size_t legacy_w1 = (size_t)FEAT_LEGACY_DIM * sizeof(anchor->w1[0]);
+    if (memcmp(anchor->w1, learner->w1, legacy_w1) != 0) return 0;
+    const unsigned char *ab = (const unsigned char *)&anchor->b1;
+    const unsigned char *lb = (const unsigned char *)&learner->b1;
+    size_t middle = offsetof(Net, wcomb) - offsetof(Net, b1);
+    return memcmp(ab, lb, middle) == 0;
+}
+
+static void accumulate_signal(const float *p, size_t n, size_t *nonzero,
+                              double *sumsq)
+{
+    for (size_t i = 0; i < n; i++) {
+        if (p[i] != 0.0f) (*nonzero)++;
+        *sumsq += (double)p[i] * p[i];
+    }
+}
+
 static void residual_adam_free(ResidualAdam *a)
 {
     free(a->mw);
     free(a->vw);
     free(a->mb);
     free(a->vb);
+    free(a->mpile);
+    free(a->vpile);
     memset(a, 0, sizeof *a);
 }
 
 static void residual_adam_step(Net *net, const Net *grad, ResidualAdam *a,
-                               float lr, float scale, float wd)
+                               float lr, float scale, float wd,
+                               int train_pile_order)
 {
     const float beta1 = 0.9f, beta2 = 0.999f, eps = 1e-8f;
     a->t++;
@@ -1810,40 +2216,118 @@ static void residual_adam_step(Net *net, const Net *grad, ResidualAdam *a,
     float bc2 = 1.0f - powf(beta2, (float)a->t);
     float step = lr * sqrtf(bc2) / bc1;
 
-    size_t nw = (size_t)NET_NCOMB * NET_H2;
-    float *w = &net->wcomb[0][0];
-    const float *g = &grad->wcomb[0][0];
-    for (size_t i = 0; i < nw; i++) {
-        float gi = g[i] * scale + wd * w[i];
-        a->mw[i] = beta1 * a->mw[i] + (1.0f - beta1) * gi;
-        a->vw[i] = beta2 * a->vw[i] + (1.0f - beta2) * gi * gi;
-        w[i] -= step * a->mw[i] / (sqrtf(a->vw[i]) + eps);
-    }
+    for (int row = 0; row < NET_NCOMB; row++)
+        for (int h = 0; h < NET_H2; h++) {
+            size_t i = (size_t)row * NET_H2 + (size_t)h;
+            float gi = grad->wcomb[row][h] * scale +
+                       wd * net->wcomb[row][h];
+            a->mw[i] = beta1 * a->mw[i] + (1.0f - beta1) * gi;
+            a->vw[i] = beta2 * a->vw[i] + (1.0f - beta2) * gi * gi;
+            net->wcomb[row][h] -=
+                step * a->mw[i] / (sqrtf(a->vw[i]) + eps);
+        }
     for (int i = 0; i < NET_NCOMB; i++) {
         float gi = grad->bcomb[i] * scale + wd * net->bcomb[i];
         a->mb[i] = beta1 * a->mb[i] + (1.0f - beta1) * gi;
         a->vb[i] = beta2 * a->vb[i] + (1.0f - beta2) * gi * gi;
         net->bcomb[i] -= step * a->mb[i] / (sqrtf(a->vb[i]) + eps);
     }
+    if (train_pile_order) {
+        for (int row = FEAT_LEGACY_DIM; row < FEAT_DIM; row++)
+            for (int h = 0; h < NET_H1; h++) {
+                size_t i = (size_t)(row - FEAT_LEGACY_DIM) * NET_H1 +
+                           (size_t)h;
+                float gi = grad->w1[row][h] * scale +
+                           wd * net->w1[row][h];
+                a->mpile[i] = beta1 * a->mpile[i] +
+                              (1.0f - beta1) * gi;
+                a->vpile[i] = beta2 * a->vpile[i] +
+                              (1.0f - beta2) * gi * gi;
+                net->w1[row][h] -=
+                    step * a->mpile[i] / (sqrtf(a->vpile[i]) + eps);
+            }
+    }
 }
 
-static Metrics evaluate_dataset(const Config *c, const Net *anchor,
-                                const Net *learner,
-                                const DistillRecord *record, uint64_t n)
+static int evaluate_dataset(const Config *c, const Net *anchor,
+                            const Net *learner,
+                            const DistillRecord *record, uint64_t n,
+                            Metrics *total)
 {
-    Metrics total;
-    memset(&total, 0, sizeof total);
+    memset(total, 0, sizeof *total);
     for (uint64_t i = 0; i < n; i++) {
-        Metrics m;
-        if (evaluate_record(c, anchor, learner, &record[i], 0, 0, NULL, &m))
-            metrics_add(&total, &m);
+        for (uint32_t permutation = 0;
+             permutation < RD_TRUST_SUIT_ORBIT; permutation++) {
+            Metrics m;
+            int rc = evaluate_record(c, anchor, learner, &record[i],
+                                     permutation, permutation != 0,
+                                     NULL, &m);
+            if (rc != 1) {
+                fprintf(stderr, "cannot evaluate trust region at record "
+                                "%llu, suit permutation %u%s\n",
+                        (unsigned long long)i, permutation,
+                        rc < 0 ? ": non-finite network output" :
+                                 ": invalid record semantics");
+                return 0;
+            }
+            /* Pair-loss reporting describes physical records, not the 120
+             * equivalent trust-region views.  Every view still contributes
+             * policy, value, and belief drift. */
+            if (permutation != 0) {
+                m.pair_loss = 0.0;
+                m.pair_target = 0.0;
+                m.pair_probability = 0.0;
+                m.lcb = 0.0;
+                m.corrections = 0;
+            }
+            metrics_add(total, &m);
+        }
     }
-    return total;
+    return 1;
+}
+
+static int metrics_complete_and_finite(const Metrics *m,
+                                       uint64_t expected_states)
+{
+    if (expected_states > UINT64_MAX / (uint64_t)NCARD ||
+        m->states != expected_states ||
+        m->belief_outputs != expected_states * (uint64_t)NCARD)
+        return 0;
+    const double value[] = {
+        m->kl, m->pair_loss, m->pair_target, m->pair_probability, m->lcb,
+        m->max_state_kl, m->value_abs_drift, m->value_sq_drift,
+        m->max_state_value_drift, m->belief_kl,
+        m->max_state_belief_kl, m->max_card_belief_kl
+    };
+    for (size_t i = 0; i < sizeof value / sizeof value[0]; i++)
+        if (!lc_double_isfinite(value[i]) || value[i] < 0.0) return 0;
+    return 1;
+}
+
+static int within_trust_region(const Config *c, const Metrics *m)
+{
+    if (m->states == 0 || m->belief_outputs == 0) return 0;
+    double mean_policy_kl = m->kl / (double)m->states;
+    double mean_value_drift = m->value_abs_drift / (double)m->states;
+    double mean_belief_kl = m->belief_kl / (double)m->belief_outputs;
+    return mean_policy_kl <= c->max_kl &&
+           m->max_state_kl <= c->max_state_kl &&
+           mean_value_drift <= c->max_mean_value_drift &&
+           m->max_state_value_drift <= c->max_state_value_drift &&
+           mean_belief_kl <= c->max_belief_kl &&
+           m->max_state_belief_kl <= c->max_state_belief_kl &&
+           m->max_card_belief_kl <= c->max_card_belief_kl;
 }
 
 static void print_metrics(int epoch, const Metrics *m)
 {
     double kl = m->states ? m->kl / (double)m->states : 0.0;
+    double value_mae = m->states
+                         ? m->value_abs_drift / (double)m->states : 0.0;
+    double value_rms = m->states
+                         ? sqrt(m->value_sq_drift / (double)m->states) : 0.0;
+    double belief_kl = m->belief_outputs
+                         ? m->belief_kl / (double)m->belief_outputs : 0.0;
     double pair = m->corrections
                     ? m->pair_loss / (double)m->corrections : 0.0;
     double target = m->corrections
@@ -1852,9 +2336,16 @@ static void print_metrics(int epoch, const Metrics *m)
                     ? m->pair_probability / (double)m->corrections : 0.0;
     double lcb = m->corrections
                     ? m->lcb / (double)m->corrections : 0.0;
-    printf("epoch %3d: KL %.6f, pair CE %.5f, challenger %.1f%% -> "
+    printf("epoch %3d: policy KL %.6f (state max %.6f), "
+           "value drift %.4f mean/%.4f RMS/%.4f max points, "
+           "belief KL %.3e mean/%.3e state/%.3e card max\n",
+           epoch, kl, m->max_state_kl, value_mae, value_rms,
+           m->max_state_value_drift, belief_kl,
+           m->max_state_belief_kl, m->max_card_belief_kl);
+    printf("           pair CE %.5f, challenger %.1f%% -> "
            "target %.1f%%, mean LCB %.2f (%llu corrections)\n",
-           epoch, kl, pair, 100.0 * prob, 100.0 * target, lcb,
+           pair, 100.0 * prob,
+           100.0 * target, lcb,
            (unsigned long long)m->corrections);
 }
 
@@ -1863,14 +2354,16 @@ static int train_records(const Config *c)
     RecordHeader h;
     DistillRecord *record = load_records(c->records_path, &h);
     if (!record) return 1;
-    uint64_t anchors = 0, corrections = 0;
+    uint64_t anchors = 0, corrections = 0, pile_corrections = 0;
     for (uint64_t i = 0; i < h.count; i++) {
         if (!validate_record(&record[i], &h, i)) {
             free(record);
             return 1;
         }
-        if (record[i].kind == RD_KIND_CORRECTION) corrections++;
-        else anchors++;
+        if (record[i].kind == RD_KIND_CORRECTION) {
+            corrections++;
+            if (state_has_buried_pile(&record[i].st)) pile_corrections++;
+        } else anchors++;
     }
     if (anchors != h.anchor_count || corrections != h.correction_count ||
         anchors + corrections != h.count) {
@@ -1887,15 +2380,17 @@ static int train_records(const Config *c)
             free(record);
             return 1;
         }
-        uint64_t ea = 0, ec = 0;
+        uint64_t ea = 0, ec = 0, epc = 0;
         for (uint64_t i = 0; i < eh.count; i++) {
             if (!validate_record(&extra[i], &eh, i)) {
                 free(extra);
                 free(record);
                 return 1;
             }
-            if (extra[i].kind == RD_KIND_CORRECTION) ec++;
-            else ea++;
+            if (extra[i].kind == RD_KIND_CORRECTION) {
+                ec++;
+                if (state_has_buried_pile(&extra[i].st)) epc++;
+            } else ea++;
         }
         if (ea != eh.anchor_count || ec != eh.correction_count ||
             ea + ec != eh.count) {
@@ -1905,8 +2400,8 @@ static int train_records(const Config *c)
             free(record);
             return 1;
         }
-        if (eh.anchor_hash != h.anchor_hash) {
-            fprintf(stderr, "%s is tied to a different frozen network\n",
+        if (!compatible_record_provenance(&h, &eh)) {
+            fprintf(stderr, "%s has incompatible generation provenance\n",
                     c->extra_records[set]);
             free(extra);
             free(record);
@@ -1936,6 +2431,7 @@ static int train_records(const Config *c)
         h.count += eh.count;
         anchors += ea;
         corrections += ec;
+        pile_corrections += epc;
         h.anchor_count = anchors;
         h.correction_count = corrections;
     }
@@ -1945,6 +2441,29 @@ static int train_records(const Config *c)
         free(record);
         return 1;
     }
+    if (c->train_pile_order && h.version < 3U) {
+        fprintf(stderr, "ordered-pile training requires corrected version-3 "
+                        "records\n");
+        free(record);
+        return 1;
+    }
+    if (c->train_pile_order &&
+        pile_corrections < (uint64_t)c->min_pile_corrections) {
+        fprintf(stderr, "ordered-pile training requires at least %d confirmed "
+                        "correction(s) with a buried pile; found %llu\n",
+                c->min_pile_corrections,
+                (unsigned long long)pile_corrections);
+        free(record);
+        return 1;
+    }
+    if (h.count > UINT64_MAX / (uint64_t)RD_TRUST_SUIT_ORBIT) {
+        fprintf(stderr, "too many records for complete suit-orbit trust "
+                        "validation\n");
+        free(record);
+        return 1;
+    }
+    uint64_t trust_states =
+        h.count * (uint64_t)RD_TRUST_SUIT_ORBIT;
 
     Net *anchor = load_net(c->net_path);
     Net *learner = (Net *)malloc(sizeof *learner);
@@ -1967,9 +2486,18 @@ static int train_records(const Config *c)
                 (unsigned long long)actual_hash);
         goto train_error;
     }
+    if (!net_is_finite(anchor)) {
+        fprintf(stderr, "%s contains a non-finite parameter\n", c->net_path);
+        goto train_error;
+    }
     if (!residual_is_zero(anchor)) {
         fprintf(stderr, "%s has a nonzero full-move residual; refusing to "
                         "reuse this first-stage trainer\n", c->net_path);
+        goto train_error;
+    }
+    if (c->train_pile_order && !pile_order_is_zero(anchor)) {
+        fprintf(stderr, "%s has nonzero ordered-pile rows; refusing to reuse "
+                        "this first-stage adapter trainer\n", c->net_path);
         goto train_error;
     }
     memcpy(learner, anchor, sizeof *learner);
@@ -1990,12 +2518,37 @@ static int train_records(const Config *c)
            "%llu anchors\n", (unsigned long long)h.count,
            (unsigned long long)h.correction_count,
            (unsigned long long)h.anchor_count);
-    printf("updates are restricted to %d x %d wcomb weights + %d biases; "
-           "suit augmentation %s\n", NET_NCOMB, NET_H2, NET_NCOMB,
+    printf("updates are restricted to %d x %d wcomb weights + %d biases",
+           NET_NCOMB, NET_H2, NET_NCOMB);
+    if (c->train_pile_order)
+        printf(" plus %d x %d appended ordered-pile weights",
+               FEAT_DIM - FEAT_LEGACY_DIM, NET_H1);
+    printf("; suit augmentation %s\n",
            !c->suit_augment ? "off" :
            (c->random_suit_augment ? "random" : "exhaustive"));
-    Metrics initial =
-        evaluate_dataset(c, anchor, learner, record, h.count);
+    printf("trust limits: policy KL %.6f mean/%.6f state; "
+           "value drift %.4f mean/%.4f state points; belief KL "
+           "%.3e mean/%.3e state/%.3e card\n",
+           c->max_kl, c->max_state_kl,
+           c->max_mean_value_drift, c->max_state_value_drift,
+           c->max_belief_kl, c->max_state_belief_kl,
+           c->max_card_belief_kl);
+    printf("trust coverage: all %u suit permutations of every record "
+           "(%llu information states)\n",
+           RD_TRUST_SUIT_ORBIT, (unsigned long long)trust_states);
+    if (c->train_pile_order)
+        printf("ordered-pile signal: %llu confirmed corrections with buried "
+               "cards\n", (unsigned long long)pile_corrections);
+    Metrics initial;
+    if (!evaluate_dataset(c, anchor, learner, record, h.count, &initial) ||
+        !metrics_complete_and_finite(&initial, trust_states) ||
+        !within_trust_region(c, &initial)) {
+        fprintf(stderr, "frozen model failed the complete trust-region "
+                        "baseline check\n");
+        residual_adam_free(&adam);
+        free(order);
+        goto train_error;
+    }
     print_metrics(0, &initial);
 
     int accepted_epochs = 0;
@@ -2011,6 +2564,7 @@ static int train_records(const Config *c)
             order[j] = t;
         }
 
+        int epoch_error = 0;
         for (uint64_t off = 0; off < h.count; off += (uint64_t)c->batch) {
             uint64_t remaining = h.count - off;
             int nb = remaining < (uint64_t)c->batch
@@ -2041,34 +2595,89 @@ static int train_records(const Config *c)
                     aug_key =
                         offset + (uint64_t)(unsigned)(epoch - 1);
                 }
-                if (evaluate_record(c, anchor, learner, &record[ri],
-                                    aug_key, c->suit_augment, grad, NULL))
+                int rc = evaluate_record(c, anchor, learner, &record[ri],
+                                         aug_key, c->suit_augment,
+                                         grad, NULL);
+                if (rc == 1) {
                     used++;
+                } else {
+                    fprintf(stderr, "training evaluation failed at record "
+                                    "%zu%s\n", ri,
+                            rc < 0 ? ": non-finite network output" :
+                                     ": invalid record semantics");
+                    epoch_error = 1;
+                    break;
+                }
             }
+            if (epoch_error) break;
             if (used > 0) {
                 net_tie_wager_gradients(grad);
                 residual_adam_step(learner, grad, &adam, c->lr,
-                                   1.0f / (float)used, c->weight_decay);
+                                   1.0f / (float)used, c->weight_decay,
+                                   c->train_pile_order);
             }
         }
 
-        Metrics current =
-            evaluate_dataset(c, anchor, learner, record, h.count);
-        double mean_kl =
-            current.states ? current.kl / (double)current.states : 0.0;
-        if (!lc_double_isfinite(mean_kl) || mean_kl > c->max_kl) {
+        if (epoch_error) {
+            residual_adam_free(&adam);
+            free(order);
+            goto train_error;
+        }
+
+        int frozen_epoch_ok = c->train_pile_order
+            ? v6_adapter_frozen_bytes_match(anchor, learner)
+            : memcmp(anchor, learner, offsetof(Net, wcomb)) == 0;
+        if (!frozen_epoch_ok || !net_is_finite(learner)) {
+            fprintf(stderr, "epoch %d changed a frozen byte or produced a "
+                            "non-finite parameter\n", epoch);
+            residual_adam_free(&adam);
+            free(order);
+            goto train_error;
+        }
+
+        Metrics current;
+        if (!evaluate_dataset(c, anchor, learner, record, h.count,
+                              &current) ||
+            !metrics_complete_and_finite(&current, trust_states)) {
+            fprintf(stderr, "epoch %d failed complete finite trust-region "
+                            "evaluation\n", epoch);
+            residual_adam_free(&adam);
+            free(order);
+            goto train_error;
+        }
+        if (!within_trust_region(c, &current)) {
             memcpy(learner, epoch_start, sizeof *learner);
-            printf("epoch %d rejected: mean KL %.6f exceeds trust limit %.6f; "
-                   "restored epoch %d\n", epoch, mean_kl, c->max_kl,
-                   accepted_epochs);
+            double mean_policy_kl = current.kl / (double)current.states;
+            double mean_value =
+                current.value_abs_drift / (double)current.states;
+            double mean_belief =
+                current.belief_kl / (double)current.belief_outputs;
+            printf("epoch %d rejected by trust region; restored epoch %d\n",
+                   epoch, accepted_epochs);
+            printf("  policy KL mean/state-max %.6f/%.6f "
+                   "(limits %.6f/%.6f)\n",
+                   mean_policy_kl, current.max_state_kl,
+                   c->max_kl, c->max_state_kl);
+            printf("  value drift mean/state-max %.4f/%.4f points "
+                   "(limits %.4f/%.4f)\n",
+                   mean_value, current.max_state_value_drift,
+                   c->max_mean_value_drift, c->max_state_value_drift);
+            printf("  belief KL mean/state-max/card-max %.3e/%.3e/%.3e "
+                   "(limits %.3e/%.3e/%.3e)\n",
+                   mean_belief, current.max_state_belief_kl,
+                   current.max_card_belief_kl, c->max_belief_kl,
+                   c->max_state_belief_kl, c->max_card_belief_kl);
             break;
         }
         accepted_epochs = epoch;
         print_metrics(epoch, &current);
     }
 
-    if (memcmp(anchor, learner, offsetof(Net, wcomb)) != 0) {
-        fprintf(stderr, "internal error: a frozen pre-residual parameter changed\n");
+    int frozen_ok = c->train_pile_order
+        ? v6_adapter_frozen_bytes_match(anchor, learner)
+        : memcmp(anchor, learner, offsetof(Net, wcomb)) == 0;
+    if (!frozen_ok) {
+        fprintf(stderr, "internal error: a frozen parameter changed\n");
         residual_adam_free(&adam);
         free(order);
         goto train_error;
@@ -2079,15 +2688,64 @@ static int train_records(const Config *c)
         free(order);
         goto train_error;
     }
-    printf("verified: every pre-wcomb byte is frozen and semantic wager "
-           "residuals remain tied\n");
     if (accepted_epochs == 0) {
-        fprintf(stderr, "no training epoch passed the KL trust region; "
+        fprintf(stderr, "no training epoch passed the policy/value/belief "
+                        "trust region; "
                         "no candidate written\n");
         residual_adam_free(&adam);
         free(order);
         goto train_error;
     }
+    if (!net_is_finite(learner)) {
+        fprintf(stderr, "trained adapter contains a non-finite parameter\n");
+        residual_adam_free(&adam);
+        free(order);
+        goto train_error;
+    }
+    Metrics final_metrics;
+    if (!evaluate_dataset(c, anchor, learner, record, h.count,
+                          &final_metrics) ||
+        !metrics_complete_and_finite(&final_metrics, trust_states) ||
+        !within_trust_region(c, &final_metrics)) {
+        fprintf(stderr, "final candidate failed the complete finite "
+                        "policy/value/belief trust region\n");
+        residual_adam_free(&adam);
+        free(order);
+        goto train_error;
+    }
+    printf("final complete-suit-orbit trust-region validation covered %llu "
+           "states and %llu belief outputs\n",
+           (unsigned long long)final_metrics.states,
+           (unsigned long long)final_metrics.belief_outputs);
+    print_metrics(accepted_epochs, &final_metrics);
+    double residual_sumsq = 0.0, pile_sumsq = 0.0;
+    size_t residual_count =
+        (size_t)NET_NCOMB * NET_H2 + NET_NCOMB;
+    size_t residual_nonzero = 0;
+    for (int i = 0; i < NET_NCOMB; i++)
+        accumulate_signal(learner->wcomb[i], NET_H2,
+                          &residual_nonzero, &residual_sumsq);
+    accumulate_signal(learner->bcomb, NET_NCOMB,
+                      &residual_nonzero, &residual_sumsq);
+    size_t pile_count = (size_t)(FEAT_DIM - FEAT_LEGACY_DIM) * NET_H1;
+    size_t pile_nonzero = 0;
+    for (int i = FEAT_LEGACY_DIM; i < FEAT_DIM; i++)
+        accumulate_signal(learner->w1[i], NET_H1,
+                          &pile_nonzero, &pile_sumsq);
+    if (residual_nonzero == 0 ||
+        (c->train_pile_order && pile_nonzero == 0)) {
+        fprintf(stderr, "training produced no usable v6 adapter signal\n");
+        residual_adam_free(&adam);
+        free(order);
+        goto train_error;
+    }
+    printf("verified: all legacy parameters are byte-frozen, semantic wagers "
+           "remain tied, every parameter/output is finite, and policy, value, "
+           "and belief trust regions pass\n");
+    printf("adapter signal: interaction %zu/%zu nonzero (L2 %.6f), "
+           "pile-order %zu/%zu nonzero (L2 %.6f)\n",
+           residual_nonzero, residual_count, sqrt(residual_sumsq),
+           pile_nonzero, pile_count, sqrt(pile_sumsq));
 
     if (c->dry_run) {
         printf("dry run complete; no model written\n");
@@ -2120,6 +2778,11 @@ train_error:
 
 int main(int argc, char **argv)
 {
+    if (!trust_math_selftest()) {
+        fprintf(stderr, "internal policy/belief trust-region self-test "
+                        "failed\n");
+        return 2;
+    }
     Config c;
     if (!parse_args(argc, argv, &c)) {
         usage(stderr, argv[0]);

@@ -26,6 +26,12 @@ jobs:
             CFLAGS="-O2 -Wall -Wextra -Werror -std=c11"
       - name: C/Python parity
         run: python tools/referee.py --selftest data/champion.bin 424242 --dumpfeat bin/dumpfeat
+      - name: Python tooling contracts
+        run: |
+          python -m py_compile tools/mine_duel_states.py
+          python -m unittest tests/test_mine_duel_states.py tests/test_make_showcase.py
+          make history-belief-test CC=${{ matrix.compiler }} \
+            CFLAGS="-O2 -Wall -Wextra -Werror -std=c11"
       - name: Transcript verification
         run: python tools/verify_transcript.py data/game.txt
 

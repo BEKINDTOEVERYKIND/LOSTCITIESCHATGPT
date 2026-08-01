@@ -301,11 +301,17 @@ int main(int argc, char **argv)
         SearchStats ss;
         Move selected = rollout_move(&evaluator, &st, &erng, NULL, &ss);
         printf("rollout evaluator: %s\n", evalspec);
-        printf("worlds: %d/%d  raw_resolved: %s  confirmation: %d worlds, %s\n",
+        printf("worlds: %d/%d  raw_resolved: %s  confirmation: %d worlds, %s"
+               "  prefix: %d trusted, proposed %d, selected %d"
+               "  prefix_check: %d worlds, %s\n",
                ss.worlds, ss.max_worlds, ss.resolved ? "yes" : "no",
-               ss.confirm_worlds, ss.confirmed ? "passed" : "not passed");
+               ss.confirm_worlds, ss.confirmed ? "passed" : "not passed",
+               ss.trusted_candidates, ss.prefix_proposed,
+               ss.selection_reference,
+               ss.prefix_confirm_worlds,
+               ss.prefix_confirmed ? "passed" : "not passed");
         printf("%-16s %8s %17s %8s %17s %8s %9s %8s\n",
-               "candidate", "prior", "delta vs base", "p-pass",
+               "candidate", "prior", "delta vs ref", "p-pass",
                "confirm delta", "c-pass", "guard", "selected");
         for (int i = 0; i < ss.n; i++) {
             char card[8], move[20], draw[8];
@@ -319,7 +325,7 @@ int main(int argc, char **argv)
                      ss.mv[i].discard ? 'd' : 'p', draw);
             printf("%-16s %8.4f %+7.2f +- %-6.2f %8s "
                    "%+7.2f +- %-6.2f %8s %9s %8s\n",
-                   move, ss.prior[i], ss.delta[i], ss.dse[i],
+                   move, ss.prior[i], ss.rdelta[i], ss.rdse[i],
                    ss.pqualified[i] ? "yes" : "no",
                    ss.cdelta[i], ss.cdse[i],
                    ss.csupported[i] ? "yes" : "no",

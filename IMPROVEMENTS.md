@@ -97,7 +97,10 @@ take Yellow.”
 ### Training correctness
 
 - Expert generation now executes the move actually returned by rollout/MCTS
-  gating. Search statistics remain a separate training target.
+  gating. Its rollout target is also selection-aligned: a rejected fresh-panel
+  proposal becomes a one-hot fallback target, while a confirmed two-panel
+  choice may retain averaged soft Q values. Search can no longer play one move
+  while training toward the move its own consensus check rejected.
 - `--sample-plies` now means plies within each round, rather than only the
   beginning of round one.
 - Fixed PPO with `--temp != 1`: collection and optimization now use the same
@@ -216,64 +219,53 @@ a strength claim; a 1,500–2,000-pair locked comparison is still needed.
 
 ## Decision-audit hardening
 
-The interactive match audit now treats rollout as a post-hoc measurement
-instrument, not as a source of authoritative labels:
+The interactive match audit treats rollout as a post-hoc measurement
+instrument, not as a source of authoritative labels. Its exact default is:
+
+```text
+rolloutu:data/champion.bin:2048:5:0.01:0:1:0:0:0:0:0:3.5:2:2:20:0:0:20:1:0:2048:1:0:0:0:0:0:0:2
+```
 
 - The actor, deals, and evaluator have independent deterministic RNG streams,
-  so changing audit compute cannot change the recorded match.
-- Ordinary candidates are the shortest top-policy prefix covering 99.5% mass,
-  subject to a two-move minimum and four-move cap. Semantic mode may add only
-  a purposeful pile draw paired with one of the top three card/disposition
-  actions and one isolated wager discard that the opponent cannot score
-  directly.
-  This is a focused exception, not a scan of every legal move or draw variant.
-- At 16 or fewer deck cards, the exact visible-hand scheduler supplies the
-  deployed baseline when its conservative regret or lower-card-preservation
-  guard fires. A noisy continuation is not allowed to undo that exact
-  information-set-safe correction.
-- Hidden hands use the uniform card-count prior. The learned hand model is
+  so audit compute cannot change the recorded match.
+- The audit evaluates at most five policy moves with at least 1% prior. It does
+  not scan every legal move, manufacture draw variants, or enable the planner
+  and semantic research tails.
+- The primary panel gives all candidates the same 2,048 uniform hidden worlds.
+  Each downstream decision draws one member of the 20-way suit group and takes
+  its greedy move, preserving a strong low-cost continuation instead of
+  sampling high-entropy policy actions.
+- If the primary ordinary-prefix leader differs from the raw policy, a fresh
+  2,048-world panel assigns balanced suit mappings that remain fixed for each
+  complete hidden-world trajectory. Both panels must select the same leader or
+  the audit falls back to the policy. This is a robustness consensus check,
+  not proof that the shared continuation model is unbiased.
+- Hidden hands use the uniform card-count prior. The learned hand estimate is
   displayed separately and cannot bias Q.
-- Fast continuation evaluation no longer conflates suit randomization with
-  full policy-action sampling. Each downstream decision draws one member of
-  the 20-way suit group and takes its greedy action. Repeated worlds therefore
-  approximate the champion cheaply without evaluating a high-entropy player.
-- Root candidates are never removed by the dead-discard focus used inside
-  continuation worlds. A separate guard can block an independently supported
-  but structurally questionable discard without concealing it from the audit.
-- Every candidate shares the same hidden worlds. The JSON reports Q's own
-  standard error separately from the paired difference and its SE versus the
-  policy leader.
-- Adaptive stopping uses a 3.5-SE family-wise guard. Every challenger is
-  tested directly against the policy leader, so one biased numerical leader
-  cannot hide a smaller real correction. Every discovery that qualifies must
-  then repeat on 2,048 fresh hidden worlds at 99% confidence in newly
-  generated analysis. Otherwise the
-  result is explicitly inconclusive or failed confirmation. The narrow early
-  one-sided-wager trigger instead compares exactly that candidate with the
-  baseline, using a 16,384-world primary cap and 16,384 fresh confirmation
-  worlds. Only support from both batches may supersede the generic discard
-  guard.
+- Every reported Q has its own standard error plus a paired difference and
+  paired SE against the policy reference. Root candidates are not removed by
+  continuation-only discard focus.
+- Purposefully added low-prior component challengers, when explicitly enabled,
+  retain the older 3.5-SE, practical-gap, and fresh-confirmation gates. The
+  optional 16,384-world one-sided-wager probe and visible-hand planner are not
+  part of the default actor or default audit.
 
 The second human-reviewed match exposed the key distinction between variance
-and continuation-policy bias. Simply increasing the world count made several
-bad conclusions more certain. The revised method instead (1) spends ordinary
-worlds only on the top-policy prefix, with narrowly defined semantic additions
-rather than all legal moves, (2) preserves a greedy continuation actor,
-(3) uses independent candidate-wise confirmation, and (4) keeps root and
-continuation pruning separate. At the locked positions, the green-start
-overrides at plies 21/23 disappear; low-prior green discards remain excluded;
-and B10 at ply 36 is independently confirmed over Y10 (`+2.42 ± 0.34`
-discovery, `+1.48 ± 0.36` confirmation for the locked seed). Two additional
-seeds independently selected B10 as well. With the later scheduler tail, one
-fifth-prior G5 *play* at ply 29 may enter as the single visible-plan
-challenger; the criticized G5 discard remains out. That is the intended
-focused exception, not a reopening of the legal move list.
+and continuation-policy bias: simply increasing the world count made several
+bad conclusions more certain. The revised method therefore spends worlds only
+on the top-policy prefix, keeps policy actions greedy, separates the cheap and
+coherent continuation panels, and requires agreement before changing the move.
+At fixed component probes, the green-start overrides at plies 21/23 disappear,
+low-prior green discards remain excluded, and B10 at ply 36 was independently
+confirmed over Y10 (`+2.42 ± 0.34` discovery, `+1.48 ± 0.36` confirmation for
+the locked seed). Those probes validate specific regressions; they are not
+additional live candidates.
 
-The late-round rollout method was then tested as an actual player rather than
-inferred from individual positions. The locked maintained configuration uses
-the raw 20-way policy before round ply 20, then 512 uniform hidden worlds over
-at most four policy-ranked moves, a 3.5-SE/two-point primary gate, and 512
-freshly seeded random-symmetry-greedy confirmation worlds:
+### Pre-consensus rollout and component history
+
+The preceding ply-20 actor used the raw 20-way policy before round ply 20,
+then 512 uniform hidden worlds over at most four policy-ranked moves with a
+3.5-SE/two-point gate and fresh random-symmetry-greedy confirmation:
 
 ```text
 rolloutu:data/champion.bin:512:4:0.02:0:1:20:0:0:0:0:3.5:2:2:20:0:0:20:1:0:512:1
@@ -282,11 +274,9 @@ rolloutu:data/champion.bin:512:4:0.02:0:1:20:0:0:0:0:3.5:2:2:20:0:0:20:1:0:512:1
 Against `policy:data/champion.bin:0:20` on fresh seed 950005 it scored
 **+14.70 ± 1.53 SE points per match** and **56.5% ± 1.5% SE match score**
 over 200 mirrored pairs (225 wins, 173 losses, 2 draws). Approximate 95%
-intervals are +11.70 to +17.70 points and 53.6% to 59.4%. This is the basis
-for making rollout an actual late-round decision-maker. No early-round search
-is deployed: exploratory phase screens did not justify it, and the reviewed
-failures showed that increasing world count cannot repair a biased
-continuation policy.
+intervals are +11.70 to +17.70 points and 53.6% to 59.4%. This established
+that rollout can be a real decision-maker, but the actor has since been
+superseded by the directly tested ply-14 two-panel consensus method.
 
 The scheduler was also isolated from rollout on an independent 2,000-pair
 test. `policy:data/champion.bin:0:20:16:12` beat the raw exact-20 policy by
@@ -295,9 +285,9 @@ This validates the conservative visible-hand layer, but it does not imply an
 additive gain after late rollout has already corrected many of the same
 positions.
 
-The combined selection screen therefore compared three actors:
+The pre-consensus component screen compared three actors:
 
-- A: the maintained late rollout above;
+- A: the preceding ply-20 rollout above;
 - B: A plus the planner-only `:16:12:0` tail;
 - C: A plus the planner and semantic `:16:12:1` tail.
 
@@ -305,12 +295,12 @@ On the same 40-pair seed against raw policy, A scored +22.04 ± 4.25 points and
 58.8% ± 3.5%, while B scored +16.18 ± 5.34 and 57.5% ± 4.2%. A fresh direct
 20-pair B-versus-A check was +1.60 ± 5.34 and 55.0% ± 5.0% for B: compatible
 with either a modest gain or loss, and nowhere near a promotion result.
-Direct C versus A over 40 pairs was -6.06 ± 4.36 and 46.2% ± 3.8%. The
-strength-optimal choice from the evidence is therefore A. Planner and semantic
-mode remain explicit component/post-hoc tools; they are not hidden inside the
-live default.
+Direct C versus A over 40 pairs was -6.06 ± 4.36 and 46.2% ± 3.8%. This did
+not establish planner or semantic additions as beneficial to the preceding
+actor, much less to the newer consensus actor. They remain explicit component
+tools and are not hidden inside live play or the default audit.
 
-The full review configuration remains available as:
+The legacy semantic-probe configuration remains available as:
 
 ```text
 rolloutu:data/champion.bin:512:4:0.02:0:1:20:0:0:0:0:3.5:2:2:20:0:0:20:1:0:512:1:16:12:1
@@ -342,13 +332,13 @@ and log loss from 0.53272 to 0.49622. Its marginals and sampler now describe
 the same exact-K joint distribution. It remains labelled experimental and is
 not used by the decision audit.
 
-### Frozen random-showcase review
+### Historical frozen-showcase review
 
-The later review did not regenerate or screen for a friendlier game. The
+That earlier review did not regenerate or screen for a friendlier game. The
 original random seed `5726968372613385`, deals, and all 144 historical actions
-remain unchanged. The UI now attaches stronger offline analysis to those same
-positions and explicitly distinguishes the historical action from the current
-planner/audit recommendation.
+were retained unchanged at the time. The results below remain experiment
+history; the current tracked viewer contains a separately precommitted random
+self-play game under the promoted actor.
 
 At ply 4, the old current-state belief head incorrectly ranked Y4 above the
 high yellows. Perspective-scrubbed actor-history inference proposed 100,000
@@ -372,7 +362,7 @@ Two one-sided wager cases motivated the urgent semantic path:
 
 The useful draw is chosen together with the wager discard, rather than forcing
 the deck variant or evaluating every draw source. The move still must pass
-both maintained 16,384-world comparisons because the opponent can pick up the
+both 16,384-world probe panels because the opponent can pick up the
 wager to stall. At ply 96, an exact
 one-card-deck rule selects G9 then deck over the historical G9 then White:
 both score the same immediately, but the pile draw can only grant the
@@ -380,13 +370,16 @@ opponent an extra optional turn.
 
 These corrections do not mean rollout is globally fixed. Review also found
 positions where a biased continuation attached high confidence to a poor
-ordering. Exact visible-hand corrections therefore take precedence and cannot
-be undone by rollout, broad early search remains disabled, and unrecognized
-low-prior moves can still require a dedicated `qpair` probe or future policy
-training.
+ordering. Optional exact visible-hand corrections remain useful component
+probes, and unrecognized low-prior moves can still require a dedicated
+`qpair` probe or future policy training. The promoted actor searches from ply
+14 but reduces orientation instability by requiring its cheap and coherent
+panels to agree; agreement still cannot cure a continuation bias shared by
+both panels.
 
-In particular, ply 17 remains an honest miss: when forced to compare the
-reviewed alternatives over 4,096 worlds, the current continuation still
+In particular, ply 17 remains an honest historical miss and is now inside the
+live search window: when forced to compare the reviewed alternatives over
+4,096 worlds, that continuation
 favored play R8 and put discard B5 then take R at -2.20 ± 0.73. At ply 25,
 taking Bx now enters the focused shortlist, but the locked uniform-world audit
 still put it at -5.52 ± 0.58. Behavior-conditioned hidden worlds improve the
@@ -404,12 +397,18 @@ confidence bound for every correction. Loading validates the complete hostile
 `State` payload, legal moves, label math, counts, file length, and every
 record's declared ply/deck phase before calling engine or feature code.
 
-Training changes only the previously zero card/action × draw-source residual
-head. It anchors the full legal distribution with KL, uses pairwise
-lower-confidence-bound targets for confirmed corrections, applies
-deterministic suit augmentation, and verifies that every pre-residual model
-byte is unchanged. Atomic, no-clobber output and canonical path checks prevent
-overwriting the frozen network or record file by alias.
+Training changes only previously zero v6 capacity: always the card/action ×
+draw-source residual head and, when `--train-pile-order` is explicit, the
+appended ordered-pile input rows. It anchors the full legal distribution with
+KL, uses pairwise lower-confidence-bound targets for confirmed corrections,
+applies deterministic suit augmentation, and verifies that every legacy model
+byte is unchanged. Policy KL uses exact double-precision log-softmax rather
+than probability floors. Every epoch and final candidate must satisfy policy,
+value, and belief trust regions over all 120 suit permutations of every record;
+any non-finite activation, logit, or metric fails closed. Atomic, no-clobber
+output and canonical path checks prevent overwriting the frozen network or
+record file by alias. Multiple record shards may be combined only when their
+model hash and complete label-generation provenance match.
 
 The locked generation run used seed 2026073003, 512 primary plus 512 fresh
 confirmation worlds, and produced 426 states: 28 confirmed corrections and
@@ -427,11 +426,82 @@ from a 2,000-pair screen to a locked 20,000-pair holdout on fresh seed
 | balanced-a | +0.06 ± 0.11 SE | 50.06375% | 49.83975% |
 
 Neither score lower bound cleared 50%, so neither model was promoted. The
-unchanged champion plus the validated late-round search wrapper remains the
-strongest agent. This negative result is also useful: the confirmed
+unchanged champion plus the promoted ply-14 two-panel consensus wrapper remains
+the strongest agent. This negative result is also useful: the confirmed
 corrections are a sounder training signal than the old noisy audit labels, but
 this small residual head did not turn them into a measurable net strength
 gain.
+
+## Coherent rollout consensus and v6 adapter experiment
+
+Review of a second unfiltered match found a deeper continuation problem. Fast
+mode `2` selected a fresh suit relabelling at every downstream decision, so a
+single sampled world could be played by a sequence of mutually inconsistent
+network orientations. Mode `3` now assigns one mapping to the complete
+hidden-world trajectory and stratifies worlds across the requested symmetry
+group. It repaired several reviewed orderings, but regressed others, so it is
+not treated as an automatic replacement for every primary comparison.
+
+The safer playing method uses the cheap mode-2 panel for discovery, then
+rechecks any nonbaseline leader from the ordinary top-policy prefix on fresh
+worlds whose suit mappings are balanced and fixed for each trajectory. The
+move changes only when both panels select the same leader. Purposefully added
+low-prior challengers remain subject to the older practical, SE, and fresh-
+confirmation gates. Bounded pile-draw variants were also implemented for the
+top one or two distinct card/disposition actions, but their 28-pair screen
+faded to approximately neutral and they remain disabled by default.
+
+On a locked 100-pair external-reference set (200 matches, seed 20310801), the
+ply-14, top-five consensus actor scored `+10.08 ± 3.98` points per match and
+`57.25% ± 3.02%` match score (`114/85/1`). The approximate 95% intervals for
+both point margin and match score exclude parity. In a separate locked direct
+test against the preceding ply-20 actor (100 pairs/200 matches, seed 20320801),
+it scored `+3.60 ± 3.72` points and `55.0% ± 2.9%` match score (`109/89/2`).
+Both direct-test intervals include parity, so this is positive but not
+independently conclusive evidence; the promotion rests on the consistent
+direction across both tests plus the reproduced continuation-method repair,
+not on a claim that the direct 100-pair margin alone is significant.
+
+The reviewed ply-29 Green start illustrates why panel agreement is still not
+a proof of optimality. The raw mode-2 continuation preferred play G5 over
+discard R6 by `+7.91 ± 1.22`; coherent mode 3 gave `+6.72 ± 1.12`, and exact
+20-way continuation gave `+5.85 ± 0.85`. Replacing the downstream raw policy
+with an eight-world, top-three receding-horizon search for both players reduced
+the pooled difference to `+0.42 ± 1.15`. A stronger independent checkpoint
+still weakly preferred G5, so R6 is not established as correct; what is
+established is that the original audit overstated its certainty by rewarding a
+root move for pushing its own weak continuation into a different behavioural
+basin. `qpair -A` retains this expensive search-aware continuation for such
+contentious positions. A selective top-three, 16-world continuation re-search
+did repair ply 23 and halve the ply-29 bias, but still failed ply 31, cost
+roughly 5–8× more, and scored about `−2.51 ± 1.39` points with a 46.8% match
+score over 300 paired single rounds. It was rejected rather than hidden inside
+live play.
+
+Opponent match logs were then used only to *propose* information states. The
+new `tools/mine_duel_states.py` replay-validated all 300 matches and 42,823
+plies before emitting 317 validated states; no opponent score became a training
+label. Our frozen evaluator independently confirmed 66 of those proposals.
+Combined with our own probes and self-play, adapter training used 534 records:
+71 corrections, 463 KL anchors, and 61 corrections containing buried-pile
+order. Version-3 correction shards bind the fixed-world continuation method,
+exact-five confirmation, model hash, and complete generation provenance.
+
+`robust_distill` can now train the zero-initialized interaction head and,
+optionally, only the appended ordered-pile input rows. It fails closed on
+incompatible shard provenance, non-finite parameters, insufficient pile-order
+evidence, excessive mean or worst-state KL, or any changed legacy byte. The
+resulting adapter repeated a small point-margin gain:
+
+| holdout | mirrored pairs | margin/match |
+| --- | ---: | ---: |
+| initial screen | 3,000 | +0.15 ± 0.26 SE |
+| independent seed 995102 | 10,000 | +0.24 ± 0.13 SE |
+| independent seed 995202 | 10,000 | +0.24 ± 0.12 SE |
+
+Across the two large holdouts it gained about `+0.24 ± 0.09` points but only
+about 50.07% match score. Since match wins are the objective, the adapter was
+not promoted and `data/champion.bin` remains unchanged.
 
 ## Remaining high-value work
 

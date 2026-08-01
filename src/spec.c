@@ -1,10 +1,11 @@
 #include "spec.h"
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #define MAX_NAMES 16
-static char g_names[MAX_NAMES][96];
+static char g_names[MAX_NAMES][512];
 static int g_nname = 0;
 
 static Net *load_net(const char *path)
@@ -16,10 +17,134 @@ static Net *load_net(const char *path)
     return n;
 }
 
+enum { ROLLOUT_TAIL_FIELDS = 28 };
+
+static int valid_suit_group(int n)
+{
+    return n == 1 || n == 5 || n == 10 || n == 20 || n == 120;
+}
+
+static void validate_rollout(const Agent *a, const char *label)
+{
+    int valid =
+        a->dets >= 1 && a->dets <= 1000000 &&
+        a->root_width >= 1 && a->root_width <= MAX_MOVES &&
+        isfinite(a->cand_floor) && a->cand_floor >= 0.0f &&
+        a->cand_floor <= 1.0f &&
+        isfinite(a->gate) && a->gate >= 0.0f && a->gate <= 1.0f &&
+        a->min_cand >= 0 && a->min_cand <= MAX_MOVES &&
+        a->ply_lo >= 0 && a->ply_lo <= 300 &&
+        a->ply_hi >= 0 && a->ply_hi <= 300 &&
+        (a->ply_hi == 0 || a->ply_hi >= a->ply_lo) &&
+        a->eval_cand >= 0 && a->eval_cand <= MAX_MOVES &&
+        a->win_q >= 0 && a->win_q <= 2 &&
+        (a->prune_dom == 0 || a->prune_dom == 1) &&
+        isfinite(a->override_k) && a->override_k >= 0.0f &&
+        isfinite(a->override_min) && a->override_min >= 0.0f &&
+        a->playout_sample >= 0 && a->playout_sample <= 3 &&
+        valid_suit_group(a->symmetries) &&
+        isfinite(a->cand_mass) && a->cand_mass >= 0.0f &&
+        a->cand_mass <= 1.0f &&
+        a->batch_dets >= 0 && a->batch_dets <= a->dets &&
+        valid_suit_group(a->playout_symmetries) &&
+        (a->discard_guard == 0 || a->discard_guard == 1) &&
+        a->deck_max >= 0 && a->deck_max <= NCARD &&
+        a->confirm_dets >= 0 && a->confirm_dets <= 1000000 &&
+        a->playout_prune >= -1 && a->playout_prune <= 1 &&
+        a->plan_deck_max >= 0 && a->plan_deck_max <= NCARD &&
+        a->plan_block_gap >= 0 && a->plan_block_gap <= 1000000 &&
+        (a->semantic_cand == 0 || a->semantic_cand == 1) &&
+        (a->confirm_exact5 == 0 || a->confirm_exact5 == 1) &&
+        a->draw_variant_cores >= 0 && a->draw_variant_cores <= 2 &&
+        a->draw_variant_deck_max >= 0 &&
+        a->draw_variant_deck_max <= NCARD &&
+        a->policy_prefix_mode >= 0 && a->policy_prefix_mode <= 2;
+    if (!valid) {
+        fprintf(stderr, "agent '%s' has an invalid rollout configuration\n",
+                label);
+        exit(1);
+    }
+}
+
+/* Keep rollout:PATH and the live-network selfrollout generator on one field
+ * order.  Use an exact-sized buffer: training specs are experiment inputs and
+ * silently dropping their late fields can change the generated policy while
+ * leaving the command looking valid. */
+static void parse_rollout_tail(const char *tail, Agent *a, const char *label)
+{
+    size_t len = strlen(tail);
+    char *buf = (char *)malloc(len + 1);
+    if (!buf) { fprintf(stderr, "out of memory\n"); exit(1); }
+    memcpy(buf, tail, len + 1);
+
+    char *save = NULL;
+    char *v = strtok_r(buf, ":", &save);
+    int field = 0;
+    while (v) {
+        if (field >= ROLLOUT_TAIL_FIELDS) {
+            fprintf(stderr, "agent '%s' has unsupported rollout field %d ('%s')\n",
+                    label, field + 1, v);
+            free(buf);
+            exit(1);
+        }
+        switch (field++) {
+        case 0:  a->dets = atoi(v); break;
+        case 1:  a->root_width = atoi(v); break;
+        case 2:  a->cand_floor = (float)atof(v); break;
+        case 3:  a->gate = (float)atof(v); break;
+        case 4:  a->min_cand = atoi(v); break;
+        case 5:  a->ply_lo = atoi(v); break;
+        case 6:  a->ply_hi = atoi(v); break;
+        case 7:  a->eval_cand = atoi(v); break;
+        case 8:  a->win_q = atoi(v); break;
+        case 9:  a->prune_dom = atoi(v); break;
+        case 10: a->override_k = (float)atof(v); break;
+        case 11: a->override_min = (float)atof(v); break;
+        case 12: a->playout_sample = atoi(v); break;
+        case 13: a->symmetries = atoi(v); break;
+        case 14: a->cand_mass = (float)atof(v); break;
+        case 15: a->batch_dets = atoi(v); break;
+        case 16: a->playout_symmetries = atoi(v); break;
+        case 17: a->discard_guard = atoi(v); break;
+        case 18: a->deck_max = atoi(v); break;
+        case 19: a->confirm_dets = atoi(v); break;
+        case 20: a->playout_prune = atoi(v); break;
+        case 21: a->plan_deck_max = atoi(v); break;
+        case 22: a->plan_block_gap = atoi(v); break;
+        case 23: a->semantic_cand = atoi(v); break;
+        case 24: a->confirm_exact5 = atoi(v); break;
+        case 25: a->draw_variant_cores = atoi(v); break;
+        case 26: a->draw_variant_deck_max = atoi(v); break;
+        case 27: a->policy_prefix_mode = atoi(v); break;
+        }
+        v = strtok_r(NULL, ":", &save);
+    }
+    free(buf);
+    validate_rollout(a, label);
+}
+
+void spec_parse_selfrollout(const char *spec, const Net *net, Agent *a)
+{
+    static const char prefix[] = "selfrollout";
+    const size_t npre = sizeof prefix - 1;
+    if (strncmp(spec, prefix, npre) != 0 ||
+        (spec[npre] != '\0' && spec[npre] != ':')) {
+        fprintf(stderr, "invalid live rollout spec '%s'\n", spec);
+        exit(1);
+    }
+    agent_default(a, AG_ROLLOUT, net);
+    parse_rollout_tail(spec[npre] == ':' ? spec + npre + 1 : "", a, spec);
+}
+
 void spec_parse(const char *spec, Agent *a)
 {
     char buf[512];
-    snprintf(buf, sizeof buf, "%s", spec);
+    int copied = snprintf(buf, sizeof buf, "%s", spec);
+    if (copied < 0 || (size_t)copied >= sizeof buf) {
+        fprintf(stderr, "agent spec is too long (%zu bytes; maximum %zu)\n",
+                strlen(spec), sizeof buf - 1);
+        exit(1);
+    }
     char *save = NULL;
     char *tok = strtok_r(buf, ":", &save);
     if (!tok) { fprintf(stderr, "empty agent spec\n"); exit(1); }
@@ -49,30 +174,7 @@ void spec_parse(const char *spec, Agent *a)
         char *v;
         if (is_rollout) {
             a->no_belief = is_uniform;
-            if ((v = strtok_r(NULL, ":", &save))) a->dets = atoi(v);
-            if ((v = strtok_r(NULL, ":", &save))) a->root_width = atoi(v);
-            if ((v = strtok_r(NULL, ":", &save))) a->cand_floor = (float)atof(v);
-            if ((v = strtok_r(NULL, ":", &save))) a->gate = (float)atof(v);
-            if ((v = strtok_r(NULL, ":", &save))) a->min_cand = atoi(v);
-            if ((v = strtok_r(NULL, ":", &save))) a->ply_lo = atoi(v);
-            if ((v = strtok_r(NULL, ":", &save))) a->ply_hi = atoi(v);
-            if ((v = strtok_r(NULL, ":", &save))) a->eval_cand = atoi(v);
-            if ((v = strtok_r(NULL, ":", &save))) a->win_q = atoi(v);
-            if ((v = strtok_r(NULL, ":", &save))) a->prune_dom = atoi(v);
-            if ((v = strtok_r(NULL, ":", &save))) a->override_k = (float)atof(v);
-            if ((v = strtok_r(NULL, ":", &save))) a->override_min = (float)atof(v);
-            if ((v = strtok_r(NULL, ":", &save))) a->playout_sample = atoi(v);
-            if ((v = strtok_r(NULL, ":", &save))) a->symmetries = atoi(v);
-            if ((v = strtok_r(NULL, ":", &save))) a->cand_mass = (float)atof(v);
-            if ((v = strtok_r(NULL, ":", &save))) a->batch_dets = atoi(v);
-            if ((v = strtok_r(NULL, ":", &save))) a->playout_symmetries = atoi(v);
-            if ((v = strtok_r(NULL, ":", &save))) a->discard_guard = atoi(v);
-            if ((v = strtok_r(NULL, ":", &save))) a->deck_max = atoi(v);
-            if ((v = strtok_r(NULL, ":", &save))) a->confirm_dets = atoi(v);
-            if ((v = strtok_r(NULL, ":", &save))) a->playout_prune = atoi(v);
-            if ((v = strtok_r(NULL, ":", &save))) a->plan_deck_max = atoi(v);
-            if ((v = strtok_r(NULL, ":", &save))) a->plan_block_gap = atoi(v);
-            if ((v = strtok_r(NULL, ":", &save))) a->semantic_cand = atoi(v);
+            parse_rollout_tail(save ? save : "", a, spec);
         } else if (is_policy) {
             if ((v = strtok_r(NULL, ":", &save))) a->temp = (float)atof(v);
             if ((v = strtok_r(NULL, ":", &save))) a->symmetries = atoi(v);

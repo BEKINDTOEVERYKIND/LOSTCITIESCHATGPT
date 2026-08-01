@@ -43,6 +43,13 @@ typedef struct {
     int deck_end_baseline;  /* candidate zero came from the one-card deck
                                dominance rule                                */
     int semantic_candidates; /* targeted non-prefix candidates actually added */
+    int draw_variant_candidates; /* bounded top-action pile variants added    */
+    int trusted_candidates; /* ordinary policy-prefix moves eligible directly */
+    int prefix_proposed;    /* primary panel's trusted-prefix leader             */
+    int selection_reference; /* index low-prior confirmation is compared to   */
+    int trusted_prefix_override; /* selected a nonzero trusted-prefix leader   */
+    int prefix_confirmed; /* trusted-prefix leader repeated on fresh panel     */
+    int prefix_confirm_worlds; /* balanced fixed-world panel size               */
     int metric_kind;        /* SEARCH_METRIC_* meaning of q[]               */
     int planner_turns;      /* own visible-card turns used by scheduler      */
     int planner_score;      /* best guaranteed current-hand score            */
@@ -61,8 +68,12 @@ typedef struct {
     double se[MAX_MOVES];  /* standard error of each candidate's own mean */
     double delta[MAX_MOVES]; /* paired difference against deployed baseline 0 */
     double dse[MAX_MOVES];   /* SE of that paired difference                 */
-    double cdelta[MAX_MOVES]; /* fresh paired difference vs deployed baseline */
+    double rdelta[MAX_MOVES]; /* primary difference vs selection_reference   */
+    double rdse[MAX_MOVES];   /* SE of that reference-relative difference    */
+    double cdelta[MAX_MOVES]; /* fresh paired difference vs selection_reference */
     double cdse[MAX_MOVES];   /* SE of cdelta                                 */
+    double prefix_q[MAX_MOVES]; /* fresh coherent-panel objective mean          */
+    double prefix_se[MAX_MOVES]; /* SE of coherent-panel objective mean          */
     uint8_t pqualified[MAX_MOVES]; /* passed the primary significance gates   */
     uint8_t csupported[MAX_MOVES]; /* candidate passed both independent gates */
     uint8_t guard_rejected[MAX_MOVES]; /* supported but blocked structural risk */

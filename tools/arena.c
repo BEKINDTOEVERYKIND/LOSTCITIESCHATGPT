@@ -30,7 +30,8 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "-q")) quiet = 1;
         else {
             fprintf(stderr, "usage: %s -a SPEC -b SPEC [-n pairs] [-t threads] [-s seed] [-r rounds] [-q]\n"
-                            "  SPEC = random | heur | net:PATH[:samples] | mcts:PATH[:dets[:sims[:rw[:nw]]]]\n",
+                            "  SPEC = random | heur | policy:... | rolloutu:... | net:... | mcts:...\n"
+                            "  See src/spec.h for the complete positional tails.\n",
                     argv[0]);
             return 1;
         }

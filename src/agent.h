@@ -40,6 +40,21 @@ typedef struct Agent {
                            isolated one-sided-wager discard (0/1); these are
                            targeted semantic challengers, never a scan of every
                            legal move */
+    int confirm_exact5;  /* AG_ROLLOUT: use the exact five-rotation ensemble
+                            for the fresh confirmation pass (0 keeps the
+                            configured cheap continuation model) */
+    int draw_variant_cores; /* AG_ROLLOUT: for this many top distinct
+                               card/disposition actions, admit the best legal
+                               pile-draw alternatives into the bounded root
+                               audit (0 off, 1-2 supported) */
+    int draw_variant_deck_max; /* enable those tempo/stall pile alternatives
+                                  only at or below this deck count (0 = no
+                                  phase limit) */
+    int policy_prefix_mode; /* ordinary policy-floor prefix selection:
+                               0 = every override gated; 1 = trust numerical
+                               leader directly; 2 = require that leader to
+                               repeat on fresh balanced fixed-world symmetry.
+                               Added low-prior challengers remain gated. */
     /* AG_MCTS */
     int dets;           /* determinizations                                */
     int sims;           /* simulations per determinization                 */
@@ -67,8 +82,10 @@ typedef struct Agent {
                            dets is the cap; 0 evaluates exactly dets worlds */
     int playout_symmetries; /* AG_ROLLOUT continuation suit group.  Mode 0
                                averages the group exactly; modes 1/2 draw one
-                               group member per decision.  Mode 1 samples the
-                               resulting action, while mode 2 takes argmax. */
+                               member per decision, while mode 3 fixes one
+                               member for the complete hidden-world trajectory.
+                               Mode 1 samples the resulting action; modes 2/3
+                               take argmax. */
     int discard_guard; /* AG_ROLLOUT: do not override a nondominated policy
                           move with a discard that lc_discard_dominated marks
                           questionable.  Unlike prune_dom, the move remains in
@@ -102,11 +119,12 @@ typedef struct Agent {
                            0 = exact suit-group average, then argmax;
                            1 = random group member, then sample its policy;
                            2 = random group member, then argmax.
-                           Modes 1/2 cost one forward per decision and common
+                           Modes 1/2/3 cost one forward per decision and common
                            per-world seeds keep candidate comparisons paired.
-                           Mode 2 is the closest cheap approximation to the
-                           exact-ensemble actor; mode 1 is a high-variance
-                           robustness ablation, not the maintained default. */
+                           Mode 2 changes the sampled member every decision;
+                           mode 3 draws one member per hidden world and keeps
+                           it fixed throughout that playout.  Mode 1 is a
+                           high-variance robustness ablation. */
     float override_min; /* AG_ROLLOUT: ...AND by at least this many points.
                            The SE gate alone is world-count-dependent in the
                            wrong direction: more worlds shrink the noise but
@@ -151,6 +169,11 @@ int  policy_probs_sym(const Net *net, const State *st, Move *mv, float *prob,
  * forward pass. */
 int  policy_probs_random_sym(const Net *net, const State *st, Move *mv,
                              float *prob, Rng *rng, int symmetries);
+/* Evaluate one explicitly supplied suit relabelling and map its legal-move
+ * probabilities back to st.  This is the one-forward building block for a
+ * temporally consistent sampled-symmetry rollout actor. */
+int  policy_probs_perm(const Net *net, const State *st, Move *mv, float *prob,
+                       float *value, const uint8_t perm[NSUIT]);
 /* Fill an exact subgroup of suit relabellings.  Invalid sizes return only the
  * identity.  The returned maps send original suit -> permuted suit. */
 int  suit_permutations(int requested, uint8_t out[120][NSUIT]);

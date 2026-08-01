@@ -6,6 +6,7 @@
 #include "../src/planner.h"
 #include "../src/search.h"
 #include "../src/spec.h"
+#include "../tools/train_target.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -348,6 +349,199 @@ static void test_rollout_policy_shortlist(void)
             CHECK(ss.mv[i].draw != 3,
                   "ply %d reintroduced a forced W2 draw variant", target);
     }
+
+    /* Tempo expansion is bounded to draw variants of top policy actions and
+     * phase-gated independently from the ordinary policy prefix. */
+    Agent tempo = audit;
+    tempo.root_width = 4;
+    tempo.cand_mass = 0.0f;
+    tempo.cand_floor = 0.02f;
+    tempo.min_cand = 1;
+    tempo.gate = 0.0f;
+    tempo.override_k = 0.0f;
+    tempo.draw_variant_cores = 2;
+    tempo.draw_variant_deck_max = 0;
+    SearchStats expanded;
+    rng_seed(&rng, 5020);
+    (void)rollout_move(&tempo, &p20, &rng, NULL, &expanded);
+    CHECK(expanded.draw_variant_candidates >= 2 && expanded.n <= 8,
+          "bounded top-action draw expansion added %d candidates (n=%d)",
+          expanded.draw_variant_candidates, expanded.n);
+    int saw_pile = 0;
+    for (int i = 0; i < expanded.n; i++)
+        if (expanded.mv[i].draw > 0) saw_pile = 1;
+    CHECK(saw_pile, "top-action draw expansion added no pile candidate");
+
+    tempo.draw_variant_deck_max = 1;
+    SearchStats phase_blocked;
+    rng_seed(&rng, 5020);
+    (void)rollout_move(&tempo, &p20, &rng, NULL, &phase_blocked);
+    CHECK(p20.deck_left > 1 && phase_blocked.draw_variant_candidates == 0,
+          "draw-variant deck phase gate did not disable expansion");
+
+    /* Generic pile variants are opportunistic.  They must use only slots
+     * left after the focused semantic challengers, rather than filling the
+     * eight-candidate budget first and silently hiding a targeted move. */
+    Agent targeted = tempo;
+    targeted.draw_variant_cores = 0;
+    targeted.semantic_cand = 1;
+    SearchStats targeted_stats;
+    rng_seed(&rng, 5020);
+    (void)rollout_move(&targeted, &p20, &rng, NULL, &targeted_stats);
+    CHECK(targeted_stats.semantic_candidates >= 2 && targeted_stats.n < 8,
+          "locked ply 20 did not expose semantic challengers (added=%d, n=%d)",
+          targeted_stats.semantic_candidates, targeted_stats.n);
+
+    Agent combined = targeted;
+    combined.draw_variant_cores = 2;
+    combined.draw_variant_deck_max = 0;
+    SearchStats combined_stats;
+    rng_seed(&rng, 5020);
+    (void)rollout_move(&combined, &p20, &rng, NULL, &combined_stats);
+    CHECK(combined_stats.semantic_candidates ==
+              targeted_stats.semantic_candidates &&
+          combined_stats.draw_variant_candidates > 0,
+          "draw expansion crowded semantic candidates (semantic %d -> %d, "
+          "draw=%d)",
+          targeted_stats.semantic_candidates,
+          combined_stats.semantic_candidates,
+          combined_stats.draw_variant_candidates);
+    for (int i = targeted_stats.trusted_candidates;
+         i < targeted_stats.n; i++) {
+        int retained = 0;
+        for (int j = 0; j < combined_stats.n; j++)
+            if (MOVE_PACK(targeted_stats.mv[i]) ==
+                MOVE_PACK(combined_stats.mv[j])) {
+                retained = 1;
+                break;
+            }
+        CHECK(retained,
+              "draw expansion omitted targeted semantic candidate %d", i);
+    }
+
+    Agent trusted = tempo;
+    trusted.draw_variant_cores = 0;
+    trusted.override_k = 3.5f;
+    trusted.override_min = 2.0f;
+    trusted.policy_prefix_mode = 1;
+    SearchStats trusted_stats;
+    rng_seed(&rng, 6020);
+    Move trusted_move =
+        rollout_move(&trusted, &p20, &rng, NULL, &trusted_stats);
+    CHECK(trusted_stats.trusted_candidates == trusted_stats.n &&
+          trusted_stats.selection_reference == trusted_stats.raw_best &&
+          MOVE_PACK(trusted_move) ==
+              MOVE_PACK(trusted_stats.mv[trusted_stats.selection_reference]),
+          "trusted policy prefix did not select its numerical leader");
+    CHECK(trusted_stats.trusted_prefix_override ==
+              (trusted_stats.selection_reference != 0),
+          "trusted-prefix override reporting is inconsistent");
+
+    State p8 = reviewed_state(net, 8);
+    Agent consensus = trusted;
+    consensus.dets = 128;
+    consensus.confirm_dets = 4;
+    consensus.min_cand = 2;
+    consensus.cand_floor = 0.01f;
+    consensus.playout_sample = 2;
+    consensus.playout_symmetries = 20;
+    consensus.playout_prune = 1;
+    consensus.policy_prefix_mode = 1;
+    SearchStats discovery;
+    rng_seed(&rng, 9008);
+    (void)rollout_move(&consensus, &p8, &rng, NULL, &discovery);
+    CHECK(discovery.selection_reference != 0,
+          "locked ply 8 did not exercise a trusted-prefix proposal");
+    int proposed = discovery.selection_reference;
+    consensus.policy_prefix_mode = 2;
+    SearchStats checked;
+    rng_seed(&rng, 9008);
+    Move checked_move =
+        rollout_move(&consensus, &p8, &rng, NULL, &checked);
+    CHECK(checked.prefix_confirm_worlds == 4 &&
+          (checked.selection_reference == 0 ||
+           checked.selection_reference == proposed) &&
+          checked.prefix_confirmed ==
+              (checked.selection_reference == proposed),
+          "balanced fixed-world prefix confirmation is inconsistent");
+    CHECK(MOVE_PACK(checked_move) ==
+              MOVE_PACK(checked.mv[checked.selection_reference]),
+          "consensus returned a move other than its selected reference");
+    CHECK(checked.rdelta[checked.selection_reference] == 0.0 &&
+          checked.rdse[checked.selection_reference] == 0.0,
+          "selection-reference paired statistics are nonzero");
+
+    /* A failed fresh prefix panel must remain authoritative even when the
+     * separate low-prior override gate is disabled.  Previously override_k=0
+     * bypassed mode 2 and returned the rejected primary-panel leader. */
+    State p10 = reviewed_state(net, 10);
+    Agent rejected = audit;
+    rejected.dets = 8;
+    rejected.root_width = 8;
+    rejected.cand_mass = 0.0f;
+    rejected.cand_floor = 0.001f;
+    rejected.min_cand = 2;
+    rejected.gate = 0.0f;
+    rejected.override_k = 0.0f;
+    rejected.playout_sample = 2;
+    rejected.confirm_dets = 2;
+    rejected.playout_prune = 1;
+    rejected.policy_prefix_mode = 2;
+    SearchStats rejected_stats;
+    rng_seed(&rng, 1);
+    Move rejected_move =
+        rollout_move(&rejected, &p10, &rng, NULL, &rejected_stats);
+    CHECK(rejected_stats.prefix_proposed != 0 &&
+          rejected_stats.prefix_confirm_worlds == 2 &&
+          !rejected_stats.prefix_confirmed &&
+          rejected_stats.selection_reference == 0,
+          "locked ply 10 did not reject its unstable prefix proposal");
+    CHECK(MOVE_PACK(rejected_move) == MOVE_PACK(rejected_stats.mv[0]),
+          "override_k=0 bypassed the rejected prefix consensus");
+
+    /* Self-rollout must not distil the primary proposal after the independent
+     * panel rejected it.  The behavior move and training target stay aligned. */
+    Move target_mv[MAX_MOVES];
+    float target_weight[MAX_MOVES];
+    int target_mode = -1;
+    int target_n = rollout_training_weights(
+        &rejected_stats, rejected_move, 4.0f,
+        target_mv, target_weight, &target_mode);
+    CHECK(target_n == rejected_stats.n &&
+          target_mode == ROLLOUT_TARGET_SELECTED,
+          "rejected prefix proposal did not force a selection target");
+    for (int i = 0; i < target_n; i++)
+        CHECK(target_weight[i] ==
+                  (MOVE_PACK(target_mv[i]) == MOVE_PACK(rejected_move)
+                       ? 1.0f : 0.0f),
+              "rejected prefix proposal retained training weight at row %d",
+              i);
+
+    /* When independent panels agree on the played move, keep their relative-Q
+     * signal rather than needlessly collapsing every target to one-hot. */
+    SearchStats agreed;
+    memset(&agreed, 0, sizeof agreed);
+    agreed.n = agreed.trusted_candidates = 3;
+    agreed.prefix_proposed = agreed.selection_reference = 1;
+    agreed.prefix_confirmed = 1;
+    agreed.prefix_confirm_worlds = 32;
+    agreed.mv[0] = (Move){ CARD_MAKE(0, 3), 1, 0 };
+    agreed.mv[1] = (Move){ CARD_MAKE(1, 4), 0, 0 };
+    agreed.mv[2] = (Move){ CARD_MAKE(2, 5), 1, 0 };
+    agreed.q[0] = 1.0; agreed.q[1] = 5.0; agreed.q[2] = 2.0;
+    agreed.prefix_q[0] = 2.0;
+    agreed.prefix_q[1] = 6.0;
+    agreed.prefix_q[2] = 3.0;
+    target_mode = -1;
+    target_n = rollout_training_weights(
+        &agreed, agreed.mv[1], 4.0f,
+        target_mv, target_weight, &target_mode);
+    CHECK(target_n == agreed.n &&
+          target_mode == ROLLOUT_TARGET_COHERENT &&
+          target_weight[1] > target_weight[0] &&
+          target_weight[1] > target_weight[2] &&
+          target_weight[0] > 0.0f && target_weight[2] > 0.0f,
+          "agreed panels did not preserve a coherent soft-Q target");
     free(net);
 }
 
@@ -387,6 +581,29 @@ static void test_random_symmetry_policy_sample(void)
               "random symmetry mean %.6f != exact ensemble %.6f",
               mean[i], exact[i]);
     }
+
+    uint8_t perms[120][NSUIT];
+    int nsym = suit_permutations(20, perms);
+    double perm_mean[MAX_MOVES] = { 0 };
+    for (int k = 0; k < nsym; k++) {
+        float pv = 0.0f;
+        int pn = policy_probs_perm(net, &st, sample_mv, sample, &pv,
+                                   perms[k]);
+        CHECK(pn == n, "fixed permutation changed legal-move count");
+        double sum = 0.0;
+        for (int i = 0; i < n; i++) {
+            CHECK(MOVE_PACK(sample_mv[i]) == MOVE_PACK(exact_mv[i]),
+                  "fixed permutation changed legal-move order");
+            perm_mean[i] += sample[i];
+            sum += sample[i];
+        }
+        CHECK(fabs(sum - 1.0) < 2e-5,
+              "fixed-permutation probabilities sum to %.8f", sum);
+    }
+    for (int i = 0; i < n; i++)
+        CHECK(fabs(perm_mean[i] / nsym - exact[i]) < 2e-6,
+              "explicit permutation mean %.7f != exact ensemble %.7f",
+              perm_mean[i] / nsym, exact[i]);
     free(net);
 }
 
@@ -397,7 +614,7 @@ static void test_rollout_spec_tail(void)
     CHECK(a.playout_prune == -1,
           "rollout default no longer makes continuation pruning follow root");
     spec_parse("rolloutu:data/champion.bin:256:5:0.03:0.9:2:14:50:4:"
-               "2:1:3.5:1.5:1:20:0.995:64:20:1:24:128:0:16:12:1",
+               "2:1:3.5:1.5:3:20:0.995:64:20:1:24:128:0:16:12:1:1:2:12:1",
                &a);
     CHECK(a.kind == AG_ROLLOUT && a.no_belief,
           "rolloutu kind/world model parsed incorrectly");
@@ -409,7 +626,7 @@ static void test_rollout_spec_tail(void)
           fabsf(a.override_k - 3.5f) < 1e-6f &&
           fabsf(a.override_min - 1.5f) < 1e-6f,
           "rollout selection fields parsed incorrectly");
-    CHECK(a.playout_sample == 1 && a.symmetries == 20 &&
+    CHECK(a.playout_sample == 3 && a.symmetries == 20 &&
           fabsf(a.cand_mass - 0.995f) < 1e-6f &&
           a.batch_dets == 64 && a.playout_symmetries == 20,
           "rollout sampling fields parsed incorrectly");
@@ -417,7 +634,9 @@ static void test_rollout_spec_tail(void)
           a.confirm_dets == 128 && a.playout_prune == 0,
           "rollout confirmation tail parsed incorrectly");
     CHECK(a.plan_deck_max == 16 && a.plan_block_gap == 12 &&
-          a.semantic_cand == 1,
+          a.semantic_cand == 1 && a.confirm_exact5 == 1 &&
+          a.draw_variant_cores == 2 && a.draw_variant_deck_max == 12 &&
+          a.policy_prefix_mode == 1,
           "rollout planner/semantic tail parsed incorrectly");
     free((void *)a.net);
 
@@ -427,6 +646,63 @@ static void test_rollout_spec_tail(void)
           p.plan_deck_max == 16 && p.plan_block_gap == 12,
           "policy scheduling tail parsed incorrectly");
     free((void *)p.net);
+
+    Agent champion;
+    spec_parse(LC_CHAMPION_AGENT_SPEC, &champion);
+    CHECK(champion.kind == AG_ROLLOUT && champion.no_belief &&
+          champion.dets == 512 && champion.root_width == 5 &&
+          fabsf(champion.cand_floor - 0.02f) < 1e-6f &&
+          champion.gate == 0.0f && champion.min_cand == 1 &&
+          champion.ply_lo == 14 && champion.ply_hi == 0 &&
+          champion.eval_cand == 0 && champion.win_q == 0 &&
+          champion.prune_dom == 0 &&
+          fabsf(champion.override_k - 3.5f) < 1e-6f &&
+          fabsf(champion.override_min - 2.0f) < 1e-6f &&
+          champion.playout_sample == 2 && champion.symmetries == 20 &&
+          champion.cand_mass == 0.0f && champion.batch_dets == 0 &&
+          champion.playout_symmetries == 20 &&
+          champion.discard_guard == 1 && champion.deck_max == 0 &&
+          champion.confirm_dets == 512 && champion.playout_prune == 1 &&
+          champion.plan_deck_max == 0 && champion.plan_block_gap == 0 &&
+          champion.semantic_cand == 0 && champion.confirm_exact5 == 0 &&
+          champion.draw_variant_cores == 0 &&
+          champion.draw_variant_deck_max == 0 &&
+          champion.policy_prefix_mode == 2,
+          "maintained champion spec drifted from its locked configuration");
+    free((void *)champion.net);
+
+    /* Training's live-network form must not have a private, fixed-size copy of
+     * the rollout parser.  This deliberately exceeds the old 128-byte buffer
+     * and checks every field that used to be silently lost after
+     * playout_prune. */
+    Net *live = (Net *)malloc(sizeof *live);
+    CHECK(live != NULL, "live-network parser fixture allocation failed");
+    const char *self_spec =
+        "selfrollout:256:5:0.0123456789:0.8765432109:7:14:299:8:2:1:"
+        "3.5000000001:1.5000000001:3:20:0.9950000001:128:20:1:24:128:"
+        "0:16:12:1:1:2:12:2";
+    CHECK(strlen(self_spec) > 128,
+          "selfrollout regression no longer exceeds the old parser buffer");
+    Agent live_rollout;
+    spec_parse_selfrollout(self_spec, live, &live_rollout);
+    CHECK(live_rollout.kind == AG_ROLLOUT && live_rollout.net == live,
+          "selfrollout did not preserve its caller-owned live network");
+    CHECK(live_rollout.dets == 256 &&
+          live_rollout.root_width == 5 &&
+          live_rollout.ply_hi == 299 &&
+          live_rollout.batch_dets == 128 &&
+          live_rollout.confirm_dets == 128,
+          "selfrollout long core/confirmation fields were truncated");
+    CHECK(live_rollout.playout_prune == 0 &&
+          live_rollout.plan_deck_max == 16 &&
+          live_rollout.plan_block_gap == 12 &&
+          live_rollout.semantic_cand == 1 &&
+          live_rollout.confirm_exact5 == 1 &&
+          live_rollout.draw_variant_cores == 2 &&
+          live_rollout.draw_variant_deck_max == 12 &&
+          live_rollout.policy_prefix_mode == 2,
+          "selfrollout planner/semantic/consensus tail was not parsed");
+    free(live);
 }
 
 static void test_information_preserving_scheduler(void)
@@ -798,20 +1074,28 @@ static void test_rollout_match_thread_determinism(void)
     search.ply_lo = 14;
     search.override_k = 1.96f;
     search.override_min = 1.0f;
-    search.playout_sample = 2;
     search.playout_symmetries = 20;
     agent_default(&policy, AG_POLICY, net);
 
-    MatchResult one, four;
-    match_run_r(&search, &policy, 2, 1, 830083, MATCH_ROUNDS, &one);
-    match_run_r(&search, &policy, 2, 4, 830083, MATCH_ROUNDS, &four);
-    CHECK(one.pairs == four.pairs && one.games == four.games &&
-          one.margin == four.margin && one.margin_se == four.margin_se &&
-          one.winrate == four.winrate && one.winrate_se == four.winrate_se &&
-          one.points_a == four.points_a && one.points_b == four.points_b &&
-          one.plies == four.plies && one.wins == four.wins &&
-          one.losses == four.losses && one.draws == four.draws,
-          "rollout match differs between one and four threads");
+    for (int mode = 2; mode <= 3; mode++) {
+        search.playout_sample = mode;
+        search.policy_prefix_mode = mode == 3 ? 2 : 0;
+        search.confirm_dets = 16;
+        MatchResult one, four;
+        match_run_r(&search, &policy, 2, 1,
+                    830083 + (uint64_t)mode, MATCH_ROUNDS, &one);
+        match_run_r(&search, &policy, 2, 4,
+                    830083 + (uint64_t)mode, MATCH_ROUNDS, &four);
+        CHECK(one.pairs == four.pairs && one.games == four.games &&
+              one.margin == four.margin && one.margin_se == four.margin_se &&
+              one.winrate == four.winrate &&
+              one.winrate_se == four.winrate_se &&
+              one.points_a == four.points_a &&
+              one.points_b == four.points_b && one.plies == four.plies &&
+              one.wins == four.wins && one.losses == four.losses &&
+              one.draws == four.draws,
+              "rollout mode %d differs between one and four threads", mode);
+    }
     free(net);
 }
 

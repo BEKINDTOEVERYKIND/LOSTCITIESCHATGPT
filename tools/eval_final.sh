@@ -26,9 +26,9 @@ echo "=== exact visible-hand scheduler, isolated from rollout ==="
 ./bin/planarena "$BEST" 2000 703101 16 12
 
 echo
-echo "=== maintained late-round wrapper on top of the trained policy ==="
-# Planner and semantic tails are measured separately; their combined screen
-# did not beat this locked actor, so they are not silently included here.
+echo "=== maintained coherent late-round consensus actor ==="
+# Generic draw variants, planner, and semantic tails remain component tools;
+# none is silently included in this locked actor.
 ./bin/arena \
-  -a "rolloutu:$BEST:512:4:0.02:0:1:20:0:0:0:0:3.5:2:2:20:0:0:20:1:0:512:1" \
+  -a "rolloutu:$BEST:512:5:0.02:0:1:14:0:0:0:0:3.5:2:2:20:0:0:20:1:0:512:1:0:0:0:0:0:0:2" \
   -b "policy:$BEST:0:20" -n 200 -t 4 -r 3
