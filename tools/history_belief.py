@@ -233,6 +233,9 @@ def validate_actor_prefix(
             actor_symmetries = int(numeric(3, 1.0, "policy symmetries"))
             plan_deck_max = int(numeric(4, 0.0, "planner deck threshold"))
             plan_block_gap = int(numeric(5, 0.0, "planner block gap"))
+            draw_root_deck_max = int(
+                numeric(6, 0.0, "root draw-planner deck threshold")
+            )
             if target_round_ply > 0 and temperature != 0.0:
                 raise ViewError(
                     "target prefix used stochastic policy sampling; v1 "
@@ -240,8 +243,10 @@ def validate_actor_prefix(
                 )
             if (
                 target_round_ply > 0
-                and plan_deck_max > 0
-                and plan_block_gap > 0
+                and (
+                    (plan_deck_max > 0 and plan_block_gap > 0)
+                    or draw_root_deck_max > 0
+                )
             ):
                 raise ViewError(
                     "target prefix comes from a planner-enabled policy; v1 "
@@ -261,6 +266,9 @@ def validate_actor_prefix(
             semantic_candidates = int(
                 numeric(25, 0.0, "semantic-candidate flag")
             )
+            draw_root_deck_max = int(
+                numeric(31, 0.0, "root draw-planner deck threshold")
+            )
             if target_round_ply > search_from:
                 raise ViewError(
                     "target prefix includes a rollout-search action; v1 can "
@@ -268,8 +276,10 @@ def validate_actor_prefix(
                 )
             if (
                 target_round_ply > 0
-                and plan_deck_max > 0
-                and plan_block_gap > 0
+                and (
+                    (plan_deck_max > 0 and plan_block_gap > 0)
+                    or draw_root_deck_max > 0
+                )
             ):
                 raise ViewError(
                     "target prefix comes from a planner-enabled rollout actor; "

@@ -28,13 +28,19 @@ typedef struct Agent {
     int symmetries;     /* policy ensemble over exact suit relabellings:
                            1 (off), 5 (rotations), 10 (dihedral),
                            20 (affine), or 120 (all permutations). */
-    int plan_deck_max;  /* information-preserving hand scheduler at or below
-                           this deck size (0 = disabled) */
+    int plan_deck_max;  /* visible-hand play-order scheduler threshold;
+                           requires a positive plan_block_gap (0 = disabled) */
     int plan_block_gap; /* root correction: minimum unseen-value preservation
                            needed to replace the policy leader with an
                            equivalent optimal-plan first move (0 = disabled);
                            inside rollout continuations a positive value merely
                            enables the full optimal visible-hand schedule */
+    int draw_root_deck_max; /* repair only the deployed root action's draw
+                               source at or below this deck size (0 = off) */
+    int draw_playout_deck_max; /* independently repair draw sources inside
+                                  rollout continuations (0 = off).  Keeping
+                                  this separate makes the root and world-model
+                                  effects directly ablatable. */
     int semantic_cand;  /* AG_ROLLOUT: add at most one useful pile pickup for
                            each of a top policy play/discard action, plus one
                            isolated one-sided-wager discard (0/1); these are
@@ -53,7 +59,12 @@ typedef struct Agent {
     int policy_prefix_mode; /* ordinary policy-floor prefix selection:
                                0 = every override gated; 1 = trust numerical
                                leader directly; 2 = require that leader to
-                               repeat on fresh balanced fixed-world symmetry.
+                               repeat on fresh balanced fixed-world symmetry;
+                               3 = same fresh-panel consensus, but assign the
+                               two players independently stratified, coherent
+                               suit mappings.  Mode 3 adds no network forwards
+                               and avoids assuming an unknown opponent shares
+                               our arbitrary network orientation.
                                Added low-prior challengers remain gated. */
     /* AG_MCTS */
     int dets;           /* determinizations                                */
@@ -119,12 +130,14 @@ typedef struct Agent {
                            0 = exact suit-group average, then argmax;
                            1 = random group member, then sample its policy;
                            2 = random group member, then argmax.
-                           Modes 1/2/3 cost one forward per decision and common
+                           Modes 1/2/3/4 cost one forward per decision and common
                            per-world seeds keep candidate comparisons paired.
                            Mode 2 changes the sampled member every decision;
                            mode 3 draws one member per hidden world and keeps
-                           it fixed throughout that playout.  Mode 1 is a
-                           high-variance robustness ablation. */
+                           it fixed throughout that playout; mode 4 draws
+                           separately stratified fixed members for the two
+                           players.  Mode 1 is a high-variance robustness
+                           ablation. */
     float override_min; /* AG_ROLLOUT: ...AND by at least this many points.
                            The SE gate alone is world-count-dependent in the
                            wrong direction: more worlds shrink the noise but
@@ -137,6 +150,9 @@ typedef struct Agent {
                            policy's top move already has >= this probability
                            (0 = always search) */
     int no_belief;      /* AG_ROLLOUT ablation: sample worlds uniformly      */
+    float belief_alpha; /* AG_ROLLOUT: temperature/strength of the coherent
+                           fixed-cardinality opponent-hand posterior.
+                           1 = checkpoint logits; 0 = uniform. */
     const char *name;
 } Agent;
 

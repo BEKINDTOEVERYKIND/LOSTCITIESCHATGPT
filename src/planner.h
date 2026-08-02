@@ -44,4 +44,21 @@ int hand_plan_conservative_choose(
 /* Cost of closing off still-unseen, lower number cards by playing card now. */
 int hand_plan_block_cost(const State *st, int p, int card);
 
+/* Expected best visible-hand finish after a complete legal move.  A face-up
+ * pile draw is evaluated exactly.  A deck draw is averaged over every card
+ * that can be on top from p's information set; the real hidden deck order and
+ * the opponent's unknown hand are never inspected.  After the move the
+ * opponent acts first, so floor(deck_left / 2) is the conservative number of
+ * remaining turns credited to p. */
+double hand_plan_expected_score_after_move(const State *st, int p, Move move);
+
+/* Keep the policy's chosen card and play/discard disposition fixed, and
+ * choose the best legal draw source attached to that semantic action.  Wager
+ * copies of one suit are equivalent.  Ties retain the larger policy prior.
+ * With one deck card left, drawing it is weakly dominant and is selected
+ * directly. */
+int hand_plan_choose_draw_source(const State *st, int p,
+                                 const Move *mv, const float *prior,
+                                 int n, int top);
+
 #endif

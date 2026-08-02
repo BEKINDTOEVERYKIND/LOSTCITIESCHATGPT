@@ -40,6 +40,9 @@ void agent_default(Agent *a, AgentKind k, const Net *net)
     a->draw_variant_cores = 0;
     a->draw_variant_deck_max = 0;
     a->policy_prefix_mode = 0;
+    a->belief_alpha = 1.0f;
+    a->draw_root_deck_max = 0;
+    a->draw_playout_deck_max = 0;
     switch (k) {
     case AG_RANDOM: a->name = "random"; break;
     case AG_HEUR:   a->name = "heuristic"; break;
@@ -539,6 +542,10 @@ Move agent_move(const Agent *a, const State *st, Rng *rng)
                 (st->deck_left + 1) / 2, a->plan_block_gap);
             if (planned >= 0) best = planned;
         }
+        if (a->draw_root_deck_max > 0 &&
+            st->deck_left <= a->draw_root_deck_max)
+            best = hand_plan_choose_draw_source(
+                st, st->turn, mv, prob, n, best);
         return mv[best];
     }
     int n = agent_move_values(a, st, rng, mv, val);

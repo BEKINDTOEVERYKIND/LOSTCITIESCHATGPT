@@ -669,6 +669,19 @@ function renderDecision(p){
       : "no rollout comparison";
     addSummary(actorEl,
       `${moveLabel(selected)} · ${mode} · ${actor.overrode_policy ? "overrode" : "kept"} raw policy`);
+    const actorPlanner = actor.planner || {};
+    if (actor.baseline_source === "draw_source_planner" || actorPlanner.draw_baseline)
+      addMethodNote(actorEl,
+        `Information-set draw repair kept the policy's card/action but changed its draw source (root deck threshold ${actorPlanner.draw_root_deck_max}).`,
+        "supported");
+    else if (actor.baseline_source === "visible_hand_scheduler")
+      addMethodNote(actorEl,
+        "The exact visible-hand scheduler supplied the playing baseline before rollout comparison.",
+        "supported");
+    else if (actor.baseline_source === "last_deck_dominance")
+      addMethodNote(actorEl,
+        "With one deck card remaining, the exact end-round dominance rule supplied the baseline.",
+        "supported");
     if (actorRows.length) renderEvalRows(actorEl, actorRows, "actor", false);
     const ap = actor.policy_prefix || {};
     const prefixPanelStatus = ap.confirmation_required && ap.worlds > 0 &&
@@ -694,6 +707,11 @@ function renderDecision(p){
       : `${(p.search || []).length} audited moves`;
     const worlds = finite(a.worlds) ? `${a.worlds} primary worlds` : "rollout comparison";
     addSummary(se, `${objectiveName(a.objective)} · ${worlds} · ${total} · post-hoc only; not used to choose the move`);
+    const auditPlanner = a.planner || {};
+    if (a.baseline_source === "draw_source_planner" || auditPlanner.draw_baseline)
+      addMethodNote(se,
+        `The audit baseline used information-set draw repair (root deck threshold ${auditPlanner.draw_root_deck_max}); continuation repair threshold ${auditPlanner.draw_playout_deck_max}.`,
+        "caution");
     renderEvalRows(se, p.search || [], "audit", false);
     const pp = a.policy_prefix || {};
     const prefixPanelStatus = pp.confirmation_required && pp.worlds > 0 &&

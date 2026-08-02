@@ -60,6 +60,20 @@ take Yellow.”
   blocked lower-card options or at least two points of visible-hand regret
   from spending a turn on a policy move outside every best guaranteed plan.
   It never reads a hidden card.
+- Added a narrower late draw-source planner. It keeps the policy-selected card
+  and play/discard action fixed, evaluates public pile tops exactly, and
+  averages deck draws over the mover's complete information-set support. Root
+  play and rollout continuations have separate thresholds, so a root-only
+  strength result cannot silently alter the search world model. With four or
+  fewer deck cards the root-only repair gained **+2.318 ± 0.222 points per
+  match** and **51.138% ± 0.259% match score** over 2,000 fresh policy-only
+  mirrored pairs.
+  The full rollout actor was then tested on 30 external deal-pairs. Root-only
+  repair changed no match outcome and added `+0.65 ± 1.44` points versus the
+  unchanged actor on those identical deals, so it remains opt-in. Applying
+  the repair inside every continuation was rejected: on 15 identical
+  deal-pairs it lost `−11.37 ± 7.76` points and `−16.67 ± 9.34` match-score
+  percentage points. The deployed continuation model is therefore unchanged.
 - With one deck card left, replace a pile draw by the deck draw after the same
   action. Ending the round weakly dominates granting the opponent another
   optional scoring turn.
@@ -121,6 +135,16 @@ take Yellow.”
 - Keep search Q as a policy target only. Lambda returns now bootstrap from the
   network value instead of mixing skipped-search network values, round-margin
   Q, and final-round hybrid Q in one trajectory.
+- Add frozen-opponent population generation to PPO. Opponent actions remain
+  useful for value and belief supervision but are explicitly masked out of
+  PPO, entropy, and anchor-KL losses. Adjacent games reuse the same three deals
+  with learner seats swapped, cancelling deal and starter exposure exactly;
+  the seat counts and learner score are reported every iteration.
+- Add full-legal-action `KL(anchor || live)` regularization and a `--v6-only`
+  warm-up. The latter can learn only ordered-pile input rows and complete-move
+  interactions while restoring every inherited parameter byte-for-byte after
+  each optimizer step. Policy gradients compensate for the smaller actor
+  fraction in opponent games without changing the historical self-play scale.
 
 ### Evaluation and tooling
 
@@ -133,6 +157,17 @@ take Yellow.”
 - Analyzer belief dumps can now contain every uncertain card and the
   card-count prior. The evaluator reports within-state AUC, Brier score, log
   loss, top-hand-size recall, calibration error, and baseline lift.
+- Learned-world rollout exposes a bounded `belief_alpha` calibration control;
+  analyzer output records both the world model and exact alpha.
+- Analyzer and replay UI now distinguish raw-policy, visible-hand, last-deck,
+  and information-set draw baselines, including separate root/continuation
+  thresholds. A repaired draw source is therefore visible rather than silently
+  attributed to the network policy.
+- Add opt-in role-separated coherent continuation panels. Each player's
+  continuation policy receives an independently stratified suit orientation
+  fixed for the complete sampled world, covering the product group without
+  extra network forwards. Reviewed positions were mixed, so this remains an
+  experiment and the measured champion default is unchanged.
 - Added perspective-scrubbed actor-history inference for offline review.
   `tools/history_belief.py` passes only the observer's original hand, public
   action prefix, and that observer's own deck draws to a deterministic
@@ -503,6 +538,40 @@ Across the two large holdouts it gained about `+0.24 ± 0.09` points but only
 about 50.07% match score. Since match wins are the objective, the adapter was
 not promoted and `data/champion.bin` remains unchanged.
 
+## External-teacher residual and population-training experiments
+
+A later residual-only teacher used 183 high-confidence search disagreements
+from the first 100 mirrored pairs of an independently implemented opponent.
+The opponent's match outcomes were never labels: each target was its searched
+move only when its own paired world estimate cleared both a practical gap and
+a 3.5-SE lower bound. Only the otherwise-zero v6 card/action × draw-source
+head was updated; every inherited checkpoint byte stayed frozen.
+
+This produced a real exact-policy gain on two fresh arena seeds:
+
+| holdout | mirrored pairs | margin/match | match score |
+| --- | ---: | ---: | ---: |
+| seed 208020702 | 2,000 | **+2.14 ± 0.59 SE** | **51.14%** |
+| seed 208020703 | 5,000 | **+1.54 ± 0.38 SE** | **51.09%** |
+
+But replacing the checkpoint throughout the deployed rollout actor was
+harmful. On the same 30 external deal-pairs used for a frozen-actor baseline,
+the residual actor scored 41.67% versus 56.67% for the unchanged actor. The
+same-deal difference was `−13.13 ± 7.26` points and `−15.00 ± 5.95`
+match-score percentage points. This cleanly separates a stronger root policy
+from a worse continuation model: a component win is not a deployment win.
+The all-residual actor was rejected. A second deployment kept the residual
+only at the root and froze the proven checkpoint for every continuation. It
+also failed the match objective: over 50 fresh mirrored pairs (seed
+208020704), it scored **46.0% ± 3.8% SE** (W-L-D 45-53-2), despite a noisy
+`+0.56 ± 4.40` point margin. The root-only residual was rejected too.
+
+The PPO trainer now supports balanced frozen-opponent population games,
+full-action anchor KL, and v6-only warm-up so that this class of experiment can
+be rerun safely. Small multi-seed candidates were neutral or negative, so no
+PPO checkpoint was promoted in this cycle. The infrastructure is retained;
+the failed checkpoints are not.
+
 ## Remaining high-value work
 
 1. Give earlier-round MCTS one consistent utility. Final-round terminals are
@@ -511,18 +580,17 @@ not promoted and `data/champion.bin` remains unchanged.
    explicit continuation through future deals is required.
 2. Replace current-round rollout utility in early rounds with either remaining
    match simulation or a learned round-end continuation table.
-3. Add frozen-champion/opponent-population PPO. The existing `--ref` is
-   evaluation-only; self-play never anchors against a fixed opponent.
-4. Train v6 over several independent seeds, select on fixed validation deals,
+3. Train v6 with the frozen-opponent/KL path over several independent seeds,
+   select on fixed validation deals,
    and report only once on a locked final set.
-5. Re-measure playing strength for learned-world search. The calibrated
+4. Re-measure playing strength for learned-world search. The calibrated
    fixed-cardinality posterior now beats the card-count prior on held-out
    Brier score and log loss, but the decision audit deliberately remains
    uniform until a locked match-strength ablation shows that learned worlds
    improve choices.
-6. Measure and report the 300-ply cap rate. Consider an explicit repetition or
+5. Measure and report the 300-ply cap rate. Consider an explicit repetition or
    adjudication rule for evaluation.
-7. Replace raw native C-struct persistence with a canonical endian-stable,
+6. Replace raw native C-struct persistence with a canonical endian-stable,
    checksummed parameter format.
 
 ## Validation
@@ -545,6 +613,8 @@ interaction-head isolation, model round trips, hybrid final-round utility,
 robust sampling, fixed-cardinality marginal/sampler agreement, exact
 policy-prefix selection, visible-hand planning and regret guards, raw-policy
 phase gating, final-deck dominance, perspective-scrubbed history inference,
-and one-versus-four-thread identity for both ordinary and rollout matches. The
+role-separated coherent continuation, opponent-population actor masking and
+seat balance, v6-only byte preservation, and one-versus-four-thread identity
+for both ordinary and rollout matches. The
 slow suite locks the reviewed W2, R2, Y2/W7, W3/W7, G5, B10/Y10, one-sided
 wager plies 59/61, final-deck ply 96, and discard-guard positions.

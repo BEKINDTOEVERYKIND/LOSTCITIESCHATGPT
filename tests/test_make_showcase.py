@@ -64,6 +64,50 @@ class ShowcaseProvenanceTests(unittest.TestCase):
             with self.subTest(spec=spec), self.assertRaises(RuntimeError):
                 showcase.actor_model_path(spec)
 
+    def test_draw_repair_semantic_action_ignores_only_draw_source(self) -> None:
+        base = {"card": "Y2", "act": "discard", "draw": "deck"}
+        self.assertTrue(showcase.same_semantic_action(
+            base, {"card": "Y2", "act": "discard", "draw": "W"}
+        ))
+        self.assertFalse(showcase.same_semantic_action(
+            base, {"card": "Y3", "act": "discard", "draw": "W"}
+        ))
+        self.assertFalse(showcase.same_semantic_action(
+            base, {"card": "Y2", "act": "play", "draw": "W"}
+        ))
+
+    def test_policy_draw_repair_has_attested_provenance(self) -> None:
+        actor = "policy:data/c8.bin:0:20:0:0:4"
+        raw = {"card": "Y2", "act": "discard", "draw": "deck"}
+        played = {"card": "Y2", "act": "discard", "draw": "W"}
+        game = {
+            "meta": {"actor": actor, "plies": 1, "final": [0, 0]},
+            "plies": [{
+                "n": 1,
+                "policy": [{**raw, "prob": 1.0}],
+                "move": played,
+                "actor_decision": {
+                    "baseline_source": "draw_source_planner",
+                },
+                "analysis": {"searched": False},
+                "search": [],
+            }],
+        }
+        result = type("Result", (), {"stdout": json.dumps(game)})()
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "showcase.json"
+            argv = [
+                "make_showcase.py", "--seed", "1", "--output", str(output),
+                "--actor", actor,
+            ]
+            with patch.object(sys, "argv", argv), patch.object(
+                showcase.subprocess, "run", return_value=result,
+            ):
+                showcase.main()
+            saved = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(saved["meta"]["actor_draw_root_deck_max"], 4)
+            self.assertIn("draw_repair", saved["meta"]["actor_method"])
+
     def test_same_output_and_viewer_is_rejected_before_analyzer(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "viewer.html"

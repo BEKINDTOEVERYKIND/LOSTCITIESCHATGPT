@@ -471,6 +471,32 @@ static void test_rollout_policy_shortlist(void)
           checked.rdse[checked.selection_reference] == 0.0,
           "selection-reference paired statistics are nonzero");
 
+    /* Mode 3 is the same independent consensus contract, but each player gets
+     * its own coherent, independently stratified suit orientation.  It must be
+     * deterministic and may only keep the primary proposal or fall back. */
+    consensus.policy_prefix_mode = 3;
+    SearchStats role_a, role_b;
+    rng_seed(&rng, 9008);
+    Move role_move_a =
+        rollout_move(&consensus, &p8, &rng, NULL, &role_a);
+    rng_seed(&rng, 9008);
+    Move role_move_b =
+        rollout_move(&consensus, &p8, &rng, NULL, &role_b);
+    CHECK(role_a.prefix_confirm_worlds == 4 &&
+          role_a.prefix_proposed == proposed &&
+          (role_a.selection_reference == 0 ||
+           role_a.selection_reference == proposed) &&
+          role_a.prefix_confirmed ==
+              (role_a.selection_reference == proposed),
+          "role-separated fixed-world prefix confirmation is inconsistent "
+          "(worlds=%d proposed=%d expected=%d selected=%d confirmed=%d)",
+          role_a.prefix_confirm_worlds, role_a.prefix_proposed, proposed,
+          role_a.selection_reference, role_a.prefix_confirmed);
+    CHECK(MOVE_PACK(role_move_a) == MOVE_PACK(role_move_b) &&
+          role_a.selection_reference == role_b.selection_reference &&
+          role_a.prefix_confirmed == role_b.prefix_confirmed,
+          "role-separated prefix confirmation is not deterministic");
+
     /* A failed fresh prefix panel must remain authoritative even when the
      * separate low-prior override gate is disabled.  Previously override_k=0
      * bypassed mode 2 and returned the rejected primary-panel leader. */
@@ -611,10 +637,11 @@ static void test_rollout_spec_tail(void)
 {
     Agent a;
     agent_default(&a, AG_ROLLOUT, NULL);
-    CHECK(a.playout_prune == -1,
+    CHECK(a.playout_prune == -1 && a.draw_root_deck_max == 0 &&
+          a.draw_playout_deck_max == 0,
           "rollout default no longer makes continuation pruning follow root");
     spec_parse("rolloutu:data/champion.bin:256:5:0.03:0.9:2:14:50:4:"
-               "2:1:3.5:1.5:3:20:0.995:64:20:1:24:128:0:16:12:1:1:2:12:1",
+               "2:1:3.5:1.5:3:20:0.995:64:20:1:24:128:0:16:12:1:1:2:12:1:1.25:4:3",
                &a);
     CHECK(a.kind == AG_ROLLOUT && a.no_belief,
           "rolloutu kind/world model parsed incorrectly");
@@ -636,14 +663,18 @@ static void test_rollout_spec_tail(void)
     CHECK(a.plan_deck_max == 16 && a.plan_block_gap == 12 &&
           a.semantic_cand == 1 && a.confirm_exact5 == 1 &&
           a.draw_variant_cores == 2 && a.draw_variant_deck_max == 12 &&
-          a.policy_prefix_mode == 1,
+          a.policy_prefix_mode == 1 &&
+          fabsf(a.belief_alpha - 1.25f) < 1e-6f &&
+          a.draw_root_deck_max == 4 &&
+          a.draw_playout_deck_max == 3,
           "rollout planner/semantic tail parsed incorrectly");
     free((void *)a.net);
 
     Agent p;
-    spec_parse("policy:data/champion.bin:0:20:16:12", &p);
+    spec_parse("policy:data/champion.bin:0:20:16:12:4", &p);
     CHECK(p.kind == AG_POLICY && p.symmetries == 20 &&
-          p.plan_deck_max == 16 && p.plan_block_gap == 12,
+          p.plan_deck_max == 16 && p.plan_block_gap == 12 &&
+          p.draw_root_deck_max == 4 && p.draw_playout_deck_max == 0,
           "policy scheduling tail parsed incorrectly");
     free((void *)p.net);
 
@@ -667,7 +698,10 @@ static void test_rollout_spec_tail(void)
           champion.semantic_cand == 0 && champion.confirm_exact5 == 0 &&
           champion.draw_variant_cores == 0 &&
           champion.draw_variant_deck_max == 0 &&
-          champion.policy_prefix_mode == 2,
+          champion.policy_prefix_mode == 2 &&
+          fabsf(champion.belief_alpha - 1.0f) < 1e-6f &&
+          champion.draw_root_deck_max == 0 &&
+          champion.draw_playout_deck_max == 0,
           "maintained champion spec drifted from its locked configuration");
     free((void *)champion.net);
 
@@ -679,8 +713,8 @@ static void test_rollout_spec_tail(void)
     CHECK(live != NULL, "live-network parser fixture allocation failed");
     const char *self_spec =
         "selfrollout:256:5:0.0123456789:0.8765432109:7:14:299:8:2:1:"
-        "3.5000000001:1.5000000001:3:20:0.9950000001:128:20:1:24:128:"
-        "0:16:12:1:1:2:12:2";
+        "3.5000000001:1.5000000001:4:20:0.9950000001:128:20:1:24:128:"
+        "0:16:12:1:1:2:12:3:1.25:4:3";
     CHECK(strlen(self_spec) > 128,
           "selfrollout regression no longer exceeds the old parser buffer");
     Agent live_rollout;
@@ -694,13 +728,17 @@ static void test_rollout_spec_tail(void)
           live_rollout.confirm_dets == 128,
           "selfrollout long core/confirmation fields were truncated");
     CHECK(live_rollout.playout_prune == 0 &&
+          live_rollout.playout_sample == 4 &&
           live_rollout.plan_deck_max == 16 &&
           live_rollout.plan_block_gap == 12 &&
           live_rollout.semantic_cand == 1 &&
           live_rollout.confirm_exact5 == 1 &&
           live_rollout.draw_variant_cores == 2 &&
           live_rollout.draw_variant_deck_max == 12 &&
-          live_rollout.policy_prefix_mode == 2,
+          live_rollout.policy_prefix_mode == 3 &&
+          fabsf(live_rollout.belief_alpha - 1.25f) < 1e-6f &&
+          live_rollout.draw_root_deck_max == 4 &&
+          live_rollout.draw_playout_deck_max == 3,
           "selfrollout planner/semantic/consensus tail was not parsed");
     free(live);
 }
@@ -808,6 +846,128 @@ static void test_information_preserving_scheduler(void)
               &commit, 1, commitment, commitment_prob,
               commitment_order, 3, 8, 12) == 1,
           "scheduler did not reject a score-losing third wager commitment");
+}
+
+static void test_information_safe_draw_planner(void)
+{
+    State st;
+    memset(&st, 0, sizeof st);
+    st.turn = 0;
+    st.deck_left = 2;
+    const int y2 = CARD_MAKE(0, 3);
+    const int y10 = CARD_MAKE(0, 11);
+    const int cards[7] = {
+        CARD_MAKE(1, 4), CARD_MAKE(1, 7), CARD_MAKE(2, 5),
+        CARD_MAKE(2, 8), CARD_MAKE(3, 6), CARD_MAKE(4, 9),
+        CARD_MAKE(4, 11),
+    };
+    st.hand[0] = 1ULL << y2;
+    for (int i = 0; i < 7; i++) st.hand[0] |= 1ULL << cards[i];
+    st.hand_n[0] = HAND_SIZE;
+    st.pile[0][0] = (uint8_t)y10;
+    st.pile_n[0] = 1;
+    st.discarded = 1ULL << y10;
+
+    Move deck = { (uint8_t)y2, 0, 0 };
+    Move pile = { (uint8_t)y2, 0, 1 };
+    double deck_score =
+        hand_plan_expected_score_after_move(&st, 0, deck);
+    double pile_score =
+        hand_plan_expected_score_after_move(&st, 0, pile);
+    CHECK(pile_score > deck_score + 9.0,
+          "draw planner missed the exact extra-turn pile finish");
+    Move sources[4] = {
+        deck,
+        pile,
+        { (uint8_t)cards[0], 1, 0 },
+        { (uint8_t)cards[0], 1, 1 },
+    };
+    float source_prior[4] = { 0.8f, 0.1f, 0.99f, 0.99f };
+    CHECK(hand_plan_choose_draw_source(
+              &st, 0, sources, source_prior, 4, 0) == 1,
+          "draw planner did not replace the top action's bad draw source");
+    CHECK(hand_plan_choose_draw_source(
+              &st, 0, sources, source_prior, 4, 0) != 3,
+          "draw planner escaped to an unrelated high-prior action");
+
+    /* The two deployment controls must not alias.  With a zero network the
+     * raw deterministic policy takes the first legal draw (deck).  A
+     * continuation-only threshold may not alter that root move, whereas the
+     * root threshold must apply the information-set draw repair. */
+    Net *zero = calloc(1, sizeof *zero);
+    CHECK(zero != NULL, "cannot allocate zero-network draw-planner fixture");
+    Agent policy;
+    agent_default(&policy, AG_POLICY, zero);
+    policy.symmetries = 1;
+    policy.draw_playout_deck_max = 2;
+    Rng policy_rng;
+    rng_seed(&policy_rng, 730032);
+    Move continuation_only = agent_move(&policy, &st, &policy_rng);
+    CHECK(continuation_only.draw == 0,
+          "continuation draw threshold leaked into root policy play");
+    policy.draw_playout_deck_max = 0;
+    policy.draw_root_deck_max = 2;
+    rng_seed(&policy_rng, 730032);
+    Move root_repaired = agent_move(&policy, &st, &policy_rng);
+    CHECK(root_repaired.card == continuation_only.card &&
+          root_repaired.discard == continuation_only.discard &&
+          root_repaired.draw == 1,
+          "root draw threshold did not repair only the draw source");
+    free(zero);
+
+    st.deck_left = 1;
+    CHECK(hand_plan_choose_draw_source(
+              &st, 0, sources, source_prior, 4, 1) == 0,
+          "draw planner violated last-deck weak dominance");
+    st.deck_left = 2;
+
+    /* Neither the real top deck card nor an unobserved assignment to the
+     * opponent's hand may affect the information-set expectation. */
+    State hidden_variant = st;
+    st.deck[0] = (uint8_t)CARD_MAKE(3, 11);
+    hidden_variant.deck[0] = (uint8_t)CARD_MAKE(1, 11);
+    st.hand[1] = 1ULL << CARD_MAKE(3, 11);
+    hidden_variant.hand[1] = 1ULL << CARD_MAKE(1, 11);
+    st.hand_n[1] = hidden_variant.hand_n[1] = 1;
+    CHECK(fabs(hand_plan_expected_score_after_move(&st, 0, deck) -
+               hand_plan_expected_score_after_move(
+                   &hidden_variant, 0, deck)) < 1e-12,
+          "draw planner leaked hidden deck/hand assignment");
+
+    /* Cross-check the optimized one-pass deck expectation against the direct
+     * definition on real reachable positions. */
+    Rng rng;
+    rng_seed(&rng, 730031);
+    for (int game = 0; game < 8; game++) {
+        State live;
+        lc_deal(&live, &rng);
+        for (int ply = 0; ply < 34 && !live.over; ply++) {
+            Move legal[MAX_MOVES];
+            int nlegal = lc_moves(&live, legal);
+            int chosen = (int)rng_below(&rng, (uint32_t)nlegal);
+            if (legal[chosen].draw == 0 && live.deck_left <= 12) {
+                State played = live;
+                int p = live.turn;
+                lc_apply_play(&played, legal[chosen]);
+                uint8_t unseen[NCARD];
+                int nunseen = 0;
+                lc_unseen(&played, p, unseen, &nunseen);
+                double brute = 0.0;
+                for (int i = 0; i < nunseen; i++) {
+                    State after = played;
+                    lc_apply_draw(&after, legal[chosen], unseen[i]);
+                    HandPlan plan;
+                    hand_plan_build(&after, p, after.deck_left / 2, &plan);
+                    brute += plan.score;
+                }
+                if (nunseen > 0) brute /= nunseen;
+                CHECK(fabs(brute - hand_plan_expected_score_after_move(
+                                       &live, p, legal[chosen])) < 1e-12,
+                      "optimized draw expectation differs from brute force");
+            }
+            lc_apply(&live, legal[chosen]);
+        }
+    }
 }
 
 static void test_dead_discard_focus_equivariance(void)
@@ -1077,9 +1237,20 @@ static void test_rollout_match_thread_determinism(void)
     search.playout_symmetries = 20;
     agent_default(&policy, AG_POLICY, net);
 
-    for (int mode = 2; mode <= 3; mode++) {
+    for (int mode = 2; mode <= 5; mode++) {
         search.playout_sample = mode;
-        search.policy_prefix_mode = mode == 3 ? 2 : 0;
+        /* The third loop reuses measured mode-2 discovery but exercises
+         * role-separated fresh consensus.  The fourth combines it with
+         * independently stratified fixed roles in discovery itself. */
+        if (mode == 4) {
+            search.playout_sample = 2;
+            search.policy_prefix_mode = 3;
+        } else if (mode == 5) {
+            search.playout_sample = 4;
+            search.policy_prefix_mode = 3;
+        } else {
+            search.policy_prefix_mode = mode == 3 ? 2 : 0;
+        }
         search.confirm_dets = 16;
         MatchResult one, four;
         match_run_r(&search, &policy, 2, 1,
@@ -1214,6 +1385,7 @@ int main(void)
     test_random_symmetry_policy_sample();
     test_rollout_spec_tail();
     test_information_preserving_scheduler();
+    test_information_safe_draw_planner();
     test_dead_discard_focus_equivariance();
     test_wager_interaction_head();
     test_wager_parameter_projection();

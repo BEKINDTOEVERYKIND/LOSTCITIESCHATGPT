@@ -144,6 +144,14 @@ static int move_eq(Move a, Move b)
     return a.card == b.card && a.discard == b.discard && a.draw == b.draw;
 }
 
+static int same_semantic_action(Move a, Move b)
+{
+    if (a.discard != b.discard) return 0;
+    if (CARD_IS_WAGER(a.card) && CARD_IS_WAGER(b.card))
+        return CARD_SUIT(a.card) == CARD_SUIT(b.card);
+    return a.card == b.card;
+}
+
 static int search_guard_blocked(const SearchStats *ss)
 {
     for (int i = 0; i < ss->n; i++)
@@ -477,9 +485,16 @@ int main(int argc, char **argv)
         j_search_rows(pf, &ss, played, recommended);
 
         Move actor_policy_move = pmv[ord[0]];
+        int actor_draw_baseline = actor.kind == AG_ROLLOUT
+            ? actor_ss.draw_planned_baseline
+            : (actor.kind == AG_POLICY && actor.draw_root_deck_max > 0 &&
+               st.deck_left <= actor.draw_root_deck_max &&
+               same_semantic_action(actor_policy_move, played) &&
+               actor_policy_move.draw != played.draw);
         Move actor_baseline_move =
             actor.kind == AG_ROLLOUT && actor_ss.n > 0
-                ? actor_ss.mv[0] : actor_policy_move;
+                ? actor_ss.mv[0]
+                : (actor_draw_baseline ? played : actor_policy_move);
         fprintf(pf, ",\"actor_decision\":{\"method\":\"%s\","
                     "\"used_to_choose\":%s,\"searched\":%s,"
                     "\"status\":\"%s\",\"worlds\":%d,\"max_worlds\":%d,"
@@ -488,9 +503,13 @@ int main(int argc, char **argv)
                     "\"policy_floor\":%.6f,\"min_candidates\":%d,"
                     "\"continuation_policy\":\"%s\","
                     "\"continuation_symmetries\":%d,"
+                    "\"world_model\":\"%s\",\"world_belief_alpha\":%.9g,"
                     "\"evaluation_kind\":\"%s\","
                     "\"baseline_source\":\"%s\","
                     "\"planner\":{\"deck_max\":%d,\"block_gap\":%d,"
+                    "\"draw_root_deck_max\":%d,"
+                    "\"draw_playout_deck_max\":%d,"
+                    "\"draw_baseline\":%s,"
                     "\"turns\":%d,\"guaranteed_score\":%d,"
                     "\"policy_score\":%d,\"policy_regret\":%d,"
                     "\"policy_block_cost\":%d,\"selected_block_cost\":%d},"
@@ -527,18 +546,30 @@ int main(int argc, char **argv)
                             ? "random_symmetry_argmax"
                             : (actor.playout_sample == 3
                                 ? "fixed_world_symmetry_argmax"
-                                : "exact_ensemble_argmax")))
+                                : (actor.playout_sample == 4
+                                    ? "role_fixed_world_symmetry_argmax"
+                                    : "exact_ensemble_argmax"))))
                     : "none",
                 actor.kind == AG_ROLLOUT ? actor.playout_symmetries : 0,
+                actor.kind == AG_ROLLOUT && !actor.no_belief
+                    ? "learned_fixed_cardinality" : "uniform_card_count",
+                actor.kind == AG_ROLLOUT && !actor.no_belief
+                    ? actor.belief_alpha : 0.0f,
                 actor.kind == AG_ROLLOUT
                     ? search_metric(&actor_ss) : "network_state_value",
                 actor.kind == AG_ROLLOUT && actor_ss.planned_baseline
                     ? "visible_hand_scheduler"
                     : (actor.kind == AG_ROLLOUT &&
                        actor_ss.deck_end_baseline
-                        ? "last_deck_dominance" : "network_policy"),
+                        ? "last_deck_dominance"
+                        : (actor_draw_baseline
+                            ? "draw_source_planner" : "network_policy")),
                 actor.kind == AG_ROLLOUT ? actor.plan_deck_max : 0,
                 actor.kind == AG_ROLLOUT ? actor.plan_block_gap : 0,
+                actor.draw_root_deck_max,
+                actor.kind == AG_ROLLOUT
+                    ? actor.draw_playout_deck_max : 0,
+                actor_draw_baseline ? "true" : "false",
                 actor.kind == AG_ROLLOUT ? actor_ss.planner_turns : 0,
                 actor.kind == AG_ROLLOUT ? actor_ss.planner_score : 0,
                 actor.kind == AG_ROLLOUT ? actor_ss.planner_policy_score : 0,
@@ -555,7 +586,7 @@ int main(int argc, char **argv)
                 actor.kind == AG_ROLLOUT ? actor_ss.selection_reference : 0,
                 actor.kind == AG_ROLLOUT && actor_ss.trusted_prefix_override
                     ? "true" : "false",
-                actor.kind == AG_ROLLOUT && actor.policy_prefix_mode == 2 &&
+                actor.kind == AG_ROLLOUT && actor.policy_prefix_mode >= 2 &&
                         actor_ss.prefix_proposed != 0
                     ? "true" : "false",
                 actor.kind == AG_ROLLOUT && actor_ss.prefix_confirmed
@@ -588,7 +619,7 @@ int main(int argc, char **argv)
                     "\"practical_threshold\":%.3f,\"policy_mass\":%.6f,"
                     "\"target_policy_mass\":%.6f,\"shortlist_capped\":%s,"
                     "\"audited_moves\":%d,\"omitted_moves\":%d,"
-                    "\"world_model\":\"%s\","
+                    "\"world_model\":\"%s\",\"world_belief_alpha\":%.9g,"
                     "\"continuation_policy\":\"%s\","
                     "\"continuation_symmetries\":%d,"
                     "\"continuation_symmetry_mode\":\"%s\","
@@ -598,6 +629,9 @@ int main(int argc, char **argv)
                     "\"deck_max\":%d,"
                     "\"evaluation_kind\":\"%s\","
                     "\"planner\":{\"deck_max\":%d,\"block_gap\":%d,"
+                    "\"draw_root_deck_max\":%d,"
+                    "\"draw_playout_deck_max\":%d,"
+                    "\"draw_baseline\":%s,"
                     "\"turns\":%d,\"guaranteed_score\":%d,"
                     "\"policy_score\":%d,\"policy_regret\":%d,"
                     "\"policy_block_cost\":%d,\"selected_block_cost\":%d},"
@@ -628,21 +662,27 @@ int main(int argc, char **argv)
                 ss.n, nleg - ss.n,
                 evaluator.no_belief ? "uniform_card_count"
                                     : "learned_fixed_cardinality",
+                evaluator.no_belief ? 0.0f : evaluator.belief_alpha,
                 evaluator.playout_sample == 1
                     ? "sampled_policy"
-                    : (evaluator.playout_sample == 2
+                        : (evaluator.playout_sample == 2
                         ? "random_symmetry_argmax"
                         : (evaluator.playout_sample == 3
                             ? "fixed_world_symmetry_argmax"
-                            : "exact_ensemble_argmax")),
+                            : (evaluator.playout_sample == 4
+                                ? "role_fixed_world_symmetry_argmax"
+                                : "exact_ensemble_argmax"))),
                 evaluator.playout_symmetries,
-                evaluator.playout_sample == 3 &&
+                evaluator.playout_sample == 4 &&
+                        evaluator.playout_symmetries > 1
+                    ? "independent_group_member_per_player_world"
+                    : (evaluator.playout_sample == 3 &&
                         evaluator.playout_symmetries > 1
                     ? "random_group_member_per_world"
                     : (evaluator.playout_sample > 0 &&
                         evaluator.playout_symmetries > 1
                     ? "random_group_member_per_decision"
-                    : "exact_average"),
+                    : "exact_average")),
                 evaluator.prune_dom ? "true" : "false",
                 (evaluator.playout_prune < 0
                      ? evaluator.prune_dom : evaluator.playout_prune)
@@ -652,6 +692,9 @@ int main(int argc, char **argv)
                 search_metric(&ss),
                 evaluator.plan_deck_max,
                 evaluator.plan_block_gap,
+                evaluator.draw_root_deck_max,
+                evaluator.draw_playout_deck_max,
+                ss.draw_planned_baseline ? "true" : "false",
                 ss.planner_turns,
                 ss.planner_score,
                 ss.planner_policy_score,
@@ -665,14 +708,16 @@ int main(int argc, char **argv)
                 ss.prefix_proposed,
                 ss.selection_reference,
                 ss.trusted_prefix_override ? "true" : "false",
-                evaluator.policy_prefix_mode == 2 && ss.prefix_proposed != 0
+                evaluator.policy_prefix_mode >= 2 && ss.prefix_proposed != 0
                     ? "true" : "false",
                 ss.prefix_confirmed ? "true" : "false",
                 ss.prefix_confirm_worlds,
                 ss.planned_baseline
                     ? "visible_hand_scheduler"
                     : (ss.deck_end_baseline
-                        ? "last_deck_dominance" : "network_policy"),
+                        ? "last_deck_dominance"
+                        : (ss.draw_planned_baseline
+                            ? "draw_source_planner" : "network_policy")),
                 evaluator.override_k > 0.0f ? "true" : "false",
                 ss.confirmed ? "true" : "false",
                 ss.confirm_worlds, evaluator.confirm_dets,
@@ -680,7 +725,9 @@ int main(int argc, char **argv)
                     ? "exact_5way_argmax"
                     : (evaluator.playout_sample == 3
                         ? "fixed_world_symmetry_argmax"
-                        : "random_symmetry_argmax"));
+                        : (evaluator.playout_sample == 4
+                            ? "role_fixed_world_symmetry_argmax"
+                            : "random_symmetry_argmax")));
 
         /* the card that will be drawn: read before lc_apply */
         int drawn = played.draw == 0 ? st.deck[st.deck_pos]
@@ -705,7 +752,7 @@ int main(int argc, char **argv)
     j_string(stdout, actor_spec);
     printf(",\"evaluator\":");
     j_string(stdout, eval_spec);
-    printf(",\"belief_alpha\":%.3f,\"belief_symmetries\":%d,"
+    printf(",\"belief_alpha\":%.9g,\"belief_symmetries\":%d,"
            "\"seed\":%llu,\"plies\":%d,\"rounds\":%d,\"round_scores\":[",
            belief_alpha, belief_symmetries,
            (unsigned long long)seed, ply, rounds);

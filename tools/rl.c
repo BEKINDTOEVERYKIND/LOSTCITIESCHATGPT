@@ -9,9 +9,12 @@
  * only has to serve as a baseline, where its errors cancel instead of
  * corrupting the ranking.
  *
- * Both seats are the same network, so every game yields training data from two
- * points of view.  Generation is one forward pass per ply, which is fast enough
- * that the data is always fresh and on-policy.
+ * Ordinary generation uses the same live network in both seats.  An optional
+ * frozen-opponent population alternates the learner's seat and records policy
+ * gradients only on learner decisions; mixing those games with live self-play
+ * breaks self-play blind spots without pretending opponent actions are
+ * on-policy.  A full-legal-action KL anchor and v6-only warm-up keep this
+ * deliberately conservative around an established champion.
  */
 #include "../src/lc.h"
 #include "../src/net.h"
@@ -24,6 +27,7 @@
 #include <string.h>
 #include <math.h>
 #include <limits.h>
+#include <stddef.h>
 #include <time.h>
 #include <pthread.h>
 
@@ -39,6 +43,8 @@ typedef struct {
 
 typedef struct {
     const Net *net;
+    const Agent *opponent; /* optional frozen population member             */
+    float opponent_mix;    /* fraction of matches played against opponent  */
     int games;          /* matches per iteration */
     uint64_t seed;
     int thread, nthread;
@@ -46,6 +52,9 @@ typedef struct {
     size_t nout, nseen, cap;
     double plies, absmargin, score_sum, entropy;
     double p0_match_wins;
+    double learner_match_wins;
+    int opponent_games;
+    int learner_seat_games[2];
     long entropy_n;
     int done;
     float lambda;
@@ -69,6 +78,16 @@ static _Thread_local State chain[CHAIN_MAX];
 static _Thread_local float chain_v[2][CHAIN_MAX];
 static _Thread_local uint16_t chain_mv[CHAIN_MAX];
 static _Thread_local float chain_p[CHAIN_MAX];
+static _Thread_local uint8_t chain_actor[CHAIN_MAX];
+
+static uint64_t mix64(uint64_t x)
+{
+    x ^= x >> 30;
+    x *= UINT64_C(0xBF58476D1CE4E5B9);
+    x ^= x >> 27;
+    x *= UINT64_C(0x94D049BB133111EB);
+    return x ^ (x >> 31);
+}
 
 /* Keep a uniform sample of arbitrarily long games instead of silently
  * retaining only their earliest plies when a fixed worker buffer fills. */
@@ -88,17 +107,40 @@ static void *gen_worker(void *arg)
     Rng reservoir_rng;
     rng_seed(&reservoir_rng, j->seed ^ (0xD1B54A32D192ED03ULL
                                      * (uint64_t)(j->thread + 1)));
+    Rng opponent_rng;
+    rng_seed(&opponent_rng, j->seed ^ (0x8CB92BA72F3D8DD7ULL
+                                    * (uint64_t)(j->thread + 1)));
     Features f;
     Move mv[MAX_MOVES];
     float pr[MAX_MOVES];
 
     for (int g = j->thread; g < j->games; g += j->nthread) {
+        /* Select frozen-opponent games in adjacent pairs.  Games 2k and
+         * 2k+1 use opposite learner seats, so every complete selected pair
+         * balances seat and starter exposure exactly. */
+        uint64_t selector = mix64(j->seed ^ ((uint64_t)(g / 2)
+                                * UINT64_C(0x9E3779B97F4A7C15)));
+        double unit = (double)(selector >> 11) * (1.0 / 9007199254740992.0);
+        int versus_opponent = j->opponent && unit < j->opponent_mix;
+        int learner_seat = g & 1;
+        if (versus_opponent) {
+            j->opponent_games++;
+            j->learner_seat_games[learner_seat]++;
+        }
+        /* Frozen-opponent games are true mirrored pairs: both learner seats
+         * see the same three deals.  Gameplay randomness remains separate,
+         * so only deal luck is cancelled rather than coupling behavior. */
+        Rng pair_deal_rng;
+        if (versus_opponent)
+            rng_seed(&pair_deal_rng,
+                     mix64(j->seed ^ ((uint64_t)(g / 2) *
+                           UINT64_C(0xD1B54A32D192ED03))));
         /* one episode = one full match of j->rounds rounds */
         int T = 0;
         int cum[2] = { 0, 0 };
         for (int rd = 0; rd < j->rounds; rd++) {
         State st;
-        lc_deal(&st, &rng);
+        lc_deal(&st, versus_opponent ? &pair_deal_rng : &rng);
         st.round = (uint8_t)rd;
         /* Preserve the exact match context used by src/match.c.  Clamping
          * the two totals independently changes the lead. */
@@ -108,27 +150,41 @@ static void *gen_worker(void *arg)
         int Tstop = T + LC_MAX_PLIES;
         while (!st.over && T < Tstop) {
             chain[T] = st;
-            int n = policy_probs(j->net, &st, mv, pr, NULL);
-            double h = 0.0;
-            for (int i = 0; i < n; i++) if (pr[i] > 1e-9f) h -= pr[i] * log(pr[i]);
-            j->entropy += h; j->entropy_n++;
-
-            int c;
-            if (j->temp != 1.0f) {
-                /* Sampling off-policy is fine as long as the recorded
-                 * probability is the behaviour policy's, since that is what the
-                 * PPO ratio divides by. */
-                float w[MAX_MOVES], sum = 0.0f;
-                for (int i = 0; i < n; i++) { w[i] = powf(pr[i], 1.0f / j->temp); sum += w[i]; }
-                c = sample_index(w, n, &rng);
-                chain_p[T] = w[c] / sum;
+            Move played;
+            if (versus_opponent && st.turn != learner_seat) {
+                played = agent_move(j->opponent, &st, &opponent_rng);
+                chain_actor[T] = 0;
+                chain_p[T] = 1.0f;
             } else {
-                c = sample_index(pr, n, &rng);
-                chain_p[T] = pr[c];
+                int n = policy_probs(j->net, &st, mv, pr, NULL);
+                double h = 0.0;
+                for (int i = 0; i < n; i++)
+                    if (pr[i] > 1e-9f) h -= pr[i] * log(pr[i]);
+                j->entropy += h;
+                j->entropy_n++;
+
+                int c;
+                if (j->temp != 1.0f) {
+                    /* Sampling off-policy is fine as long as the recorded
+                     * probability is the behaviour policy's, since that is
+                     * what the PPO ratio divides by. */
+                    float w[MAX_MOVES], sum = 0.0f;
+                    for (int i = 0; i < n; i++) {
+                        w[i] = powf(pr[i], 1.0f / j->temp);
+                        sum += w[i];
+                    }
+                    c = sample_index(w, n, &rng);
+                    chain_p[T] = w[c] / sum;
+                } else {
+                    c = sample_index(pr, n, &rng);
+                    chain_p[T] = pr[c];
+                }
+                played = mv[c];
+                chain_actor[T] = 1;
             }
-            chain_mv[T] = MOVE_PACK(mv[c]);
+            chain_mv[T] = MOVE_PACK(played);
             T++;
-            lc_apply(&st, mv[c]);
+            lc_apply(&st, played);
         }
         cum[0] += lc_score(&st, 0);
         cum[1] += lc_score(&st, 1);
@@ -138,6 +194,12 @@ static void *gen_worker(void *arg)
         int score[2] = { cum[0], cum[1] };
         if (score[0] > score[1]) j->p0_match_wins += 1.0;
         else if (score[0] == score[1]) j->p0_match_wins += 0.5;
+        if (versus_opponent) {
+            if (score[learner_seat] > score[learner_seat ^ 1])
+                j->learner_match_wins += 1.0;
+            else if (score[learner_seat] == score[learner_seat ^ 1])
+                j->learner_match_wins += 0.5;
+        }
 
         /* values of every state from both points of view */
         for (int p = 0; p < 2; p++)
@@ -163,7 +225,7 @@ static void *gen_worker(void *arg)
                 s->st = chain[t];
                 s->persp = (uint8_t)p;
                 s->vtarget = G;
-                if (chain[t].turn == p) {
+                if (chain[t].turn == p && chain_actor[t]) {
                     s->actor = 1;
                     s->chosen = chain_mv[t];
                     s->oldp = chain_p[t];
@@ -187,12 +249,13 @@ static void *gen_worker(void *arg)
 
 typedef struct {
     const Net *net;
+    const Net *anchor;
     Net *grad;
     const RLSample *buf;
     const int *idx;
     int from, to;
-    float clip, vcoef, entcoef, advscale, bw, temp;
-    double ploss, vloss, bloss, clipped;
+    float clip, vcoef, entcoef, policy_scale, bw, temp, klcoef;
+    double ploss, vloss, bloss, klloss, clipped;
     int pn;
     long bn;
 } OptJob;
@@ -201,14 +264,15 @@ static void *opt_worker(void *arg)
 {
     OptJob *t = (OptJob *)arg;
     net_zero(t->grad);
-    double ploss = 0, vloss = 0, bloss = 0, clipped = 0;
+    double ploss = 0, vloss = 0, bloss = 0, klloss = 0, clipped = 0;
     int pn = 0;
     long bn = 0;
     Features f;
     NetAct act;
     Move mv[MAX_MOVES];
     uint16_t pk[MAX_MOVES];
-    float logit[MAX_MOVES], prob[MAX_MOVES], dlog[MAX_MOVES];
+    float logit[MAX_MOVES], prob[MAX_MOVES], rawprob[MAX_MOVES];
+    float dlog[MAX_MOVES], alogit[MAX_MOVES], aprob[MAX_MOVES];
     uint8_t bcard[NCARD];
     float blogit[NCARD], dbel[NCARD];
 
@@ -262,6 +326,15 @@ static void *opt_worker(void *arg)
             }
             if (ci < 0) { net_backward(t->net, &f, &act, dvalue, pk, NULL, 0, bcard, dbel, nb, t->grad); continue; }
             net_policy_act(t->net, &act, pk, n, logit);
+            float rawmx = logit[0];
+            for (int k = 1; k < n; k++)
+                if (logit[k] > rawmx) rawmx = logit[k];
+            float rawsum = 0.0f;
+            for (int k = 0; k < n; k++) {
+                rawprob[k] = expf(logit[k] - rawmx);
+                rawsum += rawprob[k];
+            }
+            for (int k = 0; k < n; k++) rawprob[k] /= rawsum;
             /* Data collection samples softmax(logit / temp), so PPO must
              * compare oldp with that same behaviour-policy family. */
             if (t->temp != 1.0f)
@@ -276,7 +349,7 @@ static void *opt_worker(void *arg)
                 prob[k] *= inv;
                 if (prob[k] > 1e-9f) ent -= prob[k] * logf(prob[k]);
             }
-            float A = s->adv * t->advscale;
+            float A = s->adv;
             float ratio = prob[ci] / (s->oldp > 1e-9f ? s->oldp : 1e-9f);
             float lo = 1.0f - t->clip, hi = 1.0f + t->clip;
             /* PPO: gradient flows only when the unclipped branch is the
@@ -292,7 +365,30 @@ static void *opt_worker(void *arg)
                 float dsurr = gsurr * ((k == ci ? 1.0f : 0.0f) - prob[k]);
                 float dent = t->entcoef * prob[k] * (logf(prob[k] + 1e-9f) + ent);
                 /* net_backward differentiates the untempered network logit. */
-                dlog[k] = (dsurr + dent) / t->temp;
+                dlog[k] = t->policy_scale * (dsurr + dent) / t->temp;
+            }
+            if (t->anchor && t->klcoef > 0.0f) {
+                NetAct aact;
+                net_trunk(t->anchor, &f, &aact);
+                net_policy_act(t->anchor, &aact, pk, n, alogit);
+                float amx = alogit[0];
+                for (int k = 1; k < n; k++)
+                    if (alogit[k] > amx) amx = alogit[k];
+                float asum = 0.0f;
+                for (int k = 0; k < n; k++) {
+                    aprob[k] = expf(alogit[k] - amx);
+                    asum += aprob[k];
+                }
+                for (int k = 0; k < n; k++) {
+                    aprob[k] /= asum;
+                    klloss += aprob[k] *
+                        (logf(aprob[k] + 1e-9f) -
+                         logf(rawprob[k] + 1e-9f));
+                    /* Full-action KL: even legal moves not sampled by PPO
+                     * remain anchored to the proven checkpoint. */
+                    dlog[k] += t->policy_scale * t->klcoef *
+                               (rawprob[k] - aprob[k]);
+                }
             }
             pn++;
             net_backward(t->net, &f, &act, dvalue, pk, dlog, n, bcard, dbel, nb, t->grad);
@@ -300,7 +396,8 @@ static void *opt_worker(void *arg)
             net_backward(t->net, &f, &act, dvalue, pk, NULL, 0, bcard, dbel, nb, t->grad);
         }
     }
-    t->ploss = ploss; t->vloss = vloss; t->bloss = bloss; t->pn = pn; t->bn = bn;
+    t->ploss = ploss; t->vloss = vloss; t->bloss = bloss;
+    t->klloss = klloss; t->pn = pn; t->bn = bn;
     t->clipped = clipped;
     return NULL;
 }
@@ -315,16 +412,33 @@ static void grad_accumulate(Net *dst, Net *const *src, int n)
     }
 }
 
+/* Warm up only the capacity appended after the inherited v4 checkpoint.
+ * Ordered-pile rows and complete-move residuals may learn; every proven
+ * legacy parameter is restored byte-for-byte after each optimiser step. */
+static void restore_legacy_parameters(Net *net, const Net *base)
+{
+    memcpy(net->w1, base->w1,
+           (size_t)FEAT_LEGACY_DIM * NET_H1 * sizeof(float));
+    size_t from = offsetof(Net, b1);
+    size_t to = offsetof(Net, wcomb);
+    memcpy((unsigned char *)net + from,
+           (const unsigned char *)base + from, to - from);
+}
+
 int main(int argc, char **argv)
 {
     const char *out_path = "data/rl.bin";
     const char *init_path = "data/champion.bin";
     const char *ref_spec = "heur";
+    const char *gen_opponent_spec = NULL;
+    const char *anchor_path = NULL;
     int iters = 30, games = 4000, nthread = 4, batch = 512, epochs = 2;
     int eval_pairs = 400, eval_every = 1;
     float lr = 3e-4f, wd = 1e-7f, lambda = 0.85f, clip = 0.2f;
     float vcoef = 1.0f, entcoef = 0.004f, temp = 1.0f;
     float winbonus = 15.0f, bw = 1.0f, mw = 1.0f;
+    float opponent_mix = 0.0f, klcoef = 0.0f;
+    int v6_only = 0;
     int rounds = MATCH_ROUNDS;
     uint64_t seed = 7, eval_seed = 20260727ULL;
 
@@ -334,6 +448,10 @@ int main(int argc, char **argv)
         if (ARG("--out")) out_path = argv[++i];
         else if (ARG("--init")) init_path = argv[++i];
         else if (ARG("--ref")) ref_spec = argv[++i];
+        else if (ARG("--gen-opponent")) gen_opponent_spec = argv[++i];
+        else if (ARG("--opponent-mix")) opponent_mix = (float)atof(argv[++i]);
+        else if (ARG("--anchor")) anchor_path = argv[++i];
+        else if (ARG("--kl")) klcoef = (float)atof(argv[++i]);
         else if (ARG("--iters")) iters = atoi(argv[++i]);
         else if (ARG("--games")) games = atoi(argv[++i]);
         else if (ARG("--threads")) nthread = atoi(argv[++i]);
@@ -354,11 +472,33 @@ int main(int argc, char **argv)
         else if (ARG("--eval-every")) eval_every = atoi(argv[++i]);
         else if (ARG("--eval-seed")) eval_seed = strtoull(argv[++i], NULL, 10);
         else if (ARG("--seed")) seed = strtoull(argv[++i], NULL, 10);
+        else if (!strcmp(k, "--v6-only")) v6_only = 1;
         else { fprintf(stderr, "unknown option %s\n", k); return 1; }
         #undef ARG
     }
     if (!(temp > 0.0f) || !lc_float_isfinite(temp)) {
         fprintf(stderr, "--temp must be finite and greater than zero\n");
+        return 1;
+    }
+    if (opponent_mix < 0.0f || opponent_mix > 1.0f ||
+        !lc_float_isfinite(opponent_mix)) {
+        fprintf(stderr, "--opponent-mix must be between zero and one\n");
+        return 1;
+    }
+    if (opponent_mix > 0.0f && !gen_opponent_spec) {
+        fprintf(stderr, "--opponent-mix requires --gen-opponent SPEC\n");
+        return 1;
+    }
+    if (opponent_mix > 0.0f && (games & 1)) {
+        fprintf(stderr, "population training requires an even --games count\n");
+        return 1;
+    }
+    if (klcoef < 0.0f || !lc_float_isfinite(klcoef)) {
+        fprintf(stderr, "--kl must be finite and non-negative\n");
+        return 1;
+    }
+    if (klcoef > 0.0f && !anchor_path) {
+        fprintf(stderr, "--kl requires --anchor PATH\n");
         return 1;
     }
     if (rounds < 1 || rounds > MATCH_ROUNDS) {
@@ -368,13 +508,32 @@ int main(int argc, char **argv)
 
     Net *net = (Net *)malloc(sizeof(Net));
     Net *frozen = (Net *)malloc(sizeof(Net));
+    Net *anchor = anchor_path ? (Net *)malloc(sizeof(Net)) : NULL;
+    Net *legacy_base = v6_only ? (Net *)malloc(sizeof(Net)) : NULL;
     Adam *adam = (Adam *)calloc(1, sizeof(Adam));
+    if (!net || !frozen || (anchor_path && !anchor) ||
+        (v6_only && !legacy_base) || !adam) {
+        fprintf(stderr, "network allocation failed\n");
+        return 1;
+    }
     if (net_load(net, init_path) != 0) { fprintf(stderr, "cannot load %s\n", init_path); return 1; }
     net_project_wager_symmetry(net);
+    if (anchor && net_load(anchor, anchor_path) != 0) {
+        fprintf(stderr, "cannot load anchor %s\n", anchor_path);
+        return 1;
+    }
+    if (anchor) net_project_wager_symmetry(anchor);
+    if (legacy_base) memcpy(legacy_base, net, sizeof(Net));
     printf("initialised from %s\n", init_path);
 
     Agent ref;
     spec_parse(ref_spec, &ref);
+    Agent gen_opponent;
+    const Agent *gen_opponent_ptr = NULL;
+    if (gen_opponent_spec) {
+        spec_parse(gen_opponent_spec, &gen_opponent);
+        gen_opponent_ptr = &gen_opponent;
+    }
 
     Net **grads = (Net **)calloc((size_t)nthread, sizeof(Net *));
     for (int i = 0; i < nthread; i++) grads[i] = (Net *)malloc(sizeof(Net));
@@ -385,8 +544,13 @@ int main(int argc, char **argv)
     int *order = (int *)malloc(sizeof(int) * cap);
 
     printf("ppo: %d iters x %d matches of %d round(s), batch %d, %d epochs, lr %.1e, "
-           "lambda %.2f, ent %.4f, winbonus %.0f, margin weight %.2f\n",
-           iters, games, rounds, batch, epochs, lr, lambda, entcoef, winbonus, mw);
+           "lambda %.2f, ent %.4f, winbonus %.0f, margin weight %.2f, KL %.4f%s\n",
+           iters, games, rounds, batch, epochs, lr, lambda, entcoef, winbonus,
+           mw, klcoef, v6_only ? ", v6-only" : "");
+    if (gen_opponent_ptr)
+        printf("     opponent population: %.1f%% %s, %.1f%% live self-play\n",
+               100.0f * opponent_mix, gen_opponent_spec,
+               100.0f * (1.0f - opponent_mix));
     fflush(stdout);
 
     for (int it = 1; it <= iters; it++) {
@@ -399,6 +563,8 @@ int main(int argc, char **argv)
         size_t per = cap / (size_t)nthread;
         for (int i = 0; i < nthread; i++) {
             jobs[i].net = frozen;
+            jobs[i].opponent = gen_opponent_ptr;
+            jobs[i].opponent_mix = opponent_mix;
             jobs[i].games = games;
             jobs[i].seed = seed * 7919ULL + (uint64_t)it * 104729ULL;
             jobs[i].thread = i; jobs[i].nthread = nthread;
@@ -419,14 +585,19 @@ int main(int argc, char **argv)
             if (jobs[i].out != buf + n) memmove(buf + n, jobs[i].out, jobs[i].nout * sizeof(RLSample));
             n += jobs[i].nout;
         }
-        double plies = 0, absm = 0, pts = 0, ent = 0, p0w = 0;
+        double plies = 0, absm = 0, pts = 0, ent = 0, p0w = 0, learnerw = 0;
         size_t seen = 0;
         long entn = 0;
-        int gdone = 0;
+        int gdone = 0, opponent_games = 0;
+        int learner_seat_games[2] = {0, 0};
         for (int i = 0; i < nthread; i++) {
             plies += jobs[i].plies; absm += jobs[i].absmargin; pts += jobs[i].score_sum;
             ent += jobs[i].entropy; entn += jobs[i].entropy_n;
             p0w += jobs[i].p0_match_wins;
+            learnerw += jobs[i].learner_match_wins;
+            opponent_games += jobs[i].opponent_games;
+            learner_seat_games[0] += jobs[i].learner_seat_games[0];
+            learner_seat_games[1] += jobs[i].learner_seat_games[1];
             seen += jobs[i].nseen;
             gdone += jobs[i].done;
         }
@@ -447,6 +618,11 @@ int main(int argc, char **argv)
                "points/side %.1f, |margin| %.1f, p0 wins %.1f%%, entropy %.2f, adv sd %.1f\n",
                it, gdone, gs, gdone / gs, n, plies / gdone, pts / (2 * gdone),
                absm / gdone, 100.0 * p0w / gdone, ent / entn, av);
+        if (opponent_games > 0)
+            printf("         frozen-opponent games %d, learner seats %d/%d, "
+                   "learner score %.1f%%\n",
+                   opponent_games, learner_seat_games[0], learner_seat_games[1],
+                   100.0 * learnerw / opponent_games);
         if (seen > n)
             printf("         reservoir retained %zu/%zu generated samples (%.1f%%)\n",
                    n, seen, 100.0 * (double)n / (double)seen);
@@ -454,7 +630,7 @@ int main(int argc, char **argv)
 
         clock_gettime(CLOCK_MONOTONIC, &t0);
         Rng r; rng_seed(&r, seed + 31ULL * (uint64_t)it);
-        double pl = 0, vl = 0, bl = 0, cl = 0;
+        double pl = 0, vl = 0, bl = 0, kl = 0, cl = 0;
         long pn = 0, bcnt = 0, steps = 0;
         for (int ep = 0; ep < epochs; ep++) {
             for (size_t i = 0; i < n; i++) order[i] = (int)i;
@@ -467,29 +643,50 @@ int main(int argc, char **argv)
                 pthread_t tt[64];
                 int nt = nthread > 64 ? 64 : nthread;
                 int chunk = (batch + nt - 1) / nt;
+                int actor_count = 0;
+                for (int i = 0; i < batch; i++)
+                    actor_count += buf[order[off + (size_t)i]].actor != 0;
+                /* Frozen-opponent samples have one policy actor rather than
+                 * two, but both perspectives still provide value/belief
+                 * labels.  Compensate for the smaller actor fraction while
+                 * preserving the historical self-play policy:value scale. */
+                float policy_scale = 1.0f;
+                if (opponent_mix > 0.0f && actor_count > 0)
+                    policy_scale =
+                        0.5f * (float)batch / (float)actor_count;
                 for (int i = 0; i < nt; i++) {
-                    tj[i].net = net; tj[i].grad = grads[i]; tj[i].buf = buf;
+                    tj[i].net = net; tj[i].anchor = anchor;
+                    tj[i].grad = grads[i]; tj[i].buf = buf;
                     tj[i].idx = order + off;
                     tj[i].from = i * chunk > batch ? batch : i * chunk;
                     tj[i].to = (i + 1) * chunk > batch ? batch : (i + 1) * chunk;
                     tj[i].clip = clip; tj[i].vcoef = vcoef; tj[i].entcoef = entcoef;
-                    tj[i].advscale = 1.0f; tj[i].bw = bw; tj[i].temp = temp;
+                    tj[i].policy_scale = policy_scale;
+                    tj[i].bw = bw; tj[i].temp = temp;
+                    tj[i].klcoef = klcoef;
                 }
                 for (int i = 0; i < nt; i++) pthread_create(&tt[i], NULL, opt_worker, &tj[i]);
                 for (int i = 0; i < nt; i++) pthread_join(tt[i], NULL);
-                for (int i = 0; i < nt; i++) { pl += tj[i].ploss; vl += tj[i].vloss; bl += tj[i].bloss; pn += tj[i].pn; bcnt += tj[i].bn; cl += tj[i].clipped; }
+                for (int i = 0; i < nt; i++) {
+                    pl += tj[i].ploss; vl += tj[i].vloss;
+                    bl += tj[i].bloss; kl += tj[i].klloss;
+                    pn += tj[i].pn; bcnt += tj[i].bn;
+                    cl += tj[i].clipped;
+                }
                 grad_accumulate(grads[0], grads, nt);
                 net_tie_wager_gradients(grads[0]);
                 net_adam_step(net, grads[0], adam, lr, 1.0f / (float)batch, wd);
+                if (legacy_base) restore_legacy_parameters(net, legacy_base);
                 steps++;
             }
         }
         clock_gettime(CLOCK_MONOTONIC, &t1);
         double ts = (t1.tv_sec - t0.tv_sec) + 1e-9 * (t1.tv_nsec - t0.tv_nsec);
         printf("         %ld updates in %.1fs: value rmse %.1f pts, surrogate %.4f, "
-               "belief bce %.3f, clipped %.1f%%\n",
+               "belief bce %.3f, anchor KL %.5f, clipped %.1f%%\n",
                steps, ts, sqrt(vl / ((double)steps * batch)) * VAL_SCALE,
-               pn ? pl / pn : 0.0, bcnt ? bl / bcnt : 0.0, pn ? 100.0 * cl / pn : 0.0);
+               pn ? pl / pn : 0.0, bcnt ? bl / bcnt : 0.0,
+               pn ? kl / pn : 0.0, pn ? 100.0 * cl / pn : 0.0);
         fflush(stdout);
 
         char path[512];

@@ -362,6 +362,25 @@ one-candidate shortlist still skips continuation forwards entirely. This
 tail remains an audit/component configuration until it beats the maintained
 actor in a new locked direct test.
 
+`draw_root_deck_max` and `draw_playout_deck_max` independently enable a
+narrower draw-source repair at the deployed root and inside rollout
+continuations. The policy still chooses exactly one card and play/discard
+action; only legal draw sources attached to that action are compared. A pile
+top is public and scheduled exactly. The deck alternative is averaged over
+every card that can be next from the mover's information set, never the hidden
+top card in a determinized world. At `draw_root_deck_max=4` this focused
+late-tempo planner beat the frozen exact-20 policy by **+2.32 ± 0.22 points per
+match** and **51.14% ± 0.26% match score** over 2,000 fresh mirrored pairs.
+It also remained positive with the independently trained teacher-residual
+checkpoint: **+1.99 ± 0.33 points per match** over 1,000 pairs. Separate root
+and continuation thresholds prevent a root-only result from silently changing
+the rollout world model. That distinction mattered in full-actor testing:
+root-only repair changed no win/loss outcome over 30 external deal-pairs and
+added `+0.65 ± 1.44` points on those same deals, while continuation repair lost
+`−11.37 ± 7.76` points and `−16.67 ± 9.34` match-score percentage points over
+15 pairs. Both controls remain off in the maintained actor unless a future
+locked match-score test clears the promotion bar.
+
 The current consensus actor and its preceding rollout actor were each locked
 before their corresponding holdouts:
 
@@ -559,6 +578,12 @@ high-compute post-hoc audit spec is printed into every analysis artifact by
          --winbonus 50 --mw 0.05 --iters 80 --games 900 --epochs 1 \
          --lr 1.5e-4 --ent 0.002 --lambda 0.9 --out data/w1.bin
 # then select the checkpoint by MATCH WIN RATE over a 500-pair validation
+
+# Optional conservative v6 research warm-up against a frozen champion.
+# Use an even game count; this is a training capability, not a promoted model.
+./bin/rl --init data/champion.bin --gen-opponent policy:data/champion.bin:0:20 \
+         --opponent-mix 0.5 --anchor data/champion.bin --kl 0.5 --v6-only \
+         --games 1000 --rounds 3 --out data/v6-population-candidate.bin
 ```
 
 ## Playing, analysing, measuring
@@ -587,22 +612,29 @@ estimates sit next to omniscient truth only for retrospective calibration,
 along with the value trajectory. The UI keeps the actual playing choice
 separate from the independent audit, marks the selection reference, and
 distinguishes a highest sampled mean from two-panel numerical consensus and
-from a fully gated low-prior correction. Recorded deck draws are explicitly
+from a fully gated low-prior correction. It also identifies whether the
+baseline came from raw policy, exact hand scheduling, last-deck dominance, or
+information-set draw repair. Recorded deck draws are explicitly
 marked as future information unavailable at decision time.
 
 Agent specs include `random`, `heur`,
-`policy:PATH[:temperature[:symmetries]]`, `rolloutu:...` (uniform-world
+`policy:PATH[:temperature[:symmetries[:plan_deck_max[:plan_block_gap[:draw_root_deck_max]]]]]`,
+`rolloutu:...` (uniform-world
 belief ablation), `mcts:PATH[...]`, and `net:PATH`. The complete rollout tail
 is `worlds:candidates:floor:gate:min_candidates:ply_lo:ply_hi:eval_candidates:`
 `objective:prune:override_k:override_min:sample:symmetries:policy_mass:`
 `batch_worlds:playout_symmetries:discard_guard:deck_max:confirm_worlds:`
 `playout_prune:plan_deck_max:plan_block_gap:semantic_candidates:`
-`confirm_exact5:draw_variant_cores:draw_variant_deck_max:policy_prefix_mode`;
+`confirm_exact5:draw_variant_cores:draw_variant_deck_max:policy_prefix_mode:`
+`belief_alpha:draw_root_deck_max:draw_playout_deck_max`;
 objective is
 `0` for round margin, `1` for pure final-round match result, or `2` for the
 champion hybrid. Continuation mode `0` is exact-group greedy, `1` is the
 random-group/full-policy-sampling ablation, `2` is per-decision random-group
 greedy, and `3` fixes one group member for an entire hidden-world trajectory.
+Mode `4` fixes independently stratified group members for the two players in
+each trajectory, removing arbitrary cross-player orientation correlation at
+the same forward-pass cost.
 `confirm_exact5` changes generic challenger confirmation, not the separate
 trusted-prefix consensus panel. `draw_variant_cores` admits pile-draw variants
 only for the top one or two distinct card/disposition actions and never grows
@@ -610,7 +642,10 @@ the root list beyond eight; `draw_variant_deck_max=0` means no phase limit.
 `policy_prefix_mode=0` gates every override, mode `1` trusts the numerical
 leader within the ordinary policy prefix, and mode `2` requires that same
 leader on a fresh balanced fixed-world panel. Low-prior semantic or draw
-variants remain statistically gated in modes 1/2.
+variants remain statistically gated in modes 1/2. Mode `3` applies the same
+consensus rule with separate coherent player orientations. `belief_alpha`
+scales the learned fixed-cardinality posterior (`0` is uniform); `rolloutu`
+remains uniform regardless of that field.
 Supported symmetry modes are `1`, `5`, `10`, `20`, and `120`.
 
 All matches are paired: every deal (all three of them, in match mode) is

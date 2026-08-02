@@ -17,7 +17,7 @@ static Net *load_net(const char *path)
     return n;
 }
 
-enum { ROLLOUT_TAIL_FIELDS = 28 };
+enum { ROLLOUT_TAIL_FIELDS = 31 };
 
 static int valid_suit_group(int n)
 {
@@ -41,7 +41,7 @@ static void validate_rollout(const Agent *a, const char *label)
         (a->prune_dom == 0 || a->prune_dom == 1) &&
         isfinite(a->override_k) && a->override_k >= 0.0f &&
         isfinite(a->override_min) && a->override_min >= 0.0f &&
-        a->playout_sample >= 0 && a->playout_sample <= 3 &&
+        a->playout_sample >= 0 && a->playout_sample <= 4 &&
         valid_suit_group(a->symmetries) &&
         isfinite(a->cand_mass) && a->cand_mass >= 0.0f &&
         a->cand_mass <= 1.0f &&
@@ -58,7 +58,13 @@ static void validate_rollout(const Agent *a, const char *label)
         a->draw_variant_cores >= 0 && a->draw_variant_cores <= 2 &&
         a->draw_variant_deck_max >= 0 &&
         a->draw_variant_deck_max <= NCARD &&
-        a->policy_prefix_mode >= 0 && a->policy_prefix_mode <= 2;
+        a->policy_prefix_mode >= 0 && a->policy_prefix_mode <= 3 &&
+        isfinite(a->belief_alpha) && a->belief_alpha >= 0.0f &&
+        a->belief_alpha <= 5.0f &&
+        a->draw_root_deck_max >= 0 &&
+        a->draw_root_deck_max <= NCARD &&
+        a->draw_playout_deck_max >= 0 &&
+        a->draw_playout_deck_max <= NCARD;
     if (!valid) {
         fprintf(stderr, "agent '%s' has an invalid rollout configuration\n",
                 label);
@@ -116,6 +122,9 @@ static void parse_rollout_tail(const char *tail, Agent *a, const char *label)
         case 25: a->draw_variant_cores = atoi(v); break;
         case 26: a->draw_variant_deck_max = atoi(v); break;
         case 27: a->policy_prefix_mode = atoi(v); break;
+        case 28: a->belief_alpha = (float)atof(v); break;
+        case 29: a->draw_root_deck_max = atoi(v); break;
+        case 30: a->draw_playout_deck_max = atoi(v); break;
         }
         v = strtok_r(NULL, ":", &save);
     }
@@ -180,6 +189,14 @@ void spec_parse(const char *spec, Agent *a)
             if ((v = strtok_r(NULL, ":", &save))) a->symmetries = atoi(v);
             if ((v = strtok_r(NULL, ":", &save))) a->plan_deck_max = atoi(v);
             if ((v = strtok_r(NULL, ":", &save))) a->plan_block_gap = atoi(v);
+            if ((v = strtok_r(NULL, ":", &save)))
+                a->draw_root_deck_max = atoi(v);
+            if (a->draw_root_deck_max < 0 ||
+                a->draw_root_deck_max > NCARD) {
+                fprintf(stderr, "agent '%s' has an invalid root draw-planner "
+                                "threshold\n", spec);
+                exit(1);
+            }
         } else if (is_mcts) {
             if ((v = strtok_r(NULL, ":", &save))) a->dets = atoi(v);
             if ((v = strtok_r(NULL, ":", &save))) a->sims = atoi(v);

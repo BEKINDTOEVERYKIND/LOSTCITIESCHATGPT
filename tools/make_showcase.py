@@ -41,6 +41,14 @@ def actor_model_path(spec: str) -> Path:
     return repo_path(Path(fields[1]))
 
 
+def same_semantic_action(first: dict, second: dict) -> bool:
+    """Whether two rendered moves differ only in their draw source."""
+    return (
+        first.get("card") == second.get("card")
+        and first.get("act") == second.get("act")
+    )
+
+
 def paths_alias(first: Path, second: Path) -> bool:
     """Return whether two existing or prospective paths name one artifact."""
     try:
@@ -242,14 +250,35 @@ def main() -> None:
     if game.get("meta", {}).get("actor") != args.actor:
         raise RuntimeError("analyzer did not attest the requested actor spec")
 
+    actor_fields = args.actor.split(":")
     rollout_actor = args.actor.startswith(("rollout:", "rolloutu:"))
+    policy_actor = args.actor.startswith("policy:")
+    actor_draw_root_deck_max = 0
+    actor_draw_playout_deck_max = 0
+    try:
+        if rollout_actor and len(actor_fields) > 31:
+            actor_draw_root_deck_max = int(actor_fields[31])
+            if len(actor_fields) > 32:
+                actor_draw_playout_deck_max = int(actor_fields[32])
+        elif policy_actor and len(actor_fields) > 6:
+            actor_draw_root_deck_max = int(actor_fields[6])
+    except ValueError as exc:
+        raise RuntimeError("actor draw-planner threshold is invalid") from exc
     for ply in game["plies"]:
         if not ply["policy"]:
             raise RuntimeError(f"ply {ply['n']} has no policy diagnostics")
         if not rollout_actor and not same_move(ply["policy"][0], ply["move"]):
-            raise RuntimeError(
-                f"ply {ply['n']} is not the deterministic champion argmax"
+            actor_decision = ply.get("actor_decision", {})
+            planned_draw = (
+                actor_draw_root_deck_max > 0
+                and actor_decision.get("baseline_source")
+                    == "draw_source_planner"
+                and same_semantic_action(ply["policy"][0], ply["move"])
             )
+            if not planned_draw:
+                raise RuntimeError(
+                    f"ply {ply['n']} is not the deterministic champion argmax"
+                )
         actor_candidates = ply.get("actor_decision", {}).get("candidates", [])
         if rollout_actor and not (
             any(same_move(candidate, ply["move"]) for candidate in ply["policy"])
@@ -275,12 +304,11 @@ def main() -> None:
     actor_confirmation_worlds = None
     actor_root_width = None
     if rollout_actor:
-        fields = args.actor.split(":")
         try:
-            actor_worlds = int(fields[2])
-            actor_root_width = int(fields[3])
-            actor_search_from_round_ply = int(fields[7])
-            actor_confirmation_worlds = int(fields[21])
+            actor_worlds = int(actor_fields[2])
+            actor_root_width = int(actor_fields[3])
+            actor_search_from_round_ply = int(actor_fields[7])
+            actor_confirmation_worlds = int(actor_fields[21])
         except (IndexError, ValueError) as exc:
             raise RuntimeError("rollout actor spec is incomplete") from exc
         actor_method = "late_round_rollout_consensus"
@@ -289,6 +317,11 @@ def main() -> None:
             f"({actor_worlds}+{actor_confirmation_worlds} worlds, "
             f"top {actor_root_width})"
         )
+    if actor_draw_root_deck_max > 0:
+        actor_method += "_with_information_set_draw_repair"
+        actor_label += (
+            f" + root draw repair at deck ≤ {actor_draw_root_deck_max}"
+        )
     game["meta"].update(
         actor_label=actor_label,
         actor_method=actor_method,
@@ -296,6 +329,8 @@ def main() -> None:
         actor_worlds=actor_worlds,
         actor_confirmation_worlds=actor_confirmation_worlds,
         actor_root_width=actor_root_width,
+        actor_draw_root_deck_max=actor_draw_root_deck_max,
+        actor_draw_playout_deck_max=actor_draw_playout_deck_max,
         model_sha256=model_hash,
         model_path=str(Path(args.actor.split(":")[1])),
         selection="random_unfiltered",

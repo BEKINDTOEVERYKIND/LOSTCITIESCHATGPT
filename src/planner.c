@@ -1,5 +1,6 @@
 #include "planner.h"
 #include <limits.h>
+#include <math.h>
 #include <string.h>
 
 static int expedition_score(int n, int wagers, int sum)
@@ -209,4 +210,141 @@ int hand_plan_conservative_choose(
     int reduction = hand_plan_block_cost(st, p, mv[top].card)
                   - hand_plan_block_cost(st, p, mv[pick].card);
     return reduction >= minimum_block_reduction ? pick : -1;
+}
+
+double hand_plan_expected_score_after_move(const State *st, int p, Move move)
+{
+    State played = *st;
+    lc_apply_play(&played, move);
+
+    if (move.draw != 0) {
+        lc_apply_draw(&played, move, -1);
+        HandPlan plan;
+        hand_plan_build(&played, p, played.deck_left / 2, &plan);
+        return (double)plan.score;
+    }
+
+    /* From p's information set, each unpinned card is equally likely to be
+     * the next deck card under the uniform fixed-cardinality world model.
+     * Enumerating that support is exact and, unlike applying the real deck
+     * card from a determinization, cannot leak hidden information into a
+     * downstream action. */
+    uint8_t unseen[NCARD];
+    int nunseen = 0;
+    lc_unseen(&played, p, unseen, &nunseen);
+    if (nunseen <= 0) {
+        HandPlan plan;
+        hand_plan_build(&played, p, 0, &plan);
+        return (double)plan.score;
+    }
+
+    /* Enumerate subsets of the seven post-play cards once, then attach each
+     * possible draw.  Re-running the eight-card scheduler independently for
+     * every unseen card is equivalent but roughly an order of magnitude more
+     * expensive inside a many-world rollout. */
+    uint8_t hand[HAND_SIZE];
+    int nhand = lc_hand_cards(&played, p, hand);
+    int turns = played.deck_left > 0 ? (played.deck_left - 1) / 2 : 0;
+    if (turns > nhand + 1) turns = nhand + 1;
+    const unsigned limit = 1u << nhand;
+    int subset_score[1u << HAND_SIZE];
+    int subset_n[1u << HAND_SIZE][NSUIT];
+    int subset_wager[1u << HAND_SIZE][NSUIT];
+    int subset_sum[1u << HAND_SIZE][NSUIT];
+    unsigned char subset_valid[1u << HAND_SIZE];
+    int best_without = lc_score(&played, p);
+
+    for (unsigned subset = 0; subset < limit; subset++) {
+        int count = __builtin_popcount(subset);
+        int valid = count <= turns;
+        for (int s = 0; s < NSUIT; s++) {
+            subset_n[subset][s] = played.exp_n[p][s];
+            subset_wager[subset][s] = played.exp_wager[p][s];
+            subset_sum[subset][s] = played.exp_sum[p][s];
+        }
+        for (int i = 0; i < nhand && valid; i++) {
+            if (!((subset >> i) & 1u)) continue;
+            int c = hand[i], s = CARD_SUIT(c);
+            if ((CARD_IS_WAGER(c) && played.exp_top[p][s] != 0) ||
+                (!CARD_IS_WAGER(c) &&
+                 CARD_VALUE(c) <= played.exp_top[p][s])) {
+                valid = 0;
+                break;
+            }
+            subset_n[subset][s]++;
+            if (CARD_IS_WAGER(c)) subset_wager[subset][s]++;
+            else subset_sum[subset][s] += CARD_VALUE(c);
+        }
+        subset_valid[subset] = (unsigned char)valid;
+        int score = 0;
+        if (valid) {
+            for (int s = 0; s < NSUIT; s++)
+                score += expedition_score(subset_n[subset][s],
+                                          subset_wager[subset][s],
+                                          subset_sum[subset][s]);
+            if (score > best_without) best_without = score;
+        }
+        subset_score[subset] = score;
+    }
+
+    double total = 0.0;
+    for (int i = 0; i < nunseen; i++) {
+        int c = unseen[i], s = CARD_SUIT(c);
+        int best = best_without;
+        if ((CARD_IS_WAGER(c) && played.exp_top[p][s] == 0) ||
+            (!CARD_IS_WAGER(c) &&
+             CARD_VALUE(c) > played.exp_top[p][s])) {
+            for (unsigned subset = 0; subset < limit; subset++) {
+                if (!subset_valid[subset] ||
+                    __builtin_popcount(subset) >= turns)
+                    continue;
+                int before = expedition_score(subset_n[subset][s],
+                                              subset_wager[subset][s],
+                                              subset_sum[subset][s]);
+                int after = expedition_score(
+                    subset_n[subset][s] + 1,
+                    subset_wager[subset][s] + CARD_IS_WAGER(c),
+                    subset_sum[subset][s] +
+                        (CARD_IS_WAGER(c) ? 0 : CARD_VALUE(c)));
+                int score = subset_score[subset] - before + after;
+                if (score > best) best = score;
+            }
+        }
+        total += (double)best;
+    }
+    return total / (double)nunseen;
+}
+
+static int same_semantic_action(Move a, Move b)
+{
+    if (a.discard != b.discard) return 0;
+    if (CARD_IS_WAGER(a.card) && CARD_IS_WAGER(b.card))
+        return CARD_SUIT(a.card) == CARD_SUIT(b.card);
+    return a.card == b.card;
+}
+
+int hand_plan_choose_draw_source(const State *st, int p,
+                                 const Move *mv, const float *prior,
+                                 int n, int top)
+{
+    if (n <= 1 || top < 0 || top >= n) return top;
+    if (st->deck_left == 1) {
+        for (int i = 0; i < n; i++)
+            if (mv[i].draw == 0 &&
+                same_semantic_action(mv[i], mv[top]))
+                return i;
+    }
+
+    int best = top;
+    double best_score = hand_plan_expected_score_after_move(st, p, mv[top]);
+    for (int i = 0; i < n; i++) {
+        if (i == top || !same_semantic_action(mv[i], mv[top])) continue;
+        double score = hand_plan_expected_score_after_move(st, p, mv[i]);
+        if (score > best_score + 1e-12 ||
+            (fabs(score - best_score) <= 1e-12 && prior[i] > prior[best])) {
+            best = i;
+            best_score = score;
+        }
+    }
+    return best;
 }

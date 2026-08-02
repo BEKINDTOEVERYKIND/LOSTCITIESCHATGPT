@@ -144,6 +144,24 @@ int main(int argc, char **argv)
         printf("choice none\n");
     }
 
+    if (n > 0) {
+        Move top = mv[order[0]];
+        printf("top-action draw plans\n");
+        for (int k = 0; k < n; k++) {
+            int i = order[k];
+            int same = mv[i].discard == top.discard &&
+                ((CARD_IS_WAGER(mv[i].card) && CARD_IS_WAGER(top.card) &&
+                  CARD_SUIT(mv[i].card) == CARD_SUIT(top.card)) ||
+                 mv[i].card == top.card);
+            if (!same) continue;
+            char move[32];
+            lc_move_name(&st, mv[i], move);
+            printf("  %s prior %.6f expected-visible %.6f\n", move,
+                   prob[i], hand_plan_expected_score_after_move(
+                                &st, st.turn, mv[i]));
+        }
+    }
+
     int pickup = -1, pickup_score = -1000000;
     for (int i = 0; i < n; i++) {
         if (mv[i].draw == 0) continue;

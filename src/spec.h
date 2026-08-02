@@ -3,7 +3,8 @@
  *   random
  *   heur
  *   net:PATH[:draw_samples]
- *   policy:PATH[:temperature[:symmetries[:plan_deck_max[:plan_block_gap]]]]
+ *   policy:PATH[:temperature[:symmetries[:plan_deck_max[:plan_block_gap
+ *          [:draw_root_deck_max]]]]]
  *   hrollout[:worlds[:candidates]]     (no network: heuristic + PIMC)
  *   rollout:PATH[:worlds[:candidates[:policy_floor[:gate[:min_candidates
  *            [:ply_lo[:ply_hi[:eval_candidates[:objective[:prune
@@ -13,7 +14,8 @@
  *            [:playout_prune[:plan_deck_max[:plan_block_gap
  *            [:semantic_candidates[:confirm_exact5
  *            [:draw_variant_cores[:draw_variant_deck_max
- *            [:policy_prefix_mode]]]]]]]]]]]]]]]]]]]]]]]]]]]]
+ *            [:policy_prefix_mode[:belief_alpha[:draw_root_deck_max
+ *            [:draw_playout_deck_max]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]
  *                 objective: 0 margin; 1 final match result; 2 final hybrid
  *                 symmetries: 1, 5, 10, 20, or 120 exact suit relabellings
  *                 sample: continuation mode 0 exact-group argmax, 1 random-
@@ -23,8 +25,10 @@
  *                 playout_symmetries: suit group for continuations.  Mode 0
  *                   averages it exactly; modes 1/2 draw one group member per
  *                   decision; mode 3 draws one member per hidden world and
- *                   retains it for the full playout.  Mode 1 samples the
- *                   action; modes 2/3 take argmax (1, 5, 10, 20, or 120).
+ *                   retains it for the full playout; mode 4 assigns the two
+ *                   players separately stratified members, each fixed for
+ *                   the full playout.  Mode 1 samples the action; modes 2-4
+ *                   take argmax (1, 5, 10, 20, or 120).
  *                 discard_guard: block a questionable-discard challenger
  *                   without removing it from the audit (0 or 1)
  *                 deck_max: search only at or below this deck count (0 off)
@@ -33,11 +37,10 @@
  *                 playout_prune: continuation-only dead-discard focus;
  *                   -1 follows root prune, 0 disables, 1 enables.  This can
  *                   improve the world model without hiding root candidates.
- *                 plan_deck_max / plan_block_gap: enable the exact visible-
- *                   hand scheduler at or below this deck count; at the root,
- *                   require this much lower-card option preservation.  A
- *                   positive gap enables full schedule normalization inside
- *                   rollout continuations (0/0 disables both).
+ *                 plan_deck_max / plan_block_gap: enable visible-hand
+ *                   play-order scheduling.  At the root the gap is the
+ *                   required lower-card option preservation; inside rollouts
+ *                   a positive gap enables full schedule normalization.
  *                 semantic_candidates: add only targeted draw variants for
  *                   top policy actions and a one-sided-wager discard;
  *                   an early wager trigger compares only that move with the
@@ -52,8 +55,17 @@
  *                 policy_prefix_mode: 0 gates every override; 1 trusts the
  *                   numerical leader among ordinary policy-floor candidates;
  *                   2 additionally requires the same leader on a fresh,
- *                   balanced fixed-world-symmetry panel.  Added low-prior
+ *                   balanced fixed-world-symmetry panel; 3 uses that same
+ *                   consensus rule with independently stratified, coherent
+ *                   suit mappings for the two players.  Added low-prior
  *                   challengers always retain both statistical gates.
+ *                 belief_alpha: strength/temperature of the coherent
+ *                   fixed-cardinality opponent-hand posterior (default 1;
+ *                   0 is the exact uniform prior).
+ *                 draw_root_deck_max / draw_playout_deck_max: independently
+ *                   repair the chosen semantic action's draw source at the
+ *                   deployed root and inside rollout continuations.  Each
+ *                   threshold is 0 (off) or a remaining-deck count.
  *   rolloutu:PATH[...]                 (same, but uniform world sampling: the
  *                                       ablation for the learned hand beliefs)
  *   mcts:PATH[:dets[:sims[:root_width[:node_width[:symmetries]]]]]

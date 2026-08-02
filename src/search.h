@@ -40,6 +40,7 @@ typedef struct {
     int raw_best;           /* index of highest mean in mv/q                 */
     int policy_top;         /* index of the unmodified network-policy leader */
     int planned_baseline;   /* candidate zero came from the exact scheduler  */
+    int draw_planned_baseline; /* candidate zero's draw source was repaired */
     int deck_end_baseline;  /* candidate zero came from the one-card deck
                                dominance rule                                */
     int semantic_candidates; /* targeted non-prefix candidates actually added */

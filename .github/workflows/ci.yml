@@ -22,7 +22,7 @@ jobs:
             CFLAGS="-O2 -Wall -Wextra -Werror -std=c11"
       - name: C regression tests
         run: |
-          make test CC=${{ matrix.compiler }} \
+          make test bin/rl CC=${{ matrix.compiler }} \
             CFLAGS="-O2 -Wall -Wextra -Werror -std=c11"
       - name: C/Python parity
         run: python tools/referee.py --selftest data/champion.bin 424242 --dumpfeat bin/dumpfeat

@@ -36,9 +36,10 @@ $(BIN)/train: tools/train.c tools/train_target.h $(CORE) $(HDRS) | $(BIN)
 $(BIN)/bench: tools/bench.c $(CORE) $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
 
-test: $(BIN)/test_engine $(BIN)/test_runtime $(DATA)/champion.bin
+test: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/rl $(DATA)/champion.bin
 	./$(BIN)/test_engine
 	./$(BIN)/test_runtime
+	python3 -m unittest tests/test_rl_population.py
 
 audit-test: $(BIN)/qpair $(DATA)/champion.bin
 	python3 tools/audit_regression.py

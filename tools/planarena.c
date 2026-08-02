@@ -14,7 +14,7 @@
 #include <string.h>
 
 static Move policy_move(const Net *net, const State *st, int plan_deck_max,
-                        int minimum_block_reduction)
+                        int minimum_block_reduction, int draw_plan)
 {
     Move mv[MAX_MOVES];
     float prob[MAX_MOVES];
@@ -27,14 +27,19 @@ static Move policy_move(const Net *net, const State *st, int plan_deck_max,
             if (prob[order[j]] > prob[order[best]]) best = j;
         int tmp = order[i]; order[i] = order[best]; order[best] = tmp;
     }
-    if (plan_deck_max > 0 && st->deck_left <= plan_deck_max) {
-        int pick = hand_plan_conservative_choose(
+    int pick = order[0];
+    if (plan_deck_max > 0 && st->deck_left <= plan_deck_max &&
+        minimum_block_reduction > 0) {
+        int planned = hand_plan_conservative_choose(
             st, st->turn, mv, prob, order, n < 8 ? n : 8,
             (st->deck_left + 1) / 2, minimum_block_reduction);
-        if (pick >= 0)
-            return mv[pick];
+        if (planned >= 0) pick = planned;
     }
-    return mv[order[0]];
+    if (draw_plan && plan_deck_max > 0 &&
+        st->deck_left <= plan_deck_max)
+        pick = hand_plan_choose_draw_source(
+            st, st->turn, mv, prob, n, pick);
+    return mv[pick];
 }
 
 static void deal_from_rng(State *st, Rng *rng, int round,
@@ -65,7 +70,7 @@ static void make_match_decks(uint64_t seed, int pair, State out[MATCH_ROUNDS])
 
 static int play(const Net *net, const State deals[MATCH_ROUNDS],
                 int planner_seat, int plan_deck_max,
-                int minimum_block_reduction)
+                int minimum_block_reduction, int draw_plan, int round_mask)
 {
     int cum[2] = { 0, 0 };
     for (int r = 0; r < MATCH_ROUNDS; r++) {
@@ -73,9 +78,11 @@ static int play(const Net *net, const State deals[MATCH_ROUNDS],
         st.cum[0] = (int16_t)cum[0];
         st.cum[1] = (int16_t)cum[1];
         while (!st.over) {
-            int dmax = st.turn == planner_seat ? plan_deck_max : 0;
+            int dmax = st.turn == planner_seat &&
+                    ((round_mask >> r) & 1)
+                ? plan_deck_max : 0;
             lc_apply(&st, policy_move(net, &st, dmax,
-                                      minimum_block_reduction));
+                                      minimum_block_reduction, draw_plan));
         }
         cum[0] += lc_score(&st, 0);
         cum[1] += lc_score(&st, 1);
@@ -85,9 +92,10 @@ static int play(const Net *net, const State deals[MATCH_ROUNDS],
 
 int main(int argc, char **argv)
 {
-    if (argc < 2 || argc > 6) {
+    if (argc < 2 || argc > 8) {
         fprintf(stderr,
-                "usage: %s NET [pairs [seed [deck_max [block_gap]]]]\n",
+                "usage: %s NET [pairs [seed [deck_max [block_gap "
+                "[draw_plan [round_mask]]]]]]\n",
                 argv[0]);
         return 1;
     }
@@ -95,6 +103,14 @@ int main(int argc, char **argv)
     uint64_t seed = argc > 3 ? strtoull(argv[3], NULL, 10) : 20260730;
     int deck_max = argc > 4 ? atoi(argv[4]) : 16;
     int block_gap = argc > 5 ? atoi(argv[5]) : 8;
+    int draw_plan = argc > 6 ? atoi(argv[6]) : 0;
+    int round_mask = argc > 7 ? atoi(argv[7]) :
+        ((1 << MATCH_ROUNDS) - 1);
+    if (round_mask < 0 || round_mask >= (1 << MATCH_ROUNDS)) {
+        fprintf(stderr, "planarena: round_mask must be in [0,%d]\n",
+                (1 << MATCH_ROUNDS) - 1);
+        return 1;
+    }
     Net *net = malloc(sizeof *net);
     if (!net || net_load(net, argv[1])) {
         fprintf(stderr, "planarena: cannot load %s\n", argv[1]);
@@ -107,8 +123,10 @@ int main(int argc, char **argv)
     for (int g = 0; g < pairs; g++) {
         State deals[MATCH_ROUNDS];
         make_match_decks(seed, g, deals);
-        int a = play(net, deals, 0, deck_max, block_gap);
-        int b = play(net, deals, 1, deck_max, block_gap);
+        int a = play(net, deals, 0, deck_max, block_gap, draw_plan,
+                     round_mask);
+        int b = play(net, deals, 1, deck_max, block_gap, draw_plan,
+                     round_mask);
         double margin_pair = a + b;
         double score_pair = (a > 0 ? 1.0 : (a == 0 ? 0.5 : 0.0))
                           + (b > 0 ? 1.0 : (b == 0 ? 0.5 : 0.0));
@@ -126,8 +144,9 @@ int main(int argc, char **argv)
         ? (wsum2 - wsum * wsum / pairs) / (pairs - 1) : 0.0;
     if (var < 0.0) var = 0.0;
     if (wvar < 0.0) wvar = 0.0;
-    printf("planner deck<=%d block-gap>=%d vs exact-20 policy: "
-           "%d mirrored pairs\n", deck_max, block_gap, pairs);
+    printf("planner deck<=%d block-gap>=%d draw-plan=%d round-mask=%d "
+           "vs exact-20 policy: %d mirrored pairs\n", deck_max, block_gap,
+           draw_plan, round_mask, pairs);
     printf("margin/match %+.3f +- %.3f SE\n",
            mean / 2.0, sqrt(var / pairs) / 2.0);
     printf("match score %.3f%% +- %.3f%% SE  W-L-D %d-%d-%d\n",
