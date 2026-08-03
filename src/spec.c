@@ -17,7 +17,7 @@ static Net *load_net(const char *path)
     return n;
 }
 
-enum { ROLLOUT_TAIL_FIELDS = 35 };
+enum { ROLLOUT_TAIL_FIELDS = 40 };
 
 static int valid_suit_group(int n)
 {
@@ -73,7 +73,21 @@ static void validate_rollout(const Agent *a, const char *label)
         a->draw_playout_deck_max <= NCARD &&
         isfinite(a->confirm_temp) && a->confirm_temp >= 0.0f &&
         a->confirm_temp <= 5.0f &&
-        a->action_core_count >= 0 && a->action_core_count <= 5;
+        a->action_core_count >= 0 && a->action_core_count <= 5 &&
+        a->exact_terminal >= 0 && a->exact_terminal <= 3 &&
+        a->deck2_replan_worlds >= 0 && a->deck2_replan_worlds <= 4096 &&
+        a->deck2_replan_cores >= 0 && a->deck2_replan_cores <= 3 &&
+        ((a->deck2_replan_worlds == 0 && a->deck2_replan_cores == 0) ||
+         (a->deck2_replan_worlds > 0 && a->deck2_replan_cores > 0 &&
+          a->exact_terminal == 1 && a->no_belief)) &&
+        (a->bounded_late_root == 0 || a->bounded_late_root == 1) &&
+        isfinite(a->bounded_late_min) && a->bounded_late_min >= 0.0f &&
+        a->bounded_late_min <= 1000.0f &&
+        (!a->bounded_late_root ||
+         (a->exact_terminal == 1 && a->no_belief &&
+          a->deck2_replan_worlds == 0 && a->deck2_replan_cores == 0 &&
+          a->plan_deck_max == 0 && a->plan_block_gap == 0 &&
+          a->draw_root_deck_max == 0));
     if (!valid) {
         fprintf(stderr, "agent '%s' has an invalid rollout configuration\n",
                 label);
@@ -138,6 +152,11 @@ static void parse_rollout_tail(const char *tail, Agent *a, const char *label)
         case 32: a->prefix_confirm_min = (float)atof(v); break;
         case 33: a->confirm_temp = (float)atof(v); break;
         case 34: a->action_core_count = atoi(v); break;
+        case 35: a->exact_terminal = atoi(v); break;
+        case 36: a->deck2_replan_worlds = atoi(v); break;
+        case 37: a->deck2_replan_cores = atoi(v); break;
+        case 38: a->bounded_late_root = atoi(v); break;
+        case 39: a->bounded_late_min = (float)atof(v); break;
         }
         v = strtok_r(NULL, ":", &save);
     }

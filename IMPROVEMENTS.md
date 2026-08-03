@@ -78,9 +78,47 @@ take Yellow.”
   the repair inside every continuation was rejected: on 15 identical
   deal-pairs it lost `−11.37 ± 7.76` points and `−16.67 ± 9.34` match-score
   percentage points. The deployed continuation model is therefore unchanged.
-- With one deck card left, replace a pile draw by the deck draw after the same
-  action. Ending the round weakly dominates granting the opponent another
-  optional scoring turn.
+- Solve the complete one-card-deck decision exactly. Every legal semantic
+  play/discard action is paired with the deck draw, scored under the same
+  round/final-match objective as rollout, and compared without sampling. The
+  solver runs both at the real root and at the end of every simulated
+  continuation, so earlier stalling and ending decisions inherit optimal
+  final-turn play instead of exploiting a policy-network error. A controlled
+  policy-action terminal mode keeps real roots identical while preserving the
+  policy's simulated final action, allowing a direct propagation ablation. On
+  20 precommitted mirrored pairs, full propagation scored `+5.62 ± 6.74`
+  points and `52.5% ± 5.7%` match score against that control. This small screen
+  is positive but inconclusive rather than promotion-grade evidence. This is
+  exact-leaf propagation, not complete backward solution: live play remains
+  policy-only before round ply 14, a singleton shortlist performs no sampled
+  comparison, and ordinary deck-two/deck-three rollout intermediates use the
+  champion continuation before their exact one-card leaf. Every evaluated
+  candidate inherits the solved ending, but not every preceding stall state is
+  itself solved.
+- A separate 20-pair whole-actor screen against the raw exact-20 policy scored
+  `+17.45 ± 5.80` points per game and `60.0% ± 5.8%` match score. This is a
+  small, wide exploratory comparison of the complete maintained actor. It is
+  not an isolated exact-terminal or bounded-late-resolver ablation and is not
+  presented as component-level promotion evidence. Exact specifications,
+  seeds, aggregate results, and the limits of the retained provenance are in
+  [`data/experiments/locked_strength_screens.json`](data/experiments/locked_strength_screens.json).
+- Detect complete repeated continuation states once the deck has at most three
+  cards. The active detector hashes only the current mover's sanitized
+  information set: own hand, known-card guarantees, and the complete public
+  position. It never branches progress behavior on the sampled opponent hand
+  or future deck order. Interchangeable wager IDs are collapsed and the ply
+  counter is deliberately omitted so a public pile shuttle cannot evade
+  detection. On repetition the maintained greedy network is conditioned on
+  drawing from the deck, so its learned card/action×draw interaction—not the
+  unrestricted complete-move winner—chooses the action. Optional
+  sampled/planned actors and the propagation-control ablation retain their
+  selected semantic action. A deliberately pathological eight-ply pile
+  shuttle is a regression fixture. For a long non-repeating pile walk, the
+  last `deck_left` engine-fuse slots reserve one real deck draw apiece under
+  the same conditional policy. Any continuation that somehow remains
+  unfinished is counted, makes the search unresolved, and is forbidden from
+  authorizing a policy override. All work/failure counters are 64-bit, so an
+  extreme audit cannot wrap the fail-closed unfinished-leaf check through zero.
 - Added focused semantic rollout challengers rather than an exhaustive legal
   move scan: useful face-up pile draws attached to one of the top three
   card/disposition actions, and one one-sided isolated wager discard when the
@@ -207,7 +245,9 @@ take Yellow.”
   or rollout-search prefixes that its raw-policy likelihood cannot model, and
   hashes both checkpoints before accepting the recorded actor attribution.
 - Build all maintained tools from `make`; add cross-module regression tests
-  and GCC/Clang plus sanitizer CI.
+  and CI jobs for GCC, Clang, AddressSanitizer, and UndefinedBehaviorSanitizer.
+  Those workflow definitions are distinct from local validation: no local
+  Clang or LeakSanitizer run is claimed here.
 - Updated working defaults to `data/champion.bin`; interactive policy defaults
   use its 20-way suit ensemble.
 
@@ -289,7 +329,7 @@ The interactive match audit treats rollout as a post-hoc measurement
 instrument, not as a source of authoritative labels. Its exact default is:
 
 ```text
-rolloutu:data/champion.bin:2048:3:0.01:0:1:14:0:0:0:0:3.5:2:2:20:0:0:20:1:0:2048:1:0:0:0:0:0:0:2:1:0:0:2:1:0:3
+rolloutu:data/champion.bin:2048:5:0.01:0:1:14:0:0:0:0:3.5:2:2:20:0:0:20:1:0:2048:1:0:0:0:0:0:0:2:1:0:0:2:1:0:3:1:0:0:1
 ```
 
 - The actor, deals, and evaluator have independent deterministic RNG streams,
@@ -300,28 +340,122 @@ rolloutu:data/champion.bin:2048:3:0.01:0:1:14:0:0:0:0:3.5:2:2:20:0:0:20:1:0:2048
   ply-8 override, confirming that extra worlds do not repair the long-horizon
   continuation bias. This matches the live phase boundary selected by direct
   match play.
-- From that 15th action the audit first groups complete moves by semantic card/play-discard action,
-  then evaluates at most three distinct top-policy action cores with at least
-  1% aggregate prior. When three cores qualify, the three-slot budget leaves
-  no room for duplicate draw variants; spare slots may retain a strong draw
-  variant when fewer cores qualify. It does not scan every legal move or enable the planner and
-  semantic research tails.
-- The primary panel gives all candidates the same 2,048 uniform hidden worlds.
-  Each downstream decision draws one member of the 20-way suit group and takes
-  its greedy move, preserving a strong low-cost continuation instead of
-  sampling high-entropy policy actions.
+- From that 15th action the audit first groups complete moves by semantic
+  card/play-discard action, then admits at most three distinct top-policy
+  action cores with at least 1% aggregate prior. Its five total slots can also
+  retain two policy-supported draw alternatives for those cores. It still does
+  not scan every legal move or enable the broad planner/semantic research
+  tails.
+- Uniform-world outer panels at deck two or three now sample ordered
+  mover-view assignments without replacement, independently of whether the
+  recursive resolver is enabled. The primary, trusted-prefix-confirmation, and
+  challenger-confirmation domains each use their own deterministic order. A
+  2,048-world request exhausts one 90-assignment deck-two census and up to 990
+  deck-three assignments; public opponent-card knowledge can reduce either
+  support. Duplicate assignments no longer inflate the apparent sample size.
+  The maintained live actor requests 512 outer worlds (90 at deck two, 512
+  unique assignments from at-most-990 support at deck three); the deep audit
+  requests 2,048 and exhausts both supports. The maintained audit's historical
+  recursive-replan fields are both zero.
+- At an actual audit root with two or three deck cards, a separate bounded late
+  resolver exhausts the complete ordered mover-view support: at most 90 worlds
+  at deck two and 990 at deck three, with public knowledge reducing either
+  count. This support is independent of `deck2_replan_worlds`. The explicit
+  `bounded_late_root=1` audit flag enables the panel while both recursive fields
+  stay zero. Its separate `bounded_late_min=1` requires a greater-than-one-point
+  gain in both horizons without changing ordinary prefix confirmation. The
+  maintained actor leaves the flag and recursive fields at zero.
+- Root candidates remain policy-focused, but candidate zero is always the
+  literal global complete-move policy argmax even if its semantic core would
+  otherwise fall outside the shortlist. If a later state must progress through
+  the deck, its action cores are ranked by the policy conditional on a deck
+  draw. The evaluator does not choose an unrestricted argmax and then replace
+  its draw source.
+- The bounded panel carries each ordered particle through the stall sequence,
+  solves every deck-one leaf exactly, and improves only later information sets
+  belonging to the current root player. Nonterminal opponent information nodes
+  retain the frozen champion policy. It separately solves H=2 and H=4; a root
+  override requires the same complete move to win both horizons and to exceed
+  the configured practical-gain threshold in each. Once this bounded panel
+  completes, it is the authoritative gate at that audit root: an accepted
+  challenger is selected, while disagreement or insufficient gain retains the
+  literal policy candidate immediately. Retention is conservative, not a proof
+  that the policy is optimal. Only a panel unavailable before completion falls
+  back to the ordinary policy-focused evaluator; it does not enable the
+  historical recursive method.
+- The locked deck-three ply-42 probe is stable on G8+deck at H=2 and H=4 but is
+  rejected because its H=2 gain is only `+0.036`, below the one-point practical
+  gate. The locked deck-two ply-43 probe accepts playing B10 to the blue
+  expedition followed by the Yellow-pile draw at `+20.622` over the literal
+  policy baseline in both horizons. These are finite restricted-model
+  regressions, not claims of equilibrium play.
+- The older recursively redeterminized evaluator remains available only to
+  low-level experimental specs. It replans from the current mover's sanitized
+  information set, with a separate world/depth budget, information-set-safe
+  seeds, and top policy semantic cores. The maintained audit does not enable
+  it: a bounded-panel failure resumes the ordinary evaluator, and a completed
+  rejection returns candidate zero. Its recursive calls/worlds/evaluations,
+  root calls/worlds, caps, fallbacks, cache hits, cycles, depth, and stall-chain
+  counters must all remain zero in the tracked audit.
+- In those low-level recursive experiments, the actual selected path uses the
+  configured suit ensemble and up to three semantic cores. Hypothetical
+  descendants use one deterministic information-state-keyed group member and
+  their top core, with a strict shared work budget and low-world fallback. This
+  path stays regression-tested but no longer affects the maintained audit.
+- An all-depth exact-20 variant was attempted on both locked late probes, but
+  each run exceeded 25 minutes without completing and was stopped. It was
+  rejected as computationally impractical; no probe value or playing outcome
+  is claimed from those incomplete runs.
+- In low-level recursive experiments, each panel has a separate deterministic
+  public-information domain and cache. State/path/budget keys, mover-view node
+  seeds, low-world fallback, and explicit cycle closure prevent private-root
+  leakage or a compute limit from manufacturing a deck draw. No such cache or
+  redeterminization is active in the maintained audit.
+- The JSON/viewer exposes the bounded resolver's ordered support, H=2/H=4
+  values, stability, practical-gate result, frozen-opponent work, and whether it
+  was permitted to select. It separately exposes first-panel calls/worlds,
+  total replans/worlds, candidate evaluations, budget-cap hits, low-world
+  fallbacks, transposition hits, recursive cycle closures, maximum recursive
+  depth, and maximum stall chain for the historical evaluator. The compatibility
+  name remains `deck2_replan`, although both methods cover deck two and deck
+  three. Those historical counters are asserted to be zero in the maintained
+  audit. The bounded resolver remains audit-only: freezing the opponent and
+  using the champion policy inside upstream playouts makes it dynamically
+  inconsistent with re-rooted self-play. Making a completed root panel
+  authoritative removes contradictory fall-through, but does not repair that
+  upstream inconsistency. It is neither an equilibrium claim nor a promoted
+  actor component.
+- The tracked viewer now displays a deterministic match/build identifier. Its
+  generator validates and stages the standalone JSON and embedded payload
+  together, rolling back a partial install, and the undefined diagnostics
+  accumulator that caused a runtime stop was removed. These changes make a
+  stale or mismatched viewer artifact diagnosable instead of looking like the
+  newly generated match.
+- The primary panel gives all candidates the same requested set of up to 2,048
+  uniform hidden worlds; at a late root, the unique support census above is the
+  cap. Each downstream decision draws one member of the 20-way suit group and
+  takes its greedy move, preserving a strong low-cost continuation instead of
+  sampling high-entropy policy actions. The separately tested recursive method
+  may use a full ensemble on selected-path nodes and one deterministic group
+  member on hypothetical descendants, but that method is disabled here.
 - If the primary ordinary-prefix leader differs from the raw policy, a fresh
-  2,048-world panel assigns balanced suit mappings that remain fixed for each
-  complete hidden-world trajectory. Both panels must select the same leader,
-  and the fresh paired difference must exceed both two standard errors and one
-  objective point; otherwise the audit labels the result inconclusive and
-  falls back to the policy. This is a conservative review threshold, not proof
-  that the shared continuation model is unbiased.
+  panel requests up to 2,048 worlds and assigns balanced suit mappings that
+  remain fixed for each complete hidden-world trajectory; at a late root, its
+  own without-replacement support is the cap. The proposed move must
+  independently beat candidate zero by both two paired standard errors and one
+  objective point. The fresh panel may rank a statistically close alternative
+  improvement first: requiring the identical argmax made two good stalls
+  cancel each other and restore a clearly inferior deck-ending baseline. This
+  remains a conservative evidence threshold, not proof that the shared
+  continuation model is unbiased.
 - Hidden hands use the uniform card-count prior. The learned hand estimate is
   displayed separately and cannot bias Q.
 - Every reported Q has its own standard error plus a paired difference and
   paired SE against the policy reference. Root candidates are not removed by
-  continuation-only discard focus.
+  continuation-only discard focus. These SEs describe outer hidden-world
+  variation conditional on the deterministic searched policy; they neither
+  count a reused inner decision as fresh evidence nor include uncertainty over
+  alternative inner-search seeds.
 - Purposefully added low-prior component challengers, when explicitly enabled,
   retain the older 3.5-SE, practical-gap, and fresh-confirmation gates. The
   optional 16,384-world one-sided-wager probe and visible-hand planner are not
@@ -330,9 +464,11 @@ rolloutu:data/champion.bin:2048:3:0.01:0:1:14:0:0:0:0:3.5:2:2:20:0:0:20:1:0:2048
 The second human-reviewed match exposed the key distinction between variance
 and continuation-policy bias: simply increasing the world count made several
 bad conclusions more certain. The revised method therefore spends worlds only
-on distinct top-policy action cores, keeps policy actions greedy, separates
-the cheap and coherent continuation panels, and requires agreement before
-changing the move. On the locked 2,048-world audit, neither Green-5 action is
+on distinct top-policy action cores, keeps policy actions greedy, and separates
+the cheap and coherent continuation panels. A proposed correction must clear
+the fresh paired evidence and practical-effect gates against candidate zero;
+exact leader agreement is required only when those gates are disabled. On the
+earlier locked three-slot 2,048-world audit, neither Green-5 action is
 admitted at plies 29 or 31; ply 31 selects the clean R6 discard. At ply 36 the
 three candidates are exactly Y10/B10/W10 and B10 beats Y10 by `+2.27 ± 0.24`
 in discovery and `+1.95 ± 0.21` on the fresh panel. These are executable
@@ -689,10 +825,23 @@ parameter/gradient tying, pile-order distinguishability, v4-to-v6 migration,
 interaction-head isolation, model round trips, hybrid final-round utility,
 robust sampling, fixed-cardinality marginal/sampler agreement, exact
 joint truth scoring, hidden-state input scrubbing, exact policy-prefix
-selection, visible-hand planning and regret guards, raw-policy
-phase gating, final-deck dominance, perspective-scrubbed history inference,
-role-separated coherent continuation, opponent-population actor masking and
-seat balance, v6-only byte preservation, and one-versus-four-thread identity
+selection, visible-hand planning and regret guards, raw-policy phase gating,
+exact all-action-core final-turn solving at the root and inside continuations,
+semantic late-cycle equality, engine-fuse deck reserve, unique
+without-replacement late outer panels with replanning off, full deck-two and
+sampled deck-three recursive panels, globally allocated pile slots, exhaustive
+90/990 bounded-root support independent of the recursive cap, retention of the
+literal global policy argmax, deck-conditional forced-progress ranking, exact
+deck-one leaves, one-sided frozen-opponent continuation, H=2/H=4 consensus and
+practical-gain gating,
+information-set-safe node seeds and cycle progress, bounded multi-stall
+recursion, path-safe transposition reuse, policy fallback on budget/low-world
+limits, rejection of unfinished ply-cap leaves,
+perspective-scrubbed history inference, role-separated coherent continuation,
+opponent-population actor masking and seat balance, v6-only byte preservation,
+and one-versus-four-thread identity
 for both ordinary and rollout matches. The
-slow suite locks the reviewed W2, R2, Y2/W7, W3/W7, G5, B10/Y10, one-sided
-wager plies 59/61, final-deck ply 96, and discard-guard positions.
+regression suites lock the reviewed W2, R2, Y2/W7, W3/W7, G5, ply-36 B10/Y10,
+the rejected `+0.036` ply-42 candidate, the accepted `+20.622` ply-43 bounded
+consensus, one-sided wager plies 59/61, final-deck ply 96, and discard-guard
+positions.

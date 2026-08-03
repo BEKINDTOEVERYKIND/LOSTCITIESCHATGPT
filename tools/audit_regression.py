@@ -62,6 +62,22 @@ SEMANTIC_EVAL_SPEC = (
     "2:0:1.96:1:2:20:0.995:250:20:1:0:1000:1:16:12:1"
 )
 
+TERMINAL_PROPAGATION_SPEC = (
+    "rolloutu:data/champion.bin:2048:5:0.01:0:1:0:0:0:0:0:3.5:2:2:"
+    "20:0:0:20:1:0:2048:1:0:0:0:0:0:0:2:1:0:0:0:0:0:0:1"
+)
+
+AUDIT_EVAL_SPEC = (
+    "rolloutu:data/champion.bin:2048:5:0.01:0:1:14:0:0:0:0:3.5:2:2:"
+    "20:0:0:20:1:0:2048:1:0:0:0:0:0:0:2:1:0:0:2:1:0:3:1:0:0:1"
+)
+
+NO_RECURSIVE_REPLAN = (
+    "recursive late replans: 0 calls/0 worlds/0 evals/0 root calls/0 root "
+    "worlds/0 cap hits/0 low-world fallbacks/0 cache hits/0 cycle "
+    "closures/depth 0/stall 0"
+)
+
 
 @dataclass(frozen=True)
 class EvaluatorCase:
@@ -84,6 +100,84 @@ class EvaluatorCase:
 # random-symmetry/greedy world model, independent confirmation and structural
 # guard.  They are positions from the second human-reviewed UI match.
 EVALUATOR_CASES = (
+    EvaluatorCase(
+        "fresh viewer: long acyclic continuation reserves real deck ending",
+        "ui_seed209430960825253_p112.state",
+        2971210184314765554,
+        "R2 p deck",
+        evaluator=AUDIT_EVAL_SPEC,
+        exact_candidates=("R2 d deck", "G6 p deck", "R2 p deck"),
+        status_contains=(
+            "exact terminal leaves: 12288",
+            "unfinished cap leaves: 0",
+            "late cycle breaks: 1",
+            "cap reserve forces: 3",
+            NO_RECURSIVE_REPLAN,
+            "prefix_check: 2048 worlds, passed",
+        ),
+    ),
+    EvaluatorCase(
+        "deck 2: bounded horizons prefer the clean blue-pile stall",
+        "ui_seed95647345759839_p43.state",
+        20803021,
+        "B10 p Y",
+        evaluator=AUDIT_EVAL_SPEC,
+        exact_candidates=(
+            "B10 p deck", "B10 p Y", "Y10 p G", "G10 p deck",
+            "Y10 p deck",
+        ),
+        status_contains=(
+            "worlds: 90/90",
+            "exact terminal leaves: 2700",
+            "unfinished cap leaves: 0",
+            NO_RECURSIVE_REPLAN,
+            "bounded late resolver: completed; support 90; 5 candidates",
+            "H2 best 1 value -0.889 delta +20.622",
+            "H4 best 1 value -0.889 delta +20.622",
+            "horizons agree; practical gate 1.000; decision: "
+            "authoritative challenger override",
+        ),
+    ),
+    EvaluatorCase(
+        "deck 3: bounded weak challenger retains literal policy",
+        "ui_seed95647345759839_p42.state",
+        20803021,
+        "W8 p deck",
+        evaluator=AUDIT_EVAL_SPEC,
+        exact_candidates=(
+            "W8 p deck", "G8 p deck", "W8 p G", "G8 p Y",
+            "W10 p deck",
+        ),
+        status_contains=(
+            "worlds: 990/990",
+            "exact terminal leaves: 110752",
+            "unfinished cap leaves: 0",
+            NO_RECURSIVE_REPLAN,
+            "bounded late resolver: completed; support 990; 5 candidates",
+            "delta +0.036",
+            "delta +1.091",
+            "horizons agree; practical gate 1.000; decision: "
+            "authoritative policy retention "
+            "(challenger below practical-gain gate)",
+        ),
+    ),
+    EvaluatorCase(
+        "deck 2: exact final response propagates into the stall decision",
+        "ui_seed95647345759839_p43.state",
+        8877001,
+        "Y10 p G",
+        evaluator=TERMINAL_PROPAGATION_SPEC,
+        exact_candidates=(
+            "B10 p deck", "B10 p Y", "Y10 p G", "Y10 p W", "B10 p G",
+        ),
+        status_contains=(
+            "worlds: 90/90",
+            "exact terminal leaves: 900",
+            NO_RECURSIVE_REPLAN,
+            "prefix fresh evidence: +19.",
+            "prefix_check: 90 worlds, passed",
+        ),
+    ),
     EvaluatorCase(
         "ply 16: weak wager challenger remains inconclusive",
         "ui_seed2214615196_p16.state",
@@ -239,7 +333,9 @@ def run_evaluator_case(case: EvaluatorCase) -> None:
         line for line in result.stdout.splitlines()
         if line and not line.startswith(("position:", "hand:", "rollout ",
                                          "worlds:", "candidate",
-                                         "prefix fresh evidence:"))
+                                         "prefix fresh evidence:",
+                                         "bounded late resolver:", "  H2 ",
+                                         "  bounded "))
     ]
     selected = [
         line for line in rows

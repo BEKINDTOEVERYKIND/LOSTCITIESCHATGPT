@@ -161,6 +161,10 @@ static int search_guard_blocked(const SearchStats *ss)
 
 static const char *search_status(const SearchStats *ss, Move recommended)
 {
+    if (ss->late_resolver_used)
+        return ss->late_resolver_override
+            ? "bounded_late_challenger_override"
+            : "bounded_late_policy_retained";
     if (ss->worlds == 0) {
         if (ss->skip_reason == SEARCH_SKIP_FORCED)
             return "forced_move";
@@ -173,7 +177,7 @@ static const char *search_status(const SearchStats *ss, Move recommended)
         if (ss->skip_reason == SEARCH_SKIP_VISIBLE_PLAN)
             return "selected_by_visible_plan";
         if (ss->skip_reason == SEARCH_SKIP_LAST_DECK)
-            return "selected_by_last_deck_rule";
+            return "selected_by_exact_terminal";
         return "skipped_policy_confidence";
     }
     if (ss->confirmed && ss->n > 0 &&
@@ -199,10 +203,12 @@ static const char *search_status(const SearchStats *ss, Move recommended)
 
 static const char *search_metric(const SearchStats *ss)
 {
+    if (ss->late_resolver_used)
+        return "bounded_late_particle_objective";
     switch (ss->metric_kind) {
     case SEARCH_METRIC_NETWORK_VALUE: return "network_state_value";
     case SEARCH_METRIC_VISIBLE_PLAN: return "visible_hand_guarantee";
-    case SEARCH_METRIC_LAST_DECK_RULE: return "last_deck_rule";
+    case SEARCH_METRIC_LAST_DECK_RULE: return "exact_terminal_objective";
     default: return "rollout_objective";
     }
 }
@@ -272,10 +278,102 @@ static void j_search_rows(FILE *fp, const SearchStats *ss, Move played,
                     ? "true" : "false",
                 ss->csupported[k] ? "true" : "false",
                 ss->guard_rejected[k] ? "true" : "false");
+        if (ss->late_resolver_used && k < 6)
+            fprintf(fp, ",\"bounded_h2_q\":%.6f,\"bounded_h4_q\":%.6f",
+                    ss->late_resolver_h2_q[k],
+                    ss->late_resolver_h4_q[k]);
         if (ss->qw[k] >= 0.0) fprintf(fp, ",\"qw\":%.3f", ss->qw[k]);
         fputc('}', fp);
     }
     fputc(']', fp);
+}
+
+static const char *late_selection_reason(const SearchStats *ss)
+{
+    if (!ss->late_resolver_attempted) return "not_attempted";
+    if (!ss->late_resolver_completed || !ss->late_resolver_used)
+        return "unavailable";
+    if (ss->late_resolver_override) return "challenger_override";
+    if (ss->late_resolver_h2_best == 0 &&
+        ss->late_resolver_h4_best == 0)
+        return "baseline_best";
+    if (!ss->late_resolver_stable ||
+        ss->late_resolver_h2_best != ss->late_resolver_h4_best)
+        return "horizon_disagreement";
+    return "below_practical_gain";
+}
+
+static void j_late_resolver(FILE *fp, const SearchStats *ss, int enabled)
+{
+    fprintf(fp,
+            "{\"enabled\":%s,\"attempted\":%s,\"completed\":%s,"
+            "\"method\":\"one_sided_bounded_particle_policy_improvement\","
+            "\"used_to_select\":%s,\"stable\":%s,"
+            "\"retained_policy\":%s,\"override_authorized\":%s,"
+            "\"practical_gate_passed\":%s,"
+            "\"practical_threshold\":%.9f,"
+            "\"selection_reason\":\"%s\",\"support\":%d,"
+            "\"candidate_count\":%d,"
+            "\"opponent_continuation\":"
+            "\"frozen_champion_policy_with_exact_terminal_response\","
+            "\"scope\":\"root_player_future_information_sets\","
+            "\"horizon2\":{\"best_index\":%d,\"value\":%.9f,"
+            "\"delta_vs_policy\":%.9f,\"nodes\":%llu,"
+            "\"improved_root_nodes\":%llu,"
+            "\"frozen_opponent_nodes\":%llu,"
+            "\"transitions\":%llu,\"deviation_evaluations\":%llu,"
+            "\"exact_terminal_leaves\":%llu},"
+            "\"horizon4\":{\"best_index\":%d,\"value\":%.9f,"
+            "\"delta_vs_policy\":%.9f,\"nodes\":%llu,"
+            "\"improved_root_nodes\":%llu,"
+            "\"frozen_opponent_nodes\":%llu,"
+            "\"transitions\":%llu,\"deviation_evaluations\":%llu,"
+            "\"exact_terminal_leaves\":%llu},\"candidates\":[",
+            enabled ? "true" : "false",
+            ss->late_resolver_attempted ? "true" : "false",
+            ss->late_resolver_completed ? "true" : "false",
+            ss->late_resolver_used ? "true" : "false",
+            ss->late_resolver_stable ? "true" : "false",
+            ss->late_resolver_retained ? "true" : "false",
+            ss->late_resolver_override ? "true" : "false",
+            ss->late_resolver_override ? "true" : "false",
+            ss->late_resolver_practical_min,
+            late_selection_reason(ss),
+            ss->late_resolver_support,
+            ss->late_resolver_candidates,
+            ss->late_resolver_h2_best,
+            ss->late_resolver_h2_value,
+            ss->late_resolver_h2_delta,
+            (unsigned long long)ss->late_resolver_h2_nodes,
+            (unsigned long long)ss->late_resolver_h2_root_nodes,
+            (unsigned long long)ss->late_resolver_h2_frozen_opponent_nodes,
+            (unsigned long long)ss->late_resolver_h2_transitions,
+            (unsigned long long)ss->late_resolver_h2_deviation_evals,
+            (unsigned long long)ss->late_resolver_h2_exact_leaves,
+            ss->late_resolver_h4_best,
+            ss->late_resolver_h4_value,
+            ss->late_resolver_h4_delta,
+            (unsigned long long)ss->late_resolver_h4_nodes,
+            (unsigned long long)ss->late_resolver_h4_root_nodes,
+            (unsigned long long)ss->late_resolver_h4_frozen_opponent_nodes,
+            (unsigned long long)ss->late_resolver_h4_transitions,
+            (unsigned long long)ss->late_resolver_h4_deviation_evals,
+            (unsigned long long)ss->late_resolver_h4_exact_leaves);
+    for (int i = 0; i < ss->late_resolver_candidates && i < 6; i++) {
+        if (i) fputc(',', fp);
+        j_move_open(fp, ss->late_resolver_candidate[i]);
+        fprintf(fp,
+                ",\"policy_prob\":%.9f,\"horizon2_q\":%.9f,"
+                "\"horizon4_q\":%.9f,\"policy_baseline\":%s,"
+                "\"horizon2_best\":%s,\"horizon4_best\":%s}",
+                ss->late_resolver_prior[i],
+                ss->late_resolver_h2_q[i],
+                ss->late_resolver_h4_q[i],
+                i == 0 ? "true" : "false",
+                i == ss->late_resolver_h2_best ? "true" : "false",
+                i == ss->late_resolver_h4_best ? "true" : "false");
+    }
+    fputs("]}", fp);
 }
 
 static uint64_t mix64(uint64_t x)
@@ -506,6 +604,24 @@ int main(int argc, char **argv)
         fprintf(pf, ",\"actor_decision\":{\"method\":\"%s\","
                     "\"used_to_choose\":%s,\"searched\":%s,"
                     "\"status\":\"%s\",\"worlds\":%d,\"max_worlds\":%d,"
+                    "\"exact_terminal\":{\"enabled\":%s,"
+                    "\"continuation_enabled\":%s,\"mode\":\"%s\","
+                    "\"continuation_leaves\":%llu},"
+                    "\"deck2_replan\":{\"enabled\":%s,"
+                    "\"method\":\"recursive_deck_2_to_3\","
+                    "\"configured_worlds\":%d,\"configured_cores\":%d,"
+                    "\"calls\":%llu,\"worlds\":%llu,"
+                    "\"root_calls\":%llu,\"root_worlds\":%llu,"
+                    "\"candidate_evaluations\":%llu,"
+                    "\"budget_cap_hits\":%llu,"
+                    "\"low_world_fallbacks\":%llu,"
+                    "\"transposition_hits\":%llu,"
+                    "\"recursive_cycle_closures\":%llu,"
+                    "\"max_recursive_depth\":%llu,"
+                    "\"max_stall_chain\":%llu,"
+                    "\"cycle_breaks\":%llu,"
+                    "\"cap_reserve_forces\":%llu,"
+                    "\"unfinished_continuation_leaves\":%llu},"
                     "\"overrode_policy\":%s,\"root_width\":%d,"
                     "\"policy_mass\":%.6f,\"target_policy_mass\":%.6f,"
                     "\"policy_floor\":%.6f,\"min_candidates\":%d,"
@@ -548,6 +664,51 @@ int main(int argc, char **argv)
                     ? search_status(&actor_ss, played) : "policy_argmax",
                 actor.kind == AG_ROLLOUT ? actor_ss.worlds : 0,
                 actor.kind == AG_ROLLOUT ? actor_ss.max_worlds : 0,
+                actor.kind == AG_ROLLOUT && actor.exact_terminal
+                    ? "true" : "false",
+                actor.kind == AG_ROLLOUT && actor.exact_terminal == 1
+                    ? "true" : "false",
+                actor.kind != AG_ROLLOUT || actor.exact_terminal == 0
+                    ? "off" : (actor.exact_terminal == 1
+                        ? "root_and_continuations"
+                        : (actor.exact_terminal == 2
+                            ? "root_only"
+                            : "policy_action_terminal_control")),
+                (unsigned long long)(actor.kind == AG_ROLLOUT
+                    ? actor_ss.exact_terminal_leaves : 0),
+                actor.kind == AG_ROLLOUT &&
+                        actor.deck2_replan_worlds > 0
+                    ? "true" : "false",
+                actor.kind == AG_ROLLOUT ? actor.deck2_replan_worlds : 0,
+                actor.kind == AG_ROLLOUT ? actor.deck2_replan_cores : 0,
+                (unsigned long long)(actor.kind == AG_ROLLOUT
+                    ? actor_ss.deck2_replans : 0),
+                (unsigned long long)(actor.kind == AG_ROLLOUT
+                    ? actor_ss.deck2_replan_worlds : 0),
+                (unsigned long long)(actor.kind == AG_ROLLOUT
+                    ? actor_ss.deck2_replan_root_calls : 0),
+                (unsigned long long)(actor.kind == AG_ROLLOUT
+                    ? actor_ss.deck2_replan_root_worlds : 0),
+                (unsigned long long)(actor.kind == AG_ROLLOUT
+                    ? actor_ss.deck2_replan_evals : 0),
+                (unsigned long long)(actor.kind == AG_ROLLOUT
+                    ? actor_ss.deck2_replan_cap_hits : 0),
+                (unsigned long long)(actor.kind == AG_ROLLOUT
+                    ? actor_ss.deck2_replan_low_world_fallbacks : 0),
+                (unsigned long long)(actor.kind == AG_ROLLOUT
+                    ? actor_ss.deck2_replan_cache_hits : 0),
+                (unsigned long long)(actor.kind == AG_ROLLOUT
+                    ? actor_ss.deck2_replan_cycle_closures : 0),
+                (unsigned long long)(actor.kind == AG_ROLLOUT
+                    ? actor_ss.deck2_replan_max_depth : 0),
+                (unsigned long long)(actor.kind == AG_ROLLOUT
+                    ? actor_ss.deck2_replan_max_stall_chain : 0),
+                (unsigned long long)(actor.kind == AG_ROLLOUT
+                    ? actor_ss.cycle_breaks : 0),
+                (unsigned long long)(actor.kind == AG_ROLLOUT
+                    ? actor_ss.cap_reserve_forces : 0),
+                (unsigned long long)(actor.kind == AG_ROLLOUT
+                    ? actor_ss.unfinished_cap_leaves : 0),
                 !move_eq(actor_policy_move, played) ? "true" : "false",
                 actor.kind == AG_ROLLOUT ? actor.root_width : 1,
                 actor.kind == AG_ROLLOUT ? actor_ss.policy_mass
@@ -577,7 +738,7 @@ int main(int argc, char **argv)
                     ? "visible_hand_scheduler"
                     : (actor.kind == AG_ROLLOUT &&
                        actor_ss.deck_end_baseline
-                        ? "last_deck_dominance"
+                        ? "exact_terminal_solver"
                         : (actor_draw_baseline
                             ? "draw_source_planner" : "network_policy")),
                 actor.kind == AG_ROLLOUT ? actor.plan_deck_max : 0,
@@ -641,11 +802,33 @@ int main(int argc, char **argv)
             j_search_rows(pf, &actor_ss, played, played);
         else
             fputs("[]", pf);
+        fputs(",\"late_resolver\":", pf);
+        j_late_resolver(
+            pf, &actor_ss,
+            actor.kind == AG_ROLLOUT && actor.bounded_late_root);
         fputc('}', pf);
 
         fprintf(pf, ",\"actor_value\":%.3f,"
                     "\"analysis\":{\"kind\":\"posthoc_rollout\","
                     "\"objective\":\"%s\",\"worlds\":%d,\"max_worlds\":%d,"
+                    "\"exact_terminal\":{\"enabled\":%s,"
+                    "\"continuation_enabled\":%s,\"mode\":\"%s\","
+                    "\"continuation_leaves\":%llu},"
+                    "\"deck2_replan\":{\"enabled\":%s,"
+                    "\"method\":\"recursive_deck_2_to_3\","
+                    "\"configured_worlds\":%d,\"configured_cores\":%d,"
+                    "\"calls\":%llu,\"worlds\":%llu,"
+                    "\"root_calls\":%llu,\"root_worlds\":%llu,"
+                    "\"candidate_evaluations\":%llu,"
+                    "\"budget_cap_hits\":%llu,"
+                    "\"low_world_fallbacks\":%llu,"
+                    "\"transposition_hits\":%llu,"
+                    "\"recursive_cycle_closures\":%llu,"
+                    "\"max_recursive_depth\":%llu,"
+                    "\"max_stall_chain\":%llu,"
+                    "\"cycle_breaks\":%llu,"
+                    "\"cap_reserve_forces\":%llu,"
+                    "\"unfinished_continuation_leaves\":%llu},"
                     "\"used_to_choose\":false,\"searched\":%s,"
                     "\"status\":\"%s\",\"resolved\":%s,"
                     "\"confidence_guard_se\":%.3f,"
@@ -686,13 +869,40 @@ int main(int argc, char **argv)
                     "\"baseline_source\":\"%s\","
                     "\"confirmation\":{\"required\":%s,"
                     "\"passed\":%s,\"worlds\":%d,\"configured_worlds\":%d,"
-                    "\"continuation\":\"%s\"}}",
+                    "\"continuation\":\"%s\"}",
                 pv,
                 rd == MATCH_ROUNDS - 1 && evaluator.win_q == 2
                     ? "final_hybrid"
                     : (rd == MATCH_ROUNDS - 1 && evaluator.win_q == 1
                         ? "final_result" : "round_margin"),
-                ss.worlds, ss.max_worlds, ss.worlds > 0 ? "true" : "false",
+                ss.worlds, ss.max_worlds,
+                evaluator.exact_terminal ? "true" : "false",
+                evaluator.exact_terminal == 1 ? "true" : "false",
+                evaluator.exact_terminal == 0
+                    ? "off" : (evaluator.exact_terminal == 1
+                        ? "root_and_continuations"
+                        : (evaluator.exact_terminal == 2
+                            ? "root_only"
+                            : "policy_action_terminal_control")),
+                (unsigned long long)ss.exact_terminal_leaves,
+                evaluator.deck2_replan_worlds > 0 ? "true" : "false",
+                evaluator.deck2_replan_worlds,
+                evaluator.deck2_replan_cores,
+                (unsigned long long)ss.deck2_replans,
+                (unsigned long long)ss.deck2_replan_worlds,
+                (unsigned long long)ss.deck2_replan_root_calls,
+                (unsigned long long)ss.deck2_replan_root_worlds,
+                (unsigned long long)ss.deck2_replan_evals,
+                (unsigned long long)ss.deck2_replan_cap_hits,
+                (unsigned long long)ss.deck2_replan_low_world_fallbacks,
+                (unsigned long long)ss.deck2_replan_cache_hits,
+                (unsigned long long)ss.deck2_replan_cycle_closures,
+                (unsigned long long)ss.deck2_replan_max_depth,
+                (unsigned long long)ss.deck2_replan_max_stall_chain,
+                (unsigned long long)ss.cycle_breaks,
+                (unsigned long long)ss.cap_reserve_forces,
+                (unsigned long long)ss.unfinished_cap_leaves,
+                ss.worlds > 0 ? "true" : "false",
                 analysis_status, ss.resolved ? "true" : "false",
                 evaluator.override_k > 3.5f ? evaluator.override_k : 3.5f,
                 evaluator.override_min, ss.policy_mass, evaluator.cand_mass,
@@ -768,7 +978,7 @@ int main(int argc, char **argv)
                 ss.planned_baseline
                     ? "visible_hand_scheduler"
                     : (ss.deck_end_baseline
-                        ? "last_deck_dominance"
+                        ? "exact_terminal_solver"
                         : (ss.draw_planned_baseline
                             ? "draw_source_planner" : "network_policy")),
                 evaluator.override_k > 0.0f ? "true" : "false",
@@ -781,6 +991,9 @@ int main(int argc, char **argv)
                         : (evaluator.playout_sample == 4
                             ? "role_fixed_world_symmetry_argmax"
                             : "random_symmetry_argmax")));
+        fputs(",\"late_resolver\":", pf);
+        j_late_resolver(pf, &ss, evaluator.bounded_late_root);
+        fputc('}', pf);
 
         /* the card that will be drawn: read before lc_apply */
         int drawn = played.draw == 0 ? st.deck[st.deck_pos]
@@ -805,8 +1018,17 @@ int main(int argc, char **argv)
     j_string(stdout, actor_spec);
     printf(",\"evaluator\":");
     j_string(stdout, eval_spec);
-    printf(",\"belief_alpha\":%.9g,\"belief_symmetries\":%d,"
+    printf(",\"actor_bounded_late_root\":%s,"
+           "\"evaluator_bounded_late_root\":%s,"
+           "\"actor_bounded_late_min\":%.6f,"
+           "\"evaluator_bounded_late_min\":%.6f,"
+           "\"belief_alpha\":%.9g,\"belief_symmetries\":%d,"
            "\"seed\":%llu,\"plies\":%d,\"rounds\":%d,\"round_scores\":[",
+           actor.kind == AG_ROLLOUT && actor.bounded_late_root
+               ? "true" : "false",
+           evaluator.bounded_late_root ? "true" : "false",
+           actor.bounded_late_min,
+           evaluator.bounded_late_min,
            belief_alpha, belief_symmetries,
            (unsigned long long)seed, ply, rounds);
     for (int rd = 0; rd < rounds; rd++)

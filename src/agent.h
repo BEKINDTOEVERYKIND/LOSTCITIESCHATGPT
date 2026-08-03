@@ -52,6 +52,27 @@ typedef struct Agent {
                               in a five-candidate budget for at most one safe
                               policy-floor draw alternative per core.  0 keeps
                               complete-move policy ranking. */
+    int exact_terminal; /* AG_ROLLOUT terminal mode: 1 solves one-card-deck
+                           decisions at the root and inside continuations
+                           (default); 2 is a root-only propagation ablation;
+                           3 solves the real root but preserves the ordinary
+                           continuation policy's card/action at simulated
+                           one-card leaves, forcing only its deck draw.  0
+                           disables both only for low-level regression. */
+    int deck2_replan_worlds; /* AG_ROLLOUT: fresh information-set worlds used
+                                by bounded recursive replanning whenever a
+                                continuation reaches two or three deck cards
+                                (0 disables the method). */
+    int deck2_replan_cores;  /* AG_ROLLOUT: top policy semantic card/action
+                                cores admitted by that replan (1-3 when on). */
+    int bounded_late_root; /* AG_ROLLOUT: at a real two- or three-card-deck
+                              information state, run the separate exhaustive
+                              ordered-support H2/H4 resolver (0/1).  This is
+                              deliberately independent of the historical
+                              recursively redeterminized continuation replan. */
+    float bounded_late_min; /* practical objective gain required in both
+                               bounded horizons before a challenger may
+                               replace the literal policy baseline */
     int semantic_cand;  /* AG_ROLLOUT: add at most one useful pile pickup for
                            each of a top policy play/discard action, plus one
                            isolated one-sided-wager discard (0/1); these are

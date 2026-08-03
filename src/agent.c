@@ -47,6 +47,11 @@ void agent_default(Agent *a, AgentKind k, const Net *net)
     a->draw_playout_deck_max = 0;
     a->confirm_temp = 0.0f;
     a->action_core_count = 0;
+    a->exact_terminal = 1;
+    a->deck2_replan_worlds = 0;
+    a->deck2_replan_cores = 0;
+    a->bounded_late_root = 0;
+    a->bounded_late_min = 1.0f;
     switch (k) {
     case AG_RANDOM: a->name = "random"; break;
     case AG_HEUR:   a->name = "heuristic"; break;

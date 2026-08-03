@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "aggregate_strength_screen_provenance",
+  "model": {
+    "path": "data/champion.bin",
+    "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417"
+  },
+  "shared_design": {
+    "rounds_per_game": 3,
+    "mirrored_deals": true,
+    "games_per_pair": 2,
+    "uncertainty_unit": "mirrored_deal_pair",
+    "standard_error_method": "sample standard error over pair aggregates"
+  },
+  "limitations": [
+    "Only aggregate output was retained; raw per-pair outcomes are unavailable.",
+    "The original shell invocations and thread counts were not retained. The commands below are deterministic reproduction commands reconstructed from the recorded agent specifications, seeds, pair counts, and round counts.",
+    "The exact source revision or dirty-worktree identity used for these runs was not retained.",
+    "Both results are small screening experiments, not promotion-grade evidence."
+  ],
+  "experiments": [
+    {
+      "id": "maintained_actor_vs_exact20_policy_seed_15641041833556258337",
+      "evidence_level": "screening_only",
+      "agents": {
+        "a": {
+          "label": "maintained rollout actor with exact terminal propagation",
+          "spec": "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:2:20:0:0:20:1:0:512:1:0:0:0:0:0:0:2:1:0:0:0:0:0:0:1:0:0:0:1"
+        },
+        "b": {
+          "label": "raw exact-20 policy",
+          "spec": "policy:data/champion.bin:0:20"
+        }
+      },
+      "design": {
+        "seed": "15641041833556258337",
+        "pairs": 20,
+        "games": 40,
+        "rounds": 3,
+        "historical_thread_count": null
+      },
+      "aggregate_result_for_a": {
+        "margin_per_game": 17.45,
+        "margin_pair_clustered_se": 5.80,
+        "wins": 24,
+        "losses": 16,
+        "draws": 0,
+        "match_score": 0.600,
+        "match_score_pair_clustered_se": 0.058,
+        "points_per_game_a": 115.6,
+        "points_per_game_b": 98.2
+      },
+      "provenance": {
+        "raw_pair_outcomes_retained": false,
+        "original_command_retained": false,
+        "source_revision_retained": false,
+        "reproduction_command": "./bin/arena -a 'rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:2:20:0:0:20:1:0:512:1:0:0:0:0:0:0:2:1:0:0:0:0:0:0:1:0:0:0:1' -b 'policy:data/champion.bin:0:20' -n 20 -t 4 -s 15641041833556258337 -r 3"
+      },
+      "interpretation": "Positive whole-actor screen with wide uncertainty. It bundles every maintained actor component and does not isolate exact terminal propagation or bounded late resolving."
+    },
+    {
+      "id": "exact_terminal_propagation_vs_policy_action_control_seed_20803011",
+      "evidence_level": "screening_only",
+      "agents": {
+        "a": {
+          "label": "maintained rollout actor with exact terminal propagation",
+          "spec": "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:2:20:0:0:20:1:0:512:1:0:0:0:0:0:0:2:1:0:0:0:0:0:0:1:0:0:0:1"
+        },
+        "b": {
+          "label": "policy-action terminal propagation control",
+          "spec": "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:2:20:0:0:20:1:0:512:1:0:0:0:0:0:0:2:1:0:0:0:0:0:0:3:0:0:0:1"
+        }
+      },
+      "design": {
+        "seed": "20803011",
+        "pairs": 20,
+        "games": 40,
+        "rounds": 3,
+        "historical_thread_count": null
+      },
+      "aggregate_result_for_a": {
+        "margin_per_game": 5.62,
+        "margin_pair_clustered_se": 6.74,
+        "wins": null,
+        "losses": null,
+        "draws": null,
+        "match_score": 0.525,
+        "match_score_pair_clustered_se": 0.057,
+        "points_per_game_a": null,
+        "points_per_game_b": null
+      },
+      "provenance": {
+        "raw_pair_outcomes_retained": false,
+        "original_command_retained": false,
+        "source_revision_retained": false,
+        "reproduction_command": "./bin/arena -a 'rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:2:20:0:0:20:1:0:512:1:0:0:0:0:0:0:2:1:0:0:0:0:0:0:1:0:0:0:1' -b 'rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:2:20:0:0:20:1:0:512:1:0:0:0:0:0:0:2:1:0:0:0:0:0:0:3:0:0:0:1' -n 20 -t 4 -s 20803011 -r 3"
+      },
+      "interpretation": "Directionally positive but inconclusive propagation ablation. The historical W/L/D split and average points were not retained and are intentionally null rather than inferred from the rounded match score."
+    }
+  ]
+}

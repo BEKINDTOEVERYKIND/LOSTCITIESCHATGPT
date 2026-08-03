@@ -11,8 +11,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
+import re
 import shutil
 import stat
 import subprocess
@@ -21,9 +23,16 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 MAX_SAFE_JSON_INTEGER = (1 << 53) - 1
+MAX_VIEWER_NUMBER = 1e9
+LATE_SERIALIZATION_TOLERANCE = 1e-7
 DEFAULT_ACTOR = (
     "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:"
-    "3.5:2:2:20:0:0:20:1:0:512:1:0:0:0:0:0:0:2"
+    "3.5:2:2:20:0:0:20:1:0:512:1:0:0:0:0:0:0:2:1:0:0:0:0:0:0:1"
+)
+DEFAULT_EVALUATOR = (
+    "rolloutu:data/champion.bin:2048:5:0.01:0:1:14:0:0:0:0:"
+    "3.5:2:2:20:0:0:20:1:0:2048:1:0:0:0:0:0:0:2:1:0:0:"
+    "2:1:0:3:1:0:0:1"
 )
 GAME_MARKER = '<script type="application/json" id="game-data">'
 
@@ -177,12 +186,237 @@ def same_move(a: dict, b: dict) -> bool:
     return all(a.get(key) == b.get(key) for key in ("card", "act", "draw"))
 
 
+def validate_late_resolver(late: object, ply: object, panel_name: str) -> None:
+    """Validate every bounded-panel payload before either artifact installs."""
+    location = f"ply {ply} {panel_name}"
+    if not isinstance(late, dict):
+        raise RuntimeError(f"{location} omits late-resolver provenance")
+    boolean_fields = (
+        "enabled", "attempted", "completed", "used_to_select", "stable",
+        "retained_policy", "override_authorized", "practical_gate_passed",
+    )
+    if any(not isinstance(late.get(field), bool) for field in boolean_fields):
+        raise RuntimeError(f"{location} has invalid late-resolver lifecycle")
+    practical_threshold = late.get("practical_threshold")
+    if (
+        not isinstance(practical_threshold, (int, float))
+        or isinstance(practical_threshold, bool)
+        or not math.isfinite(practical_threshold)
+        or not 0 <= practical_threshold <= MAX_VIEWER_NUMBER
+    ):
+        raise RuntimeError(
+            f"{location} has invalid late-resolver practical threshold"
+        )
+    reason = late.get("selection_reason")
+    valid_reasons = {
+        "not_attempted", "unavailable", "baseline_best",
+        "below_practical_gain", "horizon_disagreement",
+        "challenger_override",
+    }
+    if reason not in valid_reasons:
+        raise RuntimeError(
+            f"{location} has invalid late-resolver selection reason"
+        )
+    support = late.get("support")
+    count = late.get("candidate_count")
+    candidates = late.get("candidates")
+    if (
+        not isinstance(support, int) or isinstance(support, bool)
+        or not 0 <= support <= 990
+        or not isinstance(count, int) or isinstance(count, bool)
+        or not 0 <= count <= 6
+        or not isinstance(candidates, list) or len(candidates) != count
+    ):
+        raise RuntimeError(f"{location} has invalid late-resolver support")
+    horizons = []
+    for name in ("horizon2", "horizon4"):
+        horizon = late.get(name)
+        if not isinstance(horizon, dict):
+            raise RuntimeError(f"{location} omits {name} diagnostics")
+        best = horizon.get("best_index")
+        if not isinstance(best, int) or isinstance(best, bool) or not -1 <= best < 6:
+            raise RuntimeError(f"{location} has invalid {name} best index")
+        for field in ("value", "delta_vs_policy"):
+            value = horizon.get(field)
+            if (
+                not isinstance(value, (int, float))
+                or isinstance(value, bool) or not math.isfinite(value)
+                or not -MAX_VIEWER_NUMBER <= value <= MAX_VIEWER_NUMBER
+            ):
+                raise RuntimeError(f"{location} has invalid {name}.{field}")
+        for field in (
+            "nodes", "improved_root_nodes", "frozen_opponent_nodes",
+            "transitions", "deviation_evaluations", "exact_terminal_leaves",
+        ):
+            value = horizon.get(field)
+            if (
+                not isinstance(value, int) or isinstance(value, bool)
+                or not 0 <= value <= MAX_SAFE_JSON_INTEGER
+            ):
+                raise RuntimeError(f"{location} has invalid {name}.{field}")
+        horizons.append(horizon)
+    for candidate in candidates:
+        if (
+            not isinstance(candidate, dict)
+            or not isinstance(candidate.get("card"), str)
+            or re.fullmatch(r"[YBWGR](?:x|[2-9]|10)", candidate["card"])
+                is None
+            or candidate.get("act") not in {"play", "discard"}
+            or candidate.get("draw") not in {"deck", "Y", "B", "W", "G", "R"}
+        ):
+            raise RuntimeError(f"{location} has an invalid bounded candidate")
+        for field in ("policy_prob", "horizon2_q", "horizon4_q"):
+            value = candidate.get(field)
+            if (
+                not isinstance(value, (int, float))
+                or isinstance(value, bool) or not math.isfinite(value)
+                or not -MAX_VIEWER_NUMBER <= value <= MAX_VIEWER_NUMBER
+            ):
+                raise RuntimeError(
+                    f"{location} has an invalid bounded candidate {field}"
+                )
+        if not 0.0 <= candidate["policy_prob"] <= 1.0:
+            raise RuntimeError(
+                f"{location} has an invalid bounded candidate policy_prob"
+            )
+        if any(
+            not isinstance(candidate.get(field), bool)
+            for field in ("policy_baseline", "horizon2_best", "horizon4_best")
+        ):
+            raise RuntimeError(f"{location} has invalid bounded candidate flags")
+        for field in (
+            "q", "q_se", "se", "delta_vs_baseline", "delta_se",
+            "delta_vs_reference", "delta_reference_se", "prob", "visits",
+            "confirmation_delta", "confirmation_se", "coherent_q",
+            "coherent_q_se", "coherent_delta_vs_baseline",
+            "coherent_delta_se", "qw", "bounded_h2_q", "bounded_h4_q",
+        ):
+            if field in candidate:
+                value = candidate[field]
+                if (
+                    not isinstance(value, (int, float))
+                    or isinstance(value, bool) or not math.isfinite(value)
+                    or not -MAX_VIEWER_NUMBER <= value <= MAX_VIEWER_NUMBER
+                ):
+                    raise RuntimeError(
+                        f"{location} has an invalid bounded candidate {field}"
+                    )
+        for field in (
+            "played", "baseline", "policy_top", "retained", "trusted_prefix",
+            "prefix_proposed", "selection_reference", "highest_mean",
+            "confirmed_best", "primary_pass", "coherent_evaluated",
+            "coherent_numerical_agreement", "coherent_gate_pass",
+            "confirmation_pass", "guard_rejected", "chosen",
+        ):
+            if field in candidate and not isinstance(candidate[field], bool):
+                raise RuntimeError(
+                    f"{location} has an invalid bounded candidate {field}"
+                )
+    move_keys = [
+        (candidate["card"], candidate["act"], candidate["draw"])
+        for candidate in candidates
+    ]
+    if len(set(move_keys)) != len(move_keys):
+        raise RuntimeError(f"{location} has duplicate bounded candidates")
+    if late["completed"] and (
+        not late["attempted"] or support == 0 or count == 0
+        or any(not 0 <= horizon["best_index"] < count for horizon in horizons)
+    ):
+        raise RuntimeError(f"{location} has an incomplete completed late panel")
+    retained = late["retained_policy"]
+    override = late["override_authorized"]
+    if retained and override:
+        raise RuntimeError(f"{location} has conflicting late outcomes")
+    if late["practical_gate_passed"] != override:
+        raise RuntimeError(f"{location} mislabels the challenger gain gate")
+    best2 = horizons[0]["best_index"]
+    best4 = horizons[1]["best_index"]
+    if late["completed"]:
+        for index, candidate in enumerate(candidates):
+            if (
+                candidate["policy_baseline"] != (index == 0)
+                or candidate["horizon2_best"] != (index == best2)
+                or candidate["horizon4_best"] != (index == best4)
+            ):
+                raise RuntimeError(f"{location} has inconsistent candidate flags")
+        if late["stable"] != (best2 == best4):
+            raise RuntimeError(f"{location} mislabels bounded horizon stability")
+        for horizon, best, q_field in (
+            (horizons[0], best2, "horizon2_q"),
+            (horizons[1], best4, "horizon4_q"),
+        ):
+            expected_value = candidates[best][q_field]
+            expected_delta = expected_value - candidates[0][q_field]
+            if not math.isclose(
+                horizon["value"], expected_value,
+                rel_tol=0.0, abs_tol=LATE_SERIALIZATION_TOLERANCE,
+            ) or not math.isclose(
+                horizon["delta_vs_policy"], expected_delta,
+                rel_tol=0.0, abs_tol=LATE_SERIALIZATION_TOLERANCE,
+            ):
+                raise RuntimeError(
+                    f"{location} has inconsistent bounded value/delta diagnostics"
+                )
+    if override and (best2 <= 0 or best2 != best4):
+        raise RuntimeError(f"{location} mislabels a bounded challenger")
+    used = late["used_to_select"]
+    if used != late["completed"]:
+        raise RuntimeError(
+            f"{location} does not make every completed bounded panel authoritative"
+        )
+    if used and retained == override:
+        raise RuntimeError(f"{location} lacks one authoritative late outcome")
+    if not used and (retained or override or late["practical_gate_passed"]):
+        raise RuntimeError(f"{location} has an outcome from an unused late panel")
+    if late["attempted"] and not late["enabled"]:
+        raise RuntimeError(f"{location} ran a disabled bounded late panel")
+    if override and (
+        not late["stable"] or best2 <= 0 or best2 != best4
+    ):
+        raise RuntimeError(f"{location} mislabels a bounded challenger")
+    delta2 = horizons[0]["delta_vs_policy"]
+    delta4 = horizons[1]["delta_vs_policy"]
+    definitely_below_gate = (
+        delta2 <= practical_threshold - LATE_SERIALIZATION_TOLERANCE
+        or delta4 <= practical_threshold - LATE_SERIALIZATION_TOLERANCE
+    )
+    definitely_clears_gate = (
+        delta2 > practical_threshold + LATE_SERIALIZATION_TOLERANCE
+        and delta4 > practical_threshold + LATE_SERIALIZATION_TOLERANCE
+    )
+    if override and definitely_below_gate:
+        raise RuntimeError(
+            f"{location} authorizes a challenger below the practical threshold"
+        )
+    if reason == "below_practical_gain" and definitely_clears_gate:
+        raise RuntimeError(
+            f"{location} retains a challenger that cleared the practical threshold"
+        )
+
+    if not late["attempted"]:
+        expected_reason = "not_attempted"
+    elif not late["completed"]:
+        expected_reason = "unavailable"
+    elif override:
+        expected_reason = "challenger_override"
+    elif best2 == 0 and best4 == 0:
+        expected_reason = "baseline_best"
+    elif not late["stable"] or best2 != best4:
+        expected_reason = "horizon_disagreement"
+    else:
+        expected_reason = "below_practical_gain"
+    if reason != expected_reason:
+        raise RuntimeError(
+            f"{location} mislabels the authoritative selection reason"
+        )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", required=True, type=int)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--actor", default=DEFAULT_ACTOR)
-    parser.add_argument("--evaluator")
+    parser.add_argument("--evaluator", default=DEFAULT_EVALUATOR)
     parser.add_argument(
         "--model",
         type=Path,
@@ -237,8 +471,7 @@ def main() -> None:
         "-s", str(args.seed),
         "-a", args.actor,
     ]
-    if args.evaluator:
-        command.extend(("-e", args.evaluator))
+    command.extend(("-e", args.evaluator))
     result = subprocess.run(
         command,
         cwd=ROOT,
@@ -246,24 +479,84 @@ def main() -> None:
         text=True,
         stdout=subprocess.PIPE,
     )
+    final_model_hash = hashlib.sha256(actor_model.read_bytes()).hexdigest()
+    if final_model_hash != model_hash:
+        raise RuntimeError(
+            "actor checkpoint changed while the showcase was being analyzed"
+        )
+    if args.model:
+        final_asserted_hash = hashlib.sha256(
+            repo_path(args.model).read_bytes()
+        ).hexdigest()
+        if final_asserted_hash != final_model_hash:
+            raise RuntimeError(
+                "asserted checkpoint changed or no longer matches the actor"
+            )
     game = json.loads(result.stdout)
-    if game.get("meta", {}).get("actor") != args.actor:
-        raise RuntimeError("analyzer did not attest the requested actor spec")
+    meta = game.get("meta") if isinstance(game, dict) else None
+    plies = game.get("plies") if isinstance(game, dict) else None
+    expected_meta = {
+        "actor": args.actor,
+        "evaluator": args.evaluator,
+        "seed": args.seed,
+        "rounds": 3,
+        "generated": "analyze",
+    }
+    if not isinstance(meta, dict) or not isinstance(plies, list):
+        raise RuntimeError("analyzer output omits match provenance")
+    for field, expected in expected_meta.items():
+        if meta.get(field) != expected:
+            raise RuntimeError(
+                f"analyzer did not attest requested {field}: "
+                f"expected {expected!r}, got {meta.get(field)!r}"
+            )
+    if meta.get("plies") != len(plies):
+        raise RuntimeError("analyzer ply attestation does not match its payload")
+
+    for ply in game.get("plies", []):
+        for panel_name in ("actor_decision", "analysis"):
+            panel = ply.get(panel_name, {})
+            unfinished = panel.get("deck2_replan", {}).get(
+                "unfinished_continuation_leaves", 0
+            )
+            if unfinished:
+                raise RuntimeError(
+                    f"ply {ply.get('n')} {panel_name} contains "
+                    f"{unfinished} unfinished continuation leaf/leaves"
+                )
+            validate_late_resolver(
+                panel.get("late_resolver"), ply.get("n"), panel_name
+            )
 
     actor_fields = args.actor.split(":")
     rollout_actor = args.actor.startswith(("rollout:", "rolloutu:"))
     policy_actor = args.actor.startswith("policy:")
     actor_draw_root_deck_max = 0
     actor_draw_playout_deck_max = 0
+    actor_terminal_mode = 1 if rollout_actor else 0
+    actor_deck2_replan_worlds = 0
+    actor_deck2_replan_cores = 0
+    actor_bounded_late_root = False
+    actor_bounded_late_min = 1.0
     try:
         if rollout_actor and len(actor_fields) > 31:
             actor_draw_root_deck_max = int(actor_fields[31])
             if len(actor_fields) > 32:
                 actor_draw_playout_deck_max = int(actor_fields[32])
+            if len(actor_fields) > 37:
+                actor_terminal_mode = int(actor_fields[37])
+            if len(actor_fields) > 38:
+                actor_deck2_replan_worlds = int(actor_fields[38])
+            if len(actor_fields) > 39:
+                actor_deck2_replan_cores = int(actor_fields[39])
+            if len(actor_fields) > 40:
+                actor_bounded_late_root = bool(int(actor_fields[40]))
+            if len(actor_fields) > 41:
+                actor_bounded_late_min = float(actor_fields[41])
         elif policy_actor and len(actor_fields) > 6:
             actor_draw_root_deck_max = int(actor_fields[6])
     except ValueError as exc:
-        raise RuntimeError("actor draw-planner threshold is invalid") from exc
+        raise RuntimeError("actor rollout tail is invalid") from exc
     for ply in game["plies"]:
         if not ply["policy"]:
             raise RuntimeError(f"ply {ply['n']} has no policy diagnostics")
@@ -322,6 +615,30 @@ def main() -> None:
         actor_label += (
             f" + root draw repair at deck ≤ {actor_draw_root_deck_max}"
         )
+    actor_exact_terminal = actor_terminal_mode != 0
+    actor_exact_terminal_continuations = actor_terminal_mode == 1
+    if actor_exact_terminal_continuations:
+        actor_method += "_with_exact_terminal_tail"
+        actor_label += " + exact terminal tail"
+    elif actor_terminal_mode == 3:
+        actor_method += "_with_policy_action_terminal_control"
+        actor_label += " + policy-action terminal control"
+    elif actor_exact_terminal:
+        actor_method += "_with_root_only_terminal_solver"
+        actor_label += " + root-only terminal solver"
+    if actor_deck2_replan_worlds > 0:
+        actor_method += "_with_recursive_late_information_set_replan"
+        actor_label += (
+            " + recursive deck-2/3 replan "
+            f"({actor_deck2_replan_worlds} worlds, "
+            f"top {actor_deck2_replan_cores} cores)"
+        )
+    if actor_bounded_late_root:
+        actor_method += "_with_authoritative_bounded_late_root"
+        actor_label += (
+            " + authoritative bounded deck-2/3 root gate "
+            f"(>{actor_bounded_late_min:g} point gain)"
+        )
     game["meta"].update(
         actor_label=actor_label,
         actor_method=actor_method,
@@ -331,8 +648,18 @@ def main() -> None:
         actor_root_width=actor_root_width,
         actor_draw_root_deck_max=actor_draw_root_deck_max,
         actor_draw_playout_deck_max=actor_draw_playout_deck_max,
+        actor_exact_terminal=actor_exact_terminal,
+        actor_exact_terminal_continuations=(
+            actor_exact_terminal_continuations
+        ),
+        actor_terminal_mode=actor_terminal_mode,
+        actor_deck2_replan_worlds=actor_deck2_replan_worlds,
+        actor_deck2_replan_cores=actor_deck2_replan_cores,
+        actor_bounded_late_root=actor_bounded_late_root,
+        actor_bounded_late_min=actor_bounded_late_min,
         model_sha256=model_hash,
         model_path=str(Path(args.actor.split(":")[1])),
+        match_id=f"{args.seed}-{model_hash[:12]}",
         selection="random_unfiltered",
         selection_note=(
             "Seed generated randomly once before simulation; the match result "
@@ -348,8 +675,12 @@ def main() -> None:
             raise RuntimeError("standalone showcase encoding did not round-trip")
 
         if args.embed_viewer:
-            assert viewer_source is not None
-            assert viewer_start is not None and viewer_end is not None
+            # Analysis can take a long time.  Re-read the template immediately
+            # before staging so a concurrent UI fix is incorporated rather
+            # than silently overwritten by the pre-run snapshot.
+            viewer_source, viewer_start, viewer_end = viewer_template(
+                args.embed_viewer
+            )
             embedded = json.dumps(game, separators=(",", ":"))
             embedded = (
                 embedded.replace("&", "\\u0026")

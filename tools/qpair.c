@@ -66,6 +66,21 @@ static int parse_move(const State *st, int p, const char *cs, const char *as,
     return 0;
 }
 
+static const char *late_resolver_decision(const SearchStats *ss)
+{
+    if (!ss->late_resolver_completed || !ss->late_resolver_used)
+        return "unavailable; ordinary rollout fallback retained";
+    if (ss->late_resolver_override)
+        return "authoritative challenger override";
+    if (ss->late_resolver_h2_best == 0 &&
+        ss->late_resolver_h4_best == 0)
+        return "authoritative policy retention (baseline ranked first; not an optimality claim)";
+    if (!ss->late_resolver_stable ||
+        ss->late_resolver_h2_best != ss->late_resolver_h4_best)
+        return "authoritative policy retention (horizons disagreed; no improvement authorized)";
+    return "authoritative policy retention (challenger below practical-gain gate)";
+}
+
 /* ---- state-file loading (-S): direct position reconstruction ----------- */
 
 /* lowest unused card id with this display name (wagers have three copies) */
@@ -301,15 +316,68 @@ int main(int argc, char **argv)
         SearchStats ss;
         Move selected = rollout_move(&evaluator, &st, &erng, NULL, &ss);
         printf("rollout evaluator: %s\n", evalspec);
-        printf("worlds: %d/%d  raw_resolved: %s  confirmation: %d worlds, %s"
+        printf("worlds: %d/%d  exact terminal leaves: %llu"
+               "  unfinished cap leaves: %llu"
+               "  late cycle breaks: %llu"
+               "  cap reserve forces: %llu"
+               "  recursive late replans: %llu calls/%llu worlds/%llu evals"
+               "/%llu root calls/%llu root worlds/%llu cap hits"
+               "/%llu low-world fallbacks/%llu cache hits"
+               "/%llu cycle closures/depth %llu/stall %llu"
+               "  raw_resolved: %s"
+               "  confirmation: %d worlds, %s"
                "  prefix: %d trusted, proposed %d, selected %d"
                "  prefix_check: %d worlds, %s\n",
-               ss.worlds, ss.max_worlds, ss.resolved ? "yes" : "no",
+               ss.worlds, ss.max_worlds,
+               (unsigned long long)ss.exact_terminal_leaves,
+               (unsigned long long)ss.unfinished_cap_leaves,
+               (unsigned long long)ss.cycle_breaks,
+               (unsigned long long)ss.cap_reserve_forces,
+               (unsigned long long)ss.deck2_replans,
+               (unsigned long long)ss.deck2_replan_worlds,
+               (unsigned long long)ss.deck2_replan_evals,
+               (unsigned long long)ss.deck2_replan_root_calls,
+               (unsigned long long)ss.deck2_replan_root_worlds,
+               (unsigned long long)ss.deck2_replan_cap_hits,
+               (unsigned long long)ss.deck2_replan_low_world_fallbacks,
+               (unsigned long long)ss.deck2_replan_cache_hits,
+               (unsigned long long)ss.deck2_replan_cycle_closures,
+               (unsigned long long)ss.deck2_replan_max_depth,
+               (unsigned long long)ss.deck2_replan_max_stall_chain,
+               ss.resolved ? "yes" : "no",
                ss.confirm_worlds, ss.confirmed ? "passed" : "not passed",
                ss.trusted_candidates, ss.prefix_proposed,
                ss.selection_reference,
                ss.prefix_confirm_worlds,
                ss.prefix_confirmed ? "passed" : "not passed");
+        if (ss.late_resolver_attempted) {
+            printf("bounded late resolver: %s; support %d; %d candidates; "
+                   "H2 best %d value %+.3f delta %+.3f; "
+                   "H4 best %d value %+.3f delta %+.3f; "
+                   "horizons %s; practical gate %.3f; decision: %s\n",
+                   ss.late_resolver_completed ? "completed" : "unavailable",
+                   ss.late_resolver_support,
+                   ss.late_resolver_candidates,
+                   ss.late_resolver_h2_best,
+                   ss.late_resolver_h2_value,
+                   ss.late_resolver_h2_delta,
+                   ss.late_resolver_h4_best,
+                   ss.late_resolver_h4_value,
+                   ss.late_resolver_h4_delta,
+                   ss.late_resolver_stable ? "agree" : "disagree",
+                   ss.late_resolver_practical_min,
+                   late_resolver_decision(&ss));
+            printf("  H2 nodes %llu (%llu improved-root/%llu frozen-opponent), "
+                   "H4 nodes %llu (%llu/%llu)\n",
+                   (unsigned long long)ss.late_resolver_h2_nodes,
+                   (unsigned long long)ss.late_resolver_h2_root_nodes,
+                   (unsigned long long)
+                       ss.late_resolver_h2_frozen_opponent_nodes,
+                   (unsigned long long)ss.late_resolver_h4_nodes,
+                   (unsigned long long)ss.late_resolver_h4_root_nodes,
+                   (unsigned long long)
+                       ss.late_resolver_h4_frozen_opponent_nodes);
+        }
         if (ss.prefix_confirm_worlds > 0 && ss.prefix_proposed > 0) {
             int k = ss.prefix_proposed;
             printf("prefix fresh evidence: %+.2f +- %.2f vs baseline; "
@@ -336,6 +404,10 @@ int main(int argc, char **argv)
             }
             snprintf(move, sizeof move, "%s %c %s", card,
                      ss.mv[i].discard ? 'd' : 'p', draw);
+            if (ss.late_resolver_used && i < 6)
+                printf("  bounded %-16s H2 %+.3f  H4 %+.3f\n",
+                       move, ss.late_resolver_h2_q[i],
+                       ss.late_resolver_h4_q[i]);
             printf("%-16s %8.4f %+7.2f +- %-6.2f %8s "
                    "%+7.2f +- %-6.2f %8s %9s %8s\n",
                    move, ss.prior[i], ss.rdelta[i], ss.rdse[i],

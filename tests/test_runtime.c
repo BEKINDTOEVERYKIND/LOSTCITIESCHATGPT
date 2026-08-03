@@ -13,6 +13,10 @@
 #include <string.h>
 #include <unistd.h>
 
+extern int rollout_test_late_cache_order(const Net *net, const State *st);
+extern int rollout_test_unique_late_assignments(
+    const State *st, int requested, int *support_out);
+
 static int failures = 0;
 #define CHECK(cond, ...) do { if (!(cond)) { \
     printf("FAIL %s:%d: ", __FILE__, __LINE__); \
@@ -187,6 +191,765 @@ static void test_rollout_terminal_objective(void)
     CHECK(rollout_terminal_objective(&st, 0, 1) == 0.0 &&
           rollout_terminal_objective(&st, 0, 2) == 0.0,
           "final-round draw has nonzero objective");
+}
+
+static State exact_terminal_test_state(void)
+{
+    State st;
+    memset(&st, 0, sizeof st);
+    st.turn = 0;
+    st.deck_pos = 37;
+    st.deck_left = 1;
+    st.deck[st.deck_pos] = (uint8_t)CARD_MAKE(4, 11);
+
+    /* Yellow is already a -18 expedition.  Playing Y10 improves it to -8;
+     * every other play starts an additional negative expedition, while every
+     * discard leaves the -18 unchanged.  Y10 -> deck is therefore the unique
+     * exact terminal optimum across the complete legal action-core set. */
+    int y2 = CARD_MAKE(0, 3);
+    st.played[0] = UINT64_C(1) << y2;
+    st.exp_top[0][0] = 2;
+    st.exp_n[0][0] = 1;
+    st.exp_sum[0][0] = 2;
+    const int hand0[HAND_SIZE] = {
+        CARD_MAKE(0, 11), CARD_MAKE(1, 4), CARD_MAKE(1, 8),
+        CARD_MAKE(2, 6), CARD_MAKE(2, 9), CARD_MAKE(3, 0),
+        CARD_MAKE(3, 10), CARD_MAKE(4, 5)
+    };
+    const int hand1[HAND_SIZE] = {
+        CARD_MAKE(0, 4), CARD_MAKE(0, 5), CARD_MAKE(1, 3),
+        CARD_MAKE(1, 5), CARD_MAKE(2, 3), CARD_MAKE(2, 4),
+        CARD_MAKE(3, 3), CARD_MAKE(4, 3)
+    };
+    for (int i = 0; i < HAND_SIZE; i++) {
+        st.hand[0] |= UINT64_C(1) << hand0[i];
+        st.hand[1] |= UINT64_C(1) << hand1[i];
+    }
+    st.hand_n[0] = st.hand_n[1] = HAND_SIZE;
+
+    const int pile_card[3] = {
+        CARD_MAKE(0, 6), CARD_MAKE(1, 6), CARD_MAKE(2, 7)
+    };
+    for (int s = 0; s < 3; s++) {
+        st.pile[s][0] = (uint8_t)pile_card[s];
+        st.pile_n[s] = 1;
+        st.discarded |= UINT64_C(1) << pile_card[s];
+    }
+    return st;
+}
+
+static int exact_terminal_oracle(const State *st, const Move *mv, int n,
+                                 int objective, double *out)
+{
+    int best = -1;
+    double best_value = -INFINITY;
+    for (int i = 0; i < n; i++) {
+        if (mv[i].draw != 0) continue;
+        State terminal = *st;
+        lc_apply(&terminal, mv[i]);
+        if (!terminal.over || terminal.deck_left != 0) continue;
+        double value = rollout_terminal_objective(
+            &terminal, st->turn, objective);
+        if (best < 0 || value > best_value ||
+            (value == best_value && MOVE_PACK(mv[i]) < MOVE_PACK(mv[best]))) {
+            best = i;
+            best_value = value;
+        }
+    }
+    if (best >= 0 && out) *out = best_value;
+    return best;
+}
+
+static void test_rollout_exact_terminal_choice(void)
+{
+    State st = exact_terminal_test_state();
+    Move mv[MAX_MOVES];
+    int n = lc_moves(&st, mv);
+    float prior[MAX_MOVES];
+    for (int i = 0; i < n; i++) prior[i] = 0.0f;
+
+    int cores = 0, deck_variants = 0;
+    for (int i = 0; i < n; i++) {
+        if (mv[i].draw == 0) deck_variants++;
+        int first = 1;
+        for (int j = 0; j < i; j++)
+            if (same_test_action(mv[i], mv[j])) {
+                first = 0;
+                break;
+            }
+        cores += first;
+    }
+    CHECK(deck_variants == cores,
+          "last-deck legal set has %d cores but %d deck variants",
+          cores, deck_variants);
+
+    double expected = 0.0, actual = 0.0;
+    int oracle = exact_terminal_oracle(&st, mv, n, 0, &expected);
+    int selected = rollout_exact_terminal_choice(
+        &st, mv, prior, n, 0, &actual);
+    CHECK(oracle >= 0 && selected >= 0,
+          "exact terminal solver rejected a one-card deck");
+    if (oracle >= 0 && selected >= 0) {
+        CHECK(MOVE_PACK(mv[selected]) == MOVE_PACK(mv[oracle]),
+              "exact terminal solver did not maximize all legal cores");
+        CHECK(named_move(mv[selected], "Y10", 0, 0),
+              "exact terminal solver chose the wrong unique optimum");
+        CHECK(fabs(actual - expected) < 1e-12,
+              "exact terminal objective %.9f != oracle %.9f",
+              actual, expected);
+    }
+
+    /* Neither the identity of the unseen last card nor any private opponent
+     * cards can affect a turn that ends before the drawn card is playable. */
+    State hidden = st;
+    hidden.deck[hidden.deck_pos] = (uint8_t)CARD_MAKE(1, 11);
+    hidden.hand[1] = 0;
+    const int alternative_hand[HAND_SIZE] = {
+        CARD_MAKE(0, 0), CARD_MAKE(0, 1), CARD_MAKE(1, 0),
+        CARD_MAKE(1, 1), CARD_MAKE(2, 0), CARD_MAKE(3, 4),
+        CARD_MAKE(4, 8), CARD_MAKE(4, 10)
+    };
+    for (int i = 0; i < HAND_SIZE; i++)
+        hidden.hand[1] |= UINT64_C(1) << alternative_hand[i];
+    Move hidden_mv[MAX_MOVES];
+    int hidden_n = lc_moves(&hidden, hidden_mv);
+    double hidden_objective = 0.0;
+    int hidden_selected = rollout_exact_terminal_choice(
+        &hidden, hidden_mv, NULL, hidden_n, 0, &hidden_objective);
+    CHECK(hidden_selected >= 0 && selected >= 0 &&
+          MOVE_PACK(hidden_mv[hidden_selected]) == MOVE_PACK(mv[selected]) &&
+          fabs(hidden_objective - actual) < 1e-12,
+          "hidden last card or opponent hand changed exact terminal choice");
+
+    int suboptimal_pile = -1;
+    for (int i = 0; i < n; i++)
+        if (mv[i].draw != 0 && !same_test_action(mv[i], mv[oracle])) {
+            suboptimal_pile = i;
+            break;
+        }
+    int policy_terminal = rollout_policy_terminal_choice(
+        mv, n, suboptimal_pile);
+    CHECK(suboptimal_pile >= 0 && policy_terminal >= 0 &&
+          mv[policy_terminal].draw == 0 &&
+          same_test_action(mv[policy_terminal], mv[suboptimal_pile]) &&
+          !same_test_action(mv[policy_terminal], mv[oracle]),
+          "policy-terminal control optimized or changed the selected core");
+
+    /* A full-move interaction can make one action best only with a pile while
+     * a different action is best conditional on the required deck draw.  The
+     * production forced-progress chooser must honor that conditional policy;
+     * the mode-3 propagation control above intentionally keeps the old core. */
+    float conditional_score[MAX_MOVES];
+    for (int i = 0; i < n; i++) conditional_score[i] = 0.0f;
+    conditional_score[suboptimal_pile] = 0.90f;
+    conditional_score[policy_terminal] = 0.01f;
+    conditional_score[oracle] = 0.20f;
+    int conditional = rollout_policy_deck_choice(
+        &st, mv, conditional_score, n, 0);
+    CHECK(conditional == oracle && conditional != policy_terminal,
+          "forced deck policy ignored the card/action x draw interaction");
+
+    int wager_pile = -1;
+    for (int i = 0; i < n; i++)
+        if (mv[i].draw != 0 && CARD_IS_WAGER(mv[i].card)) {
+            wager_pile = i;
+            break;
+        }
+    int wager_terminal = rollout_policy_terminal_choice(mv, n, wager_pile);
+    CHECK(wager_pile >= 0 && wager_terminal >= 0 &&
+          mv[wager_terminal].draw == 0 &&
+          same_test_action(mv[wager_terminal], mv[wager_pile]),
+          "policy-terminal control failed to canonicalize a wager core");
+
+    st.round = MATCH_ROUNDS - 1;
+    st.cum[0] = 13;
+    selected = rollout_exact_terminal_choice(
+        &st, mv, prior, n, 2, &actual);
+    oracle = exact_terminal_oracle(&st, mv, n, 2, &expected);
+    CHECK(selected >= 0 && oracle >= 0 &&
+          MOVE_PACK(mv[selected]) == MOVE_PACK(mv[oracle]),
+          "exact terminal solver ignored the final-round objective");
+    CHECK(fabs(actual - 50.25) < 1e-12 && fabs(actual - expected) < 1e-12,
+          "final-round hybrid terminal objective is %.9f, expected 50.25",
+          actual);
+
+    Net *net = malloc(sizeof(*net));
+    CHECK(net != NULL, "network allocation for exact terminal rollout");
+    if (!net) return;
+    net_zero(net);
+    /* Make the raw policy strongly prefer the wrong semantic action and a
+     * pile draw.  The root solver must still return the exact terminal move. */
+    int b3 = CARD_MAKE(1, 4);
+    net->bplay[b3 * 2 + 1] = 10.0f;
+    net->bdraw[1] = 5.0f;
+    Agent agent;
+    agent_default(&agent, AG_ROLLOUT, net);
+    agent.symmetries = 1;
+    agent.dets = 4096;
+    agent.win_q = 2;
+    Rng rng, before;
+    rng_seed(&rng, UINT64_C(0xE1A57));
+    before = rng;
+    SearchStats stats;
+    Move root = rollout_move(&agent, &st, &rng, NULL, &stats);
+    CHECK(MOVE_PACK(root) == MOVE_PACK(mv[oracle]),
+          "root rollout did not return the exact terminal choice");
+    CHECK(memcmp(&rng, &before, sizeof rng) == 0,
+          "exact terminal root consumed RNG state");
+    CHECK(stats.worlds == 0 && stats.skip_reason == SEARCH_SKIP_LAST_DECK &&
+          stats.metric_kind == SEARCH_METRIC_LAST_DECK_RULE &&
+          stats.deck_end_baseline && stats.resolved,
+          "exact terminal root reported stochastic/incomplete search");
+    CHECK(stats.n >= 1 && stats.visits[0] == 0.0 &&
+          MOVE_PACK(stats.mv[0]) == MOVE_PACK(root) &&
+          fabs(stats.q[0] - expected) < 1e-12,
+          "exact terminal root stats do not attest the returned move");
+    free(net);
+
+    Agent hrollout;
+    agent_default(&hrollout, AG_ROLLOUT, NULL);
+    rng_seed(&rng, UINT64_C(0xE1A57));
+    before = rng;
+    Move hroot = rollout_move(&hrollout, &st, &rng, NULL, &stats);
+    CHECK(MOVE_PACK(hroot) == MOVE_PACK(mv[oracle]),
+          "heuristic rollout did not use the exact terminal choice");
+    CHECK(memcmp(&rng, &before, sizeof rng) == 0,
+          "heuristic exact-terminal root consumed draw-sampling RNG");
+}
+
+static void test_rollout_exact_terminal_randomized(void)
+{
+    Rng rng;
+    rng_seed(&rng, UINT64_C(0x1A57DEC1));
+    for (int trial = 0; trial < 100; trial++) {
+        State st;
+        lc_deal(&st, &rng);
+        while (!st.over && st.deck_left > 1) {
+            Move legal[MAX_MOVES];
+            int n = lc_moves(&st, legal);
+            int deck_index[MAX_MOVES], ndeck = 0;
+            for (int i = 0; i < n; i++)
+                if (legal[i].draw == 0) deck_index[ndeck++] = i;
+            CHECK(ndeck > 0,
+                  "reachable terminal fixture has no deck-draw move");
+            if (ndeck <= 0) break;
+            int chosen = deck_index[rng_below(&rng, (uint32_t)ndeck)];
+            lc_apply(&st, legal[chosen]);
+        }
+        CHECK(!st.over && st.deck_left == 1,
+              "random reachable fixture did not stop at one deck card");
+        if (st.over || st.deck_left != 1) continue;
+
+        st.round = trial % MATCH_ROUNDS;
+        st.cum[0] = (int16_t)((int)rng_below(&rng, 201) - 100);
+        st.cum[1] = (int16_t)((int)rng_below(&rng, 201) - 100);
+        int objective = st.round == MATCH_ROUNDS - 1 ? 2 : 0;
+        Move mv[MAX_MOVES];
+        int n = lc_moves(&st, mv);
+        double expected = 0.0, actual = 0.0;
+        int oracle = exact_terminal_oracle(
+            &st, mv, n, objective, &expected);
+        int selected = rollout_exact_terminal_choice(
+            &st, mv, NULL, n, objective, &actual);
+        CHECK(oracle >= 0 && selected >= 0 &&
+              MOVE_PACK(mv[oracle]) == MOVE_PACK(mv[selected]) &&
+              fabs(expected - actual) < 1e-12,
+              "random reachable exact terminal choice diverged at trial %d",
+              trial);
+
+        /* Brute-force the opponent's guaranteed response after every legal
+         * pile stall.  For the same root card/action, ending now must be at
+         * least as good as letting the opponent take one optional action and
+         * end through the deck.  This checks the weak-dominance argument with
+         * full engine transitions rather than duplicating solver mutation. */
+        for (int i = 0; i < n; i++) {
+            if (mv[i].draw == 0) continue;
+            int deck = rollout_policy_terminal_choice(mv, n, i);
+            CHECK(deck >= 0,
+                  "pile move has no semantic deck variant at trial %d", trial);
+            if (deck < 0) continue;
+            State direct = st;
+            lc_apply(&direct, mv[deck]);
+            double direct_value = rollout_terminal_objective(
+                &direct, st.turn, objective);
+
+            State stalled = st;
+            lc_apply(&stalled, mv[i]);
+            CHECK(!stalled.over && stalled.deck_left == 1,
+                  "pile stall unexpectedly ended the random fixture");
+            Move response[MAX_MOVES];
+            int nr = lc_moves(&stalled, response);
+            double opponent_best = INFINITY;
+            for (int j = 0; j < nr; j++) {
+                if (response[j].draw != 0) continue;
+                State terminal = stalled;
+                lc_apply(&terminal, response[j]);
+                double value = rollout_terminal_objective(
+                    &terminal, st.turn, objective);
+                if (value < opponent_best) opponent_best = value;
+            }
+            CHECK(isfinite(opponent_best) &&
+                  direct_value + 1e-12 >= opponent_best,
+                  "last-deck weak dominance failed at trial %d move %d: "
+                  "direct %.9f, opponent response %.9f",
+                  trial, i, direct_value, opponent_best);
+        }
+    }
+}
+
+static State deck3_replan_test_state(void)
+{
+    Rng rng;
+    rng_seed(&rng, UINT64_C(0xDEC2A11));
+    State st;
+    lc_deal(&st, &rng);
+    while (!st.over && st.deck_left > 3) {
+        Move mv[MAX_MOVES];
+        int n = lc_moves(&st, mv), chosen = -1;
+        for (int i = 0; i < n; i++)
+            if (mv[i].draw == 0) {
+                chosen = i;
+                break;
+            }
+        CHECK(chosen >= 0, "deck-three fixture has no deck-draw move");
+        if (chosen < 0) break;
+        lc_apply(&st, mv[chosen]);
+    }
+    CHECK(!st.over && st.deck_left == 3,
+          "failed to construct a live deck-three replan fixture");
+    return st;
+}
+
+/* Two known number cards in the hands and two on the piles form an exact
+ * eight-ply shuttle under the policy biases installed by the test below:
+ * suit-0 cards discard then take suit 1; suit-1 cards discard then take suit
+ * 0.  All strategic and hidden state returns byte-for-byte except nply. */
+static State late_cycle_test_state(void)
+{
+    State st;
+    memset(&st, 0, sizeof st);
+    const int a0 = CARD_MAKE(0, 3); /* Y2, player 0 */
+    const int a1 = CARD_MAKE(0, 4); /* Y3, pile 0   */
+    const int b0 = CARD_MAKE(1, 3); /* B2, player 1 */
+    const int b1 = CARD_MAKE(1, 4); /* B3, pile 1   */
+    uint64_t reserved = (UINT64_C(1) << a0) | (UINT64_C(1) << a1) |
+                        (UINT64_C(1) << b0) | (UINT64_C(1) << b1);
+    st.hand[0] = UINT64_C(1) << a0;
+    st.hand[1] = UINT64_C(1) << b0;
+    st.hand_n[0] = st.hand_n[1] = HAND_SIZE;
+    st.known[0] = UINT64_C(1) << a0;
+    st.known[1] = UINT64_C(1) << b0;
+
+    int need0 = HAND_SIZE - 1, need1 = HAND_SIZE - 1, nd = 0;
+    for (int c = 0; c < NCARD; c++) {
+        if ((reserved >> c) & UINT64_C(1)) continue;
+        if (need0 > 0) {
+            st.hand[0] |= UINT64_C(1) << c;
+            need0--;
+        } else if (need1 > 0) {
+            st.hand[1] |= UINT64_C(1) << c;
+            need1--;
+        } else if (nd < 3) {
+            st.deck[nd++] = (uint8_t)c;
+        } else {
+            st.played[0] |= UINT64_C(1) << c;
+        }
+    }
+    st.pile[0][0] = (uint8_t)a1;
+    st.pile[1][0] = (uint8_t)b1;
+    st.pile_n[0] = st.pile_n[1] = 1;
+    st.discarded = (UINT64_C(1) << a1) | (UINT64_C(1) << b1);
+    st.deck_pos = 0;
+    st.deck_left = 3;
+    st.turn = 0;
+    return st;
+}
+
+static void test_late_rollout_cycle_break(void)
+{
+    Net *net = calloc(1, sizeof *net);
+    CHECK(net != NULL, "network allocation for late-cycle fixture");
+    if (!net) return;
+    net_zero(net);
+    const int shuttle[4] = {
+        CARD_MAKE(0, 3), CARD_MAKE(0, 4),
+        CARD_MAKE(1, 3), CARD_MAKE(1, 4)
+    };
+    for (int i = 0; i < 4; i++)
+        net->bplay[shuttle[i] * 2 + 1] = 30.0f;
+    net->bdraw[1] = 10.0f;
+    net->bdraw[2] = 5.0f;
+
+    State st = late_cycle_test_state();
+
+    /* Popped pile slots retain stale bytes, and the three wager IDs are
+     * physically distinct only inside the engine.  Neither may keep an
+     * otherwise repeated strategic state out of the cycle detector. */
+    State stale = st;
+    stale.pile[0][stale.pile_n[0] + 5] =
+        (uint8_t)CARD_MAKE(4, 11);
+    CHECK(rollout_same_late_state(&st, &stale),
+          "inactive pile storage changed late-state equality");
+    stale.pile[0][0] = (uint8_t)CARD_MAKE(0, 5);
+    CHECK(!rollout_same_late_state(&st, &stale),
+          "active pile contents were ignored by late-state equality");
+
+    State wagers_a;
+    memset(&wagers_a, 0, sizeof wagers_a);
+    wagers_a.deck_left = 1;
+    wagers_a.deck[0] = (uint8_t)CARD_MAKE(4, 11);
+    wagers_a.hand[0] = UINT64_C(1) << CARD_MAKE(0, 0);
+    wagers_a.hand[1] = UINT64_C(1) << CARD_MAKE(0, 1);
+    wagers_a.hand_n[0] = wagers_a.hand_n[1] = 1;
+    State wagers_b = wagers_a;
+    wagers_b.hand[0] = UINT64_C(1) << CARD_MAKE(0, 1);
+    wagers_b.hand[1] = UINT64_C(1) << CARD_MAKE(0, 0);
+    CHECK(rollout_same_late_state(&wagers_a, &wagers_b),
+          "indistinguishable wager IDs changed late-state equality");
+    wagers_b.hand[1] = UINT64_C(1) << CARD_MAKE(0, 4);
+    CHECK(!rollout_same_late_state(&wagers_a, &wagers_b),
+          "a different numbered hand card was ignored by late-state equality");
+
+    Agent a;
+    agent_default(&a, AG_ROLLOUT, net);
+    a.no_belief = 1;
+    a.symmetries = 1;
+    a.playout_symmetries = 1;
+    a.dets = 2;
+    a.batch_dets = 2;
+    a.root_width = 2;
+    a.min_cand = 2;
+    a.cand_floor = 0.0f;
+    a.override_k = 0.0f;
+    a.deck2_replan_worlds = 0;
+    a.deck2_replan_cores = 0;
+
+    Rng rng;
+    rng_seed(&rng, UINT64_C(0xC1C1E));
+    SearchStats stats;
+    Move selected = rollout_move(&a, &st, &rng, NULL, &stats);
+    CHECK(stats.worlds == a.dets && stats.cycle_breaks > 0,
+          "forced pile shuttle was not recognized as a late cycle");
+    CHECK(stats.unfinished_cap_leaves == 0,
+          "late-cycle fixture still reached the unfinished ply cap");
+    CHECK(stats.exact_terminal_leaves > 0,
+          "cycle breaking did not propagate into exact one-card leaves");
+
+    /* Recursive late improvement must be able to follow more than the old
+     * single-stall horizon.  This pile-biased deck-three fixture repeatedly
+     * revisits late information states; recursive child panels must therefore
+     * reach at least a second decision level, then close the path or exhaust
+     * its explicit bound and still finish through a real exact deck-one leaf. */
+    Agent recursive = a;
+    recursive.dets = 1;
+    recursive.batch_dets = 1;
+    recursive.deck2_replan_worlds = 8;
+    recursive.deck2_replan_cores = 1;
+    Rng recursive_rng;
+    rng_seed(&recursive_rng, UINT64_C(0xA11CE57A11));
+    SearchStats recursive_stats;
+    (void)rollout_move(
+        &recursive, &st, &recursive_rng, NULL, &recursive_stats);
+    CHECK(recursive_stats.deck2_replan_root_calls > 0 &&
+          recursive_stats.deck2_replans >
+              recursive_stats.deck2_replan_root_calls &&
+          recursive_stats.deck2_replan_max_depth >= 2 &&
+          recursive_stats.deck2_replan_max_stall_chain >= 2 &&
+          recursive_stats.exact_terminal_leaves > 0 &&
+          recursive_stats.unfinished_cap_leaves == 0,
+          "deck-three recursive stalls failed: roots=%llu replans=%llu "
+          "depth=%llu stalls=%llu exact=%llu unfinished=%llu",
+          (unsigned long long)recursive_stats.deck2_replan_root_calls,
+          (unsigned long long)recursive_stats.deck2_replans,
+          (unsigned long long)recursive_stats.deck2_replan_max_depth,
+          (unsigned long long)recursive_stats.deck2_replan_max_stall_chain,
+          (unsigned long long)recursive_stats.exact_terminal_leaves,
+          (unsigned long long)recursive_stats.unfinished_cap_leaves);
+
+    State reserve = st;
+    Move reserve_legal[MAX_MOVES];
+    int reserve_n = lc_moves(&reserve, reserve_legal);
+    int reserve_deck = -1;
+    for (int i = 0; i < reserve_n; i++)
+        if (reserve_legal[i].draw == 0) {
+            reserve_deck = i;
+            break;
+        }
+    CHECK(reserve_deck >= 0,
+          "engine-fuse reserve fixture has no deck-draw move");
+    if (reserve_deck >= 0) lc_apply(&reserve, reserve_legal[reserve_deck]);
+    CHECK(reserve.deck_left == 2,
+          "engine-fuse reserve fixture did not reach deck two");
+    reserve.nply = LC_MAX_PLIES - reserve.deck_left - 1;
+    Agent reserve_agent = a;
+    reserve_agent.deck2_replan_worlds = 2;
+    reserve_agent.deck2_replan_cores = 2;
+    Rng reserve_rng;
+    rng_seed(&reserve_rng, UINT64_C(0xCA9E5E));
+    SearchStats reserve_stats;
+    (void)rollout_move(
+        &reserve_agent, &reserve, &reserve_rng, NULL, &reserve_stats);
+    CHECK(reserve_stats.cap_reserve_forces > 0 &&
+          reserve_stats.deck2_replans == 0 &&
+          reserve_stats.unfinished_cap_leaves == 0 &&
+          reserve_stats.exact_terminal_leaves > 0,
+          "engine-fuse reserve failed: forces=%llu replans=%llu "
+          "unfinished=%llu exact=%llu",
+          (unsigned long long)reserve_stats.cap_reserve_forces,
+          (unsigned long long)reserve_stats.deck2_replans,
+          (unsigned long long)reserve_stats.unfinished_cap_leaves,
+          (unsigned long long)reserve_stats.exact_terminal_leaves);
+
+    /* The detector compares complete determinizations, but that must not let
+     * the root actor peek at which unseen card happens to occupy which hidden
+     * location.  Swap a private opponent card with a deck card: the mover's
+     * information set, seeded worlds, selected move and measured work must be
+     * identical. */
+    State hidden = st;
+    uint64_t private_hand = hidden.hand[1] & ~hidden.known[1];
+    int hc = private_hand ? __builtin_ctzll(private_hand) : -1;
+    int dc = hidden.deck[hidden.deck_pos];
+    CHECK(hc >= 0 && hc != dc,
+          "late-cycle fixture has no hidden identities to swap");
+    if (hc >= 0 && hc != dc) {
+        hidden.hand[1] &= ~(UINT64_C(1) << hc);
+        hidden.hand[1] |= UINT64_C(1) << dc;
+        hidden.deck[hidden.deck_pos] = (uint8_t)hc;
+        Rng hidden_rng;
+        rng_seed(&hidden_rng, UINT64_C(0xC1C1E));
+        SearchStats hidden_stats;
+        Move hidden_selected = rollout_move(
+            &a, &hidden, &hidden_rng, NULL, &hidden_stats);
+        CHECK(MOVE_PACK(selected) == MOVE_PACK(hidden_selected) &&
+              stats.n == hidden_stats.n &&
+              stats.worlds == hidden_stats.worlds &&
+              stats.cycle_breaks == hidden_stats.cycle_breaks &&
+              stats.exact_terminal_leaves ==
+                  hidden_stats.exact_terminal_leaves &&
+              hidden_stats.unfinished_cap_leaves == 0,
+              "hidden identity changed late-cycle rollout behavior");
+        for (int i = 0; i < stats.n && i < hidden_stats.n; i++)
+            CHECK(MOVE_PACK(stats.mv[i]) ==
+                      MOVE_PACK(hidden_stats.mv[i]) &&
+                  fabs(stats.q[i] - hidden_stats.q[i]) < 1e-12,
+                  "hidden identity changed late-cycle row %d", i);
+    }
+    free(net);
+}
+
+static void test_deck2_continuation_replan(void)
+{
+    Net *net = calloc(1, sizeof *net);
+    CHECK(net != NULL, "network allocation for deck-two replan");
+    if (!net) return;
+
+    State st = deck3_replan_test_state();
+    CHECK(rollout_test_late_cache_order(net, &st),
+          "recursive late cache depended on candidate order or ancestor path");
+    int assignment_support = 0;
+    CHECK(rollout_test_unique_late_assignments(
+              &st, 2048, &assignment_support) == 990 &&
+          assignment_support == 990,
+          "deck-three 2048-world panel did not exhaust 990 unique assignments");
+    CHECK(rollout_test_unique_late_assignments(
+              &st, 128, &assignment_support) == 128 &&
+          assignment_support == 990,
+          "deck-three 128-world panel was not a unique support prefix");
+    State assignment_d2 = st;
+    Move assignment_legal[MAX_MOVES];
+    int assignment_n = lc_moves(&assignment_d2, assignment_legal);
+    int assignment_deck = -1;
+    for (int i = 0; i < assignment_n; i++)
+        if (assignment_legal[i].draw == 0) {
+            assignment_deck = i;
+            break;
+        }
+    CHECK(assignment_deck >= 0,
+          "unique-assignment fixture has no deck draw");
+    if (assignment_deck >= 0)
+        lc_apply(&assignment_d2, assignment_legal[assignment_deck]);
+    CHECK(assignment_d2.deck_left == 2 &&
+          rollout_test_unique_late_assignments(
+              &assignment_d2, 2048, &assignment_support) == 90 &&
+          assignment_support == 90,
+          "deck-two 2048-world panel did not exhaust 90 unique assignments");
+    Agent a;
+    agent_default(&a, AG_ROLLOUT, net);
+    a.no_belief = 1;
+    a.symmetries = 1;
+    a.playout_symmetries = 1;
+    a.dets = 2;
+    a.root_width = 2;
+    a.min_cand = 2;
+    a.cand_floor = 0.0f;
+    a.override_k = 0.0f;
+    a.deck2_replan_worlds = 2;
+    a.deck2_replan_cores = 2;
+
+    /* Unique finite panels improve the deployed replan-off actor too.  Once
+     * the mover's deck-two support is exhausted, extra requested worlds must
+     * not duplicate assignments or pretend to add evidence. */
+    Agent outer_census = a;
+    outer_census.dets = 2048;
+    outer_census.batch_dets = 2048;
+    outer_census.deck2_replan_worlds = 0;
+    outer_census.deck2_replan_cores = 0;
+    Rng outer_census_rng;
+    rng_seed(&outer_census_rng, UINT64_C(0x90C3E5));
+    SearchStats outer_census_stats;
+    (void)rollout_move(
+        &outer_census, &assignment_d2, &outer_census_rng, NULL,
+        &outer_census_stats);
+    CHECK(outer_census_stats.worlds == 90 &&
+          outer_census_stats.max_worlds == 90,
+          "replan-off deck-two rollout did not exhaust one 90-world census");
+
+    Agent root_only = a;
+    root_only.exact_terminal = 2;
+    root_only.deck2_replan_worlds = 0;
+    root_only.deck2_replan_cores = 0;
+    Rng root_only_rng;
+    rng_seed(&root_only_rng, UINT64_C(0x1F05AFE));
+    SearchStats root_only_stats;
+    (void)rollout_move(
+        &root_only, &st, &root_only_rng, NULL, &root_only_stats);
+    CHECK(root_only_stats.worlds == 2 &&
+          root_only_stats.exact_terminal_leaves == 0,
+          "root-only ablation unexpectedly solved continuation leaves");
+
+    Rng arng;
+    rng_seed(&arng, UINT64_C(0x1F05AFE));
+    SearchStats as;
+    Move am = rollout_move(&a, &st, &arng, NULL, &as);
+    CHECK(as.worlds == 2 && as.deck2_replans > 0 &&
+          as.deck2_replan_root_calls > 0 &&
+          as.deck2_replan_root_worlds ==
+              as.deck2_replan_root_calls * a.deck2_replan_worlds &&
+          as.deck2_replan_evals >= as.deck2_replan_worlds &&
+          as.deck2_replan_evals <= as.deck2_replan_worlds * 2 *
+                                      a.deck2_replan_cores &&
+          as.exact_terminal_leaves > 0,
+          "deck-two continuation replan was absent, recursive, or miscounted");
+    CHECK(as.unfinished_cap_leaves == 0,
+          "deck-two replan scored an unfinished ply-cap state as a leaf");
+
+    Agent exhaustive = a;
+    exhaustive.dets = 1;
+    exhaustive.batch_dets = 1;
+    exhaustive.deck2_replan_worlds = 128;
+    /* Keep both root candidates on the deck.  After either hidden draw the
+     * opponent's deck-two information set has eight unknown opposing cards
+     * plus two ordered deck cards: exactly 10*9 = 90 assignments. */
+    float saved_draw[NET_NDRAW];
+    memcpy(saved_draw, net->bdraw, sizeof saved_draw);
+    net->bdraw[0] = 30.0f;
+    for (int d = 1; d < NET_NDRAW; d++) net->bdraw[d] = -30.0f;
+    Rng exhaustive_rng;
+    rng_seed(&exhaustive_rng, UINT64_C(0xE7A057));
+    SearchStats exhaustive_stats;
+    (void)rollout_move(
+        &exhaustive, &st, &exhaustive_rng, NULL, &exhaustive_stats);
+    memcpy(net->bdraw, saved_draw, sizeof saved_draw);
+    CHECK(exhaustive_stats.deck2_replan_root_calls > 0 &&
+          exhaustive_stats.deck2_replan_root_worlds ==
+              exhaustive_stats.deck2_replan_root_calls * 90,
+          "128-cap deck-two root panels were silently truncated: "
+          "roots=%llu worlds=%llu",
+          (unsigned long long)exhaustive_stats.deck2_replan_root_calls,
+          (unsigned long long)exhaustive_stats.deck2_replan_root_worlds);
+    CHECK(exhaustive_stats.unfinished_cap_leaves == 0,
+          "exhaustive deck-two support reached an unfinished cap leaf");
+
+    /* Swap two facts hidden from the mover: one private opponent card and one
+     * deck card.  The replan must reconstruct fresh worlds from the mover's
+     * information view, so its action and all measured work stay identical. */
+    State hidden = st;
+    int p = st.turn, o = p ^ 1;
+    uint64_t private_hand = hidden.hand[o] & ~hidden.known[o];
+    int hc = private_hand ? __builtin_ctzll(private_hand) : -1;
+    int dc = hidden.deck_left > 0 ? hidden.deck[hidden.deck_pos] : -1;
+    CHECK(hc >= 0 && dc >= 0 && hc != dc,
+          "deck-two hidden-information fixture has no swappable cards");
+    if (hc >= 0 && dc >= 0 && hc != dc) {
+        hidden.hand[o] &= ~(UINT64_C(1) << hc);
+        hidden.hand[o] |= UINT64_C(1) << dc;
+        hidden.deck[hidden.deck_pos] = (uint8_t)hc;
+        Rng brng;
+        rng_seed(&brng, UINT64_C(0x1F05AFE));
+        SearchStats bs;
+        Move bm = rollout_move(&a, &hidden, &brng, NULL, &bs);
+        CHECK(MOVE_PACK(am) == MOVE_PACK(bm) &&
+              as.n == bs.n && as.worlds == bs.worlds &&
+              as.deck2_replans == bs.deck2_replans &&
+              as.deck2_replan_worlds == bs.deck2_replan_worlds &&
+              as.deck2_replan_evals == bs.deck2_replan_evals &&
+              as.deck2_replan_cap_hits == bs.deck2_replan_cap_hits &&
+              as.deck2_replan_cache_hits == bs.deck2_replan_cache_hits &&
+              as.deck2_replan_cycle_closures ==
+                  bs.deck2_replan_cycle_closures &&
+              as.deck2_replan_max_depth == bs.deck2_replan_max_depth &&
+              as.deck2_replan_root_calls == bs.deck2_replan_root_calls &&
+              as.deck2_replan_root_worlds == bs.deck2_replan_root_worlds &&
+              as.deck2_replan_max_stall_chain ==
+                  bs.deck2_replan_max_stall_chain &&
+              as.deck2_replan_low_world_fallbacks ==
+                  bs.deck2_replan_low_world_fallbacks &&
+              as.exact_terminal_leaves == bs.exact_terminal_leaves &&
+              as.unfinished_cap_leaves == bs.unfinished_cap_leaves,
+              "hidden opponent/deck identity changed deck-two replan");
+        for (int i = 0; i < as.n && i < bs.n; i++)
+            CHECK(MOVE_PACK(as.mv[i]) == MOVE_PACK(bs.mv[i]) &&
+                  fabs(as.q[i] - bs.q[i]) < 1e-12,
+                  "hidden identity changed deck-two replan row %d", i);
+    }
+
+    /* A sharp policy used to collapse deck=2 to one root candidate, skipping
+     * every exact-leaf-aware playout.  Enabling the ablation must force one
+     * additional top semantic core while leaving the default-off path alone. */
+    State d2 = st;
+    Move legal[MAX_MOVES];
+    int nlegal = lc_moves(&d2, legal), deck_move = -1;
+    for (int i = 0; i < nlegal; i++)
+        if (legal[i].draw == 0) {
+            deck_move = i;
+            break;
+        }
+    CHECK(deck_move >= 0, "deck-two bypass fixture has no deck move");
+    if (deck_move >= 0) lc_apply(&d2, legal[deck_move]);
+    CHECK(d2.deck_left == 2, "deck-two bypass fixture did not reach deck two");
+    Move d2legal[MAX_MOVES];
+    int nd2 = lc_moves(&d2, d2legal);
+    if (nd2 > 0) {
+        net_zero(net);
+        int ip = d2legal[0].card * 2 + d2legal[0].discard;
+        net->bplay[ip] = 20.0f;
+        net->bdraw[d2legal[0].draw] = 20.0f;
+        Agent off = a;
+        off.dets = 2;
+        off.root_width = 5;
+        off.min_cand = 1;
+        off.cand_floor = 0.02f;
+        off.deck2_replan_worlds = 0;
+        off.deck2_replan_cores = 0;
+        Rng off_rng;
+        rng_seed(&off_rng, UINT64_C(0x51A61E));
+        SearchStats off_stats;
+        (void)rollout_move(&off, &d2, &off_rng, NULL, &off_stats);
+        CHECK(off_stats.worlds == 0 && off_stats.n == 1,
+              "default-off sharp policy no longer takes singleton fast path");
+
+        Agent on = off;
+        on.deck2_replan_worlds = 2;
+        on.deck2_replan_cores = 2;
+        Rng on_rng;
+        rng_seed(&on_rng, UINT64_C(0x51A61E));
+        SearchStats on_stats;
+        (void)rollout_move(&on, &d2, &on_rng, NULL, &on_stats);
+        CHECK(on_stats.worlds == 2 && on_stats.n >= 2 &&
+              on_stats.exact_terminal_leaves > 0,
+              "deck-two replan did not break the one-candidate bypass");
+    }
+    free(net);
 }
 
 static void test_rollout_value_scale(void)
@@ -1067,10 +1830,12 @@ static void test_rollout_spec_tail(void)
           a.prefix_confirm_k == 0.0f &&
           a.prefix_confirm_min == 0.0f &&
           a.confirm_temp == 0.0f &&
-          a.action_core_count == 0,
+          a.action_core_count == 0 && a.deck2_replan_worlds == 0 &&
+          a.deck2_replan_cores == 0 && a.bounded_late_root == 0 &&
+          fabsf(a.bounded_late_min - 1.0f) < 1e-6f,
           "rollout default no longer makes continuation pruning follow root");
     spec_parse("rolloutu:data/champion.bin:256:5:0.03:0.9:2:14:50:4:"
-               "2:1:3.5:1.5:3:20:0.995:64:20:1:24:128:0:16:12:1:1:2:12:1:1.25:4:3:2.75:1.125:0.2:3",
+               "2:1:3.5:1.5:3:20:0.995:64:20:1:24:128:0:16:12:1:1:2:12:1:1.25:4:3:2.75:1.125:0.2:3:1:24:3:0:2.25",
                &a);
     CHECK(a.kind == AG_ROLLOUT && a.no_belief,
           "rolloutu kind/world model parsed incorrectly");
@@ -1099,7 +1864,10 @@ static void test_rollout_spec_tail(void)
           fabsf(a.prefix_confirm_k - 2.75f) < 1e-6f &&
           fabsf(a.prefix_confirm_min - 1.125f) < 1e-6f &&
           fabsf(a.confirm_temp - 0.2f) < 1e-6f &&
-          a.action_core_count == 3,
+          a.action_core_count == 3 && a.exact_terminal == 1 &&
+          a.deck2_replan_worlds == 24 && a.deck2_replan_cores == 3 &&
+          a.bounded_late_root == 0 &&
+          fabsf(a.bounded_late_min - 2.25f) < 1e-6f,
           "rollout planner/semantic tail parsed incorrectly");
     free((void *)a.net);
 
@@ -1138,20 +1906,27 @@ static void test_rollout_spec_tail(void)
           champion.prefix_confirm_k == 0.0f &&
           champion.prefix_confirm_min == 0.0f &&
           champion.confirm_temp == 0.0f &&
-          champion.action_core_count == 0,
+          champion.action_core_count == 0 && champion.exact_terminal == 1 &&
+          champion.deck2_replan_worlds == 0 &&
+          champion.deck2_replan_cores == 0 &&
+          champion.bounded_late_root == 0 &&
+          fabsf(champion.bounded_late_min - 1.0f) < 1e-6f,
           "maintained champion spec drifted from its locked configuration");
     free((void *)champion.net);
 
     Agent audit;
     spec_parse(LC_AUDIT_AGENT_SPEC, &audit);
     CHECK(audit.kind == AG_ROLLOUT && audit.no_belief &&
-          audit.dets == 2048 && audit.root_width == 3 &&
+          audit.dets == 2048 && audit.root_width == 5 &&
           fabsf(audit.cand_floor - 0.01f) < 1e-6f &&
           audit.ply_lo == 14 && audit.confirm_dets == 2048 &&
           audit.policy_prefix_mode == 2 &&
           fabsf(audit.prefix_confirm_k - 2.0f) < 1e-6f &&
           fabsf(audit.prefix_confirm_min - 1.0f) < 1e-6f &&
-          audit.action_core_count == 3,
+          audit.action_core_count == 3 && audit.exact_terminal == 1 &&
+          audit.deck2_replan_worlds == 0 &&
+          audit.deck2_replan_cores == 0 && audit.bounded_late_root == 1 &&
+          fabsf(audit.bounded_late_min - 1.0f) < 1e-6f,
           "post-game audit spec drifted from its focused configuration");
     free((void *)audit.net);
 
@@ -1164,7 +1939,7 @@ static void test_rollout_spec_tail(void)
     const char *self_spec =
         "selfrollout:256:5:0.0123456789:0.8765432109:7:14:299:8:2:1:"
         "3.5000000001:1.5000000001:4:20:0.9950000001:128:20:1:24:128:"
-        "0:16:12:1:1:2:12:3:1.25:4:3:2.75:1.125:0.2:3";
+        "0:16:12:1:1:2:12:3:1.25:4:3:2.75:1.125:0.2:3:1:0:0:0:3.25";
     CHECK(strlen(self_spec) > 128,
           "selfrollout regression no longer exceeds the old parser buffer");
     Agent live_rollout;
@@ -1192,9 +1967,41 @@ static void test_rollout_spec_tail(void)
           fabsf(live_rollout.prefix_confirm_k - 2.75f) < 1e-6f &&
           fabsf(live_rollout.prefix_confirm_min - 1.125f) < 1e-6f &&
           fabsf(live_rollout.confirm_temp - 0.2f) < 1e-6f &&
-          live_rollout.action_core_count == 3,
+          live_rollout.action_core_count == 3 &&
+          live_rollout.exact_terminal == 1 &&
+          live_rollout.deck2_replan_worlds == 0 &&
+          live_rollout.deck2_replan_cores == 0 &&
+          live_rollout.bounded_late_root == 0 &&
+          fabsf(live_rollout.bounded_late_min - 3.25f) < 1e-6f,
           "selfrollout planner/semantic/consensus tail was not parsed");
     free(live);
+
+    Agent legacy_tail;
+    spec_parse(
+        "rolloutu:data/champion.bin:8:2:0.02:0:1:0:0:0:0:0:0:4:2:1:"
+        "0:0:1:1:0:8:0:0:0:0:0:0:0:0:1:0:0:0:0:0:0:0",
+        &legacy_tail);
+    CHECK(legacy_tail.exact_terminal == 0,
+          "controlled exact-terminal ablation field was not parsed");
+    free((void *)legacy_tail.net);
+
+    Agent root_only_tail;
+    spec_parse(
+        "rolloutu:data/champion.bin:8:2:0.02:0:1:0:0:0:0:0:0:4:2:1:"
+        "0:0:1:1:0:8:0:0:0:0:0:0:0:0:1:0:0:0:0:0:0:2",
+        &root_only_tail);
+    CHECK(root_only_tail.exact_terminal == 2,
+          "root-only exact-terminal propagation ablation was not parsed");
+    free((void *)root_only_tail.net);
+
+    Agent policy_action_tail;
+    spec_parse(
+        "rolloutu:data/champion.bin:8:2:0.02:0:1:0:0:0:0:0:0:4:2:1:"
+        "0:0:1:1:0:8:0:0:0:0:0:0:0:0:1:0:0:0:0:0:0:3",
+        &policy_action_tail);
+    CHECK(policy_action_tail.exact_terminal == 3,
+          "policy-action terminal propagation control was not parsed");
+    free((void *)policy_action_tail.net);
 }
 
 static void test_information_preserving_scheduler(void)
@@ -1693,6 +2500,8 @@ static void test_rollout_match_thread_determinism(void)
 
     for (int mode = 2; mode <= 5; mode++) {
         search.playout_sample = mode;
+        search.deck2_replan_worlds = mode == 2 ? 1 : 0;
+        search.deck2_replan_cores = mode == 2 ? 1 : 0;
         /* The third loop reuses measured mode-2 discovery but exercises
          * role-separated fresh consensus.  The fourth combines it with
          * independently stratified fixed roles in discovery itself. */
@@ -1915,6 +2724,10 @@ int main(void)
     test_sampler();
     test_near_greedy_confirmation_sampler();
     test_rollout_terminal_objective();
+    test_rollout_exact_terminal_choice();
+    test_rollout_exact_terminal_randomized();
+    test_late_rollout_cycle_break();
+    test_deck2_continuation_replan();
     test_rollout_value_scale();
     test_belief_distribution();
     test_exact_k_belief_objective();

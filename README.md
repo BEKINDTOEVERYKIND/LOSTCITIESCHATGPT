@@ -21,7 +21,7 @@ move changes only when both panels select the same leader; disagreement falls
 back to the policy. This is the exact deployed specification:
 
 ```text
-rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:2:20:0:0:20:1:0:512:1:0:0:0:0:0:0:2
+rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:2:20:0:0:20:1:0:512:1:0:0:0:0:0:0:2:1:0:0:0:0:0:0:1
 ```
 
 Two locked tests supported the promotion (each mirrored pair is two complete
@@ -38,9 +38,60 @@ independent external test is stronger corroboration: approximate 95%
 intervals are +2.28 to +17.88 points and 51.33% to 63.17% match score. This
 evidence, plus the method's repair of independently reproduced continuation
 bias, is why it replaces the preceding actor. The network checkpoint itself
-is unchanged. The exact one-card-deck weak-dominance rule is also included:
-after the same card action, drawing the last deck card ends the round instead
-of gifting the opponent another optional turn.
+is unchanged.
+
+The last turn is now solved as a complete decision rather than patched only
+after the policy chooses a card. With one deck card remaining, every legal
+play/discard action is scored under the active round or final-match objective
+and paired with the deck draw that ends the round. The same exact solver runs
+inside every rollout continuation. Consequently, whenever a decision with two
+or more deck cards is actually compared by rollout, each candidate is evaluated
+against optimal final-turn play; that comparison cannot prefer an earlier
+stall by assuming that either player will blunder on the easiest turn.
+
+That propagation has a deliberately narrower claim than full backward
+optimality. The live actor still uses the raw champion policy before round ply
+14, and a one-candidate shortlist needs no sampled comparison. Within an
+ordinary deck-two/deck-three rollout, intermediate choices remain champion
+policy choices before the exact one-card leaf. Thus every candidate that is
+actually rolled out is scored with an optimal final turn, but the actor does
+not yet solve every earlier stall information set. The bounded audit below was
+kept out of live play precisely because using a stronger late rule only after
+re-rooting would make those earlier rollout assumptions inconsistent.
+
+A precommitted 20-pair exploratory screen isolated that propagation effect.
+Both actors solved real one-card roots; the control merely preserved the
+ordinary policy's action inside simulated one-card leaves. Exact propagated
+play scored `+5.62 ± 6.74` points per match and `52.5% ± 5.7%` match score
+(seed `20803011`). The direction is encouraging but the interval includes
+parity, so this is supporting evidence for the exact method, not a claimed
+independent strength promotion.
+
+A separate 20-pair whole-actor screen against the raw exact-20 policy scored
+`+17.45 ± 5.80` points per game and `60.0% ± 5.8%` match score. This is a
+small exploratory result with wide uncertainty. It bundles the entire
+maintained actor and is not an isolated exact-tail or bounded-resolver
+ablation, so it is reported as a screen rather than promotion evidence for any
+one component. The exact recorded specifications, seeds, aggregate results,
+and provenance limitations for both screens are in
+[`data/experiments/locked_strength_screens.json`](data/experiments/locked_strength_screens.json).
+
+Late continuations also detect genuine repeated decision states at deck counts
+three or lower. The active cycle identity is built from the current mover's
+sanitized information set—own hand, known cards, and complete public
+position—not the sampled opponent hand or future deck order. Interchangeable
+wager IDs are collapsed and the ply counter is omitted so a literal public
+pile shuttle cannot evade detection. On repetition, the maintained greedy
+network policy is conditioned on the now-required deck draw, including its
+learned card/action×draw interaction. This is stronger than choosing an
+unrestricted move and swapping only its draw source. Optional sampled/planned
+actors and the propagation-control ablation retain their selected semantic
+action. A distinct non-repeating walk can also approach the engine fuse, so
+the final `deck_left` slots use the same conditional deck policy. Pile shuttles
+are therefore completed by the game rule rather than scored as if the
+artificial 300-ply fuse were a terminal. Any impossible residual cap is still
+counted, marks the comparison unresolved, and cannot override the deployed
+policy.
 
 For historical context, the preceding ply-20 actor scored **+14.70 ± 1.53 SE
 points per match** and **56.5% ± 1.5% SE match score** against policy alone on
@@ -58,23 +109,70 @@ They are therefore not silently enabled for live play. `play`, `showgame`,
 `analyze`, and the replay generator use the measured configuration above;
 `analyze` separately labels its higher-compute review recommendations.
 
-The newer three-slot/three-core shortlist (`root_width=3`) received the same
+The earlier three-slot/three-core shortlist (`root_width=3`) received the same
 direct promotion test. An exploratory 20-pair screen was promising (+20.23 ±
 7.29 points, 65.0% ± 5.3% match score), but the precommitted independent seed
 did not reproduce a clear match-win gain: over 40 mirrored pairs it scored
 only +1.04 ± 5.37 points and 51.2% ± 3.8% (W/L/D 41/39/0) against the
 maintained actor. The screen is selection-biased and the independent result is
-inconclusive, so the three-core method is used by the post-game audit but not
-live play.
+inconclusive, so it was not promoted to live play. The post-game audit now
+retains those three top policy action cores but has five total slots, allowing
+two policy-supported draw alternatives. At a real audit root with two or three
+deck cards, a new bounded resolver exhausts the mover's full ordered
+information-set support: at most 90 worlds at deck two and 990 at deck three.
+That census is independent of the older recursive method. The maintained audit
+sets `bounded_late_root=1` while leaving both `deck2_replan_*` fields at zero,
+so no recursively redeterminized late panel can multiply its cost or overturn
+its result. Its independent `bounded_late_min=1` requires more than one
+objective point of gain in both horizons; it does not borrow or alter the
+ordinary prefix-confirmation gate.
 
-The tracked [interactive match viewer](web/viewer.html) embeds one unscreened
-random self-play match generated once under the maintained actor, with no
-retry or result selection: seed `95647345759839`, 137 plies, final score
-P1 24–P2 130. The actor, deals, and independent post-game audit use separate
-deterministic RNG streams. The viewer keeps the move that was actually played
+Candidate zero is always the literal global complete-move policy argmax, even
+when the semantic shortlist would otherwise omit it. Whenever a continuation
+is forced to draw from the deck, card/actions are ranked under that
+deck-conditional policy rather than by replacing the draw source of an
+unrestricted argmax. The same particles are carried forward through stalls,
+one-card leaves are solved exactly, later information sets for the root player
+may be improved, and nonterminal opponent choices remain frozen to the champion
+policy. The resolver separately solves bounded horizons H=2 and H=4 and can
+recommend a change only when both horizons choose the same complete root move
+and both clear the configured practical-gain gate. A completed panel is the
+authoritative gate for that audit root: it either authorizes that challenger
+or immediately retains literal candidate zero. It does not pass a rejected
+challenger to the older recursive evaluator, where a different approximation
+could reverse the conservative decision. Only a panel that is unavailable
+before completing falls back to the ordinary policy-focused rollout evaluator;
+the disabled recursive method is not invoked. Retaining candidate zero is
+deliberately conservative, not a proof that the policy move is optimal.
+
+The locked deck-three ply-42 probe is deliberately conservative: both horizons
+stably prefer G8+deck, but its H=2 gain is only `+0.036`, so the completed
+panel authoritatively retains the policy baseline. At deck two on ply 43, both
+horizons accept B10 followed by the
+Yellow-pile draw—placing B10 on the blue expedition—with `+20.622` over the
+policy baseline at each horizon. These
+are restricted-model diagnostics, not an equilibrium solution. The opponent is
+frozen, and upstream ordinary playouts still use the champion continuation
+policy rather than re-rooting this panel at every prior turn. That dynamic
+inconsistency is why the resolver is audit-only and has not been promoted to
+live self-play.
+
+The tracked [interactive match viewer](web/viewer.html) embeds the precommitted
+random seed's self-play match under the maintained actor, with no result
+screening or seed replacement: seed `209430960825253`, 145 plies, final score
+P1 190–P2 175. The same seed was replayed only while repairing a
+continuation-validity defect exposed by its diagnostics. The actor, deals, and
+independent post-game audit use separate deterministic RNG streams. The viewer
+keeps the move that was actually played
 separate from the higher-compute review and shows the focused shortlist,
-paired uncertainty, coherent-panel result, and experimental hand estimate at
-every move.
+paired uncertainty, coherent-panel result, exact-terminal leaf count,
+recursive late-search work, budget/cycle fallbacks, search depth, and the
+experimental hand estimate at every move. Its tracked payload now includes a
+match/build identifier, and the previously undefined diagnostics accumulator
+that could stop the page at runtime has been removed; showcase generation also
+installs the validated JSON and embedded viewer together, which makes stale or
+partially updated match artifacts visible instead of silently presenting them
+as the new match.
 
 Its underlying network, `data/champion.bin`, combines an exactly
 wager-symmetric projection of the strongest inherited checkpoint with
@@ -257,7 +355,12 @@ Policy-action sampling is a separate diagnostic mode; it is no longer
 accidentally coupled to random symmetry sampling. The maintained actor and
 audit use the cheap per-decision mode for the primary panel and the coherent
 trajectory-fixed mode for an independent confirmation panel whenever the
-primary panel proposes changing the policy move.
+primary panel proposes changing the policy move. The bounded actual-root panel
+ranks its candidates with the complete configured suit ensemble. In optional
+low-level recursive experiments, selected-path late nodes do the same, while
+hypothetical descendants use one cheaper group member chosen deterministically
+from their current mover information state and panel domain, never from an
+outer hidden-world RNG position.
 
 **Stalling.** Drawing a useless card from a pile to deny the opponent a turn
 of deck progress is in the action space, and nothing hand-crafted decides it:
@@ -486,17 +589,109 @@ challenger must actually beat. The default deep audit reports policy evidence
 but deliberately skips rollout for the first 14 actions of each round; search
 starts at zero-based `round_ply=14`, the 15th displayed action. A 2,048-world ply-8 probe
 still produced a confident low-prior override, confirming that more worlds do
-not cure the long opening horizon. From that 15th action it uses 2,048 primary worlds on
-at most three distinct top-policy card/play-discard cores with at least 1%
-aggregate prior. When three action cores qualify, its three-slot budget cannot
-be consumed by several draw variants of one action; when fewer qualify, a
-strong alternative draw can use a spare slot. When that panel's leader differs from the policy, a
-fresh 2,048-world panel with balanced, trajectory-fixed suit mappings must
-choose the same leader and beat it by both two paired standard errors and at
-least one objective point, or the audit falls back to candidate zero. This
-rejects visually misleading recommendations supported only by a tiny noisy
-difference. The coherent repeat is a robustness check, not a claim of
-statistical proof. In the final round the dump also reports
+not cure the long opening horizon. From that 15th action it requests up to
+2,048 primary worlds on at most three distinct top-policy card/play-discard cores with at
+least 1% aggregate prior, plus up to two policy-supported alternative draws in
+a five-slot budget.
+
+At a uniform-world root with two or three deck cards, the outer primary,
+trusted-prefix-confirmation, and challenger-confirmation panels draw ordered
+information-set assignments without replacement. This applies even when the
+recursive resolver is disabled. A 2,048-world request therefore becomes one
+complete 90-assignment census at deck two and at most 990 unique assignments
+at deck three; publicly known opponent cards can make either support smaller.
+Separate deterministic panel domains choose their own unique order. This outer
+census prevents duplicate worlds from masquerading as additional evidence.
+
+Concretely, the maintained live actor requests 512 outer worlds: deck two is
+still the complete 90-assignment census, while deck three uses 512 unique
+assignments from support of at most 990. The deep audit requests 2,048, so it
+exhausts both supports. Its historical recursive-replan fields are both zero.
+
+At an actual audit root with two or three deck cards, the bounded late resolver
+exhausts the complete ordered support:
+at most 90 mover-view assignments at deck two and 990 at deck three, with
+publicly known cards reducing those counts. The independent
+`bounded_late_root=1` flag enables this panel while recursive replanning remains
+off. `bounded_late_min` is a separate practical-gain floor and defaults to one
+point.
+
+The resolver groups moves into semantic card/play-discard cores and globally
+assigns the remaining slots to the strongest supported pile variants. It also
+retains the literal global complete-move policy argmax as candidate zero,
+regardless of the core ranking. Where progress through the deck is compulsory,
+the action ranking is recomputed conditional on a deck draw; it never takes an
+unrestricted policy argmax and merely swaps its draw source. Particles remain
+coupled across stalls, the root player's later information sets receive the
+same bounded policy improvement, opponent nonterminal information sets use the
+frozen champion policy, and every deck-one leaf evaluates all legal final
+card/actions exactly.
+
+Two separately bounded solutions, H=2 and H=4, must identify the same
+complete root move. A change is authorized only if that move also beats the
+literal policy baseline by more than the configured practical threshold in
+both horizons. The locked deck-three ply-42 panel therefore retains policy even
+though G8+deck is stable: its H=2 gain is only `+0.036`. The deck-two ply-43
+panel accepts playing B10 to the blue expedition followed by the Yellow-pile
+draw, which gains `+20.622` in both horizons. This is a one-sided
+restricted-model policy improvement, not an equilibrium computation or a
+promoted playing rule.
+
+The older recursive evaluator remains available only to low-level experimental
+specifications. It can redeterminize at later two- or three-card states under a
+separate world/depth budget, but the maintained audit does not enable it. If the
+bounded actual-root panel is unavailable before completing, the ordinary
+policy-focused evaluator resumes instead. A completed rejection returns the
+literal policy baseline immediately.
+
+That experimental recursive method is deliberately bounded rather than
+disguised as exact game-tree search. Its actual selected path uses the complete
+configured suit ensemble and up to three semantic cores; hypothetical
+descendants use one deterministic, information-state-keyed group member and
+their top core. These details no longer describe the maintained audit, whose
+recursive counters must remain zero.
+
+An all-depth exact-20 variant was also attempted on both locked late probes.
+Each run exceeded 25 minutes without completing and was stopped, so it was
+rejected as impractical rather than reported as a measured playing result.
+
+The old single-frontier ply-43 assertion was invalid: its exact local arithmetic
+was B10 `-21.511`, Y10 followed by immediate progress `-1.511`, and Y10 on the
+one-stall frontier `-18.933`. The replacement regression does not reuse that
+truncated comparison. It exhausts all 90 ordered worlds and locks the finite
+H=2/H=4 consensus above, including the B10-to-blue-expedition/Yellow-pile-draw
+continuation. The resolver still remains experimental and audit-only because
+frozen opponent responses and the champion continuation policy used by prior
+plies make the combined evaluator dynamically inconsistent. Making its completed
+root panel authoritative prevents a second approximate evaluator from
+contradicting its gate; it does not remove that upstream inconsistency or
+establish optimal play.
+
+For low-level recursive experiments, strict candidate-trajectory budgets,
+information-set-safe state keys, panel-local caches, and cycle closure prevent
+private-root leakage or a compute limit from becoming a game rule. Those paths
+remain covered by focused tests but are not part of the maintained audit.
+
+The analyzer and viewer separately report the bounded root resolver's support,
+H=2/H=4 values, stability, practical-gate result, frozen-opponent work, and
+whether it authoritatively retained policy or selected a challenger. Historical
+recursive counters remain in the schema for low-level experiments and are
+asserted to be zero in the maintained audit. Both the live actor and maintained
+audit keep the two `deck2_replan_*` fields at zero; only the audit enables
+`bounded_late_root`.
+Reported Q standard errors measure outer-world variation conditional on this
+deterministic searched policy. They do not treat repeated inner searches as
+independent samples or include uncertainty from choosing another inner-search
+seed.
+
+When the primary leader differs from the policy, a fresh panel requests up to
+2,048 worlds with balanced, trajectory-fixed suit mappings; a late root instead
+uses the unique support described above. It must confirm that proposed move
+over candidate zero by both two paired standard errors and at least one
+objective point. It need not reproduce an exact argmax among statistically
+tied improvements; otherwise two good stalls can cancel each other and restore
+a clearly bad deck-ending baseline. This rejects weak evidence without
+confusing leader jitter with failed confirmation. In the final round the dump also reports
 each candidate's exact match-score fraction over the playouts. Selecting by that win
 fraction is available (`win_q`) but off by default, because it measured no
 better than margin selection -- 50.4% ± 0.8% match wins pooled over 2,000
@@ -592,7 +787,11 @@ downstream decision draws one requested symmetry and takes its greedy move.
 Mode `3` instead fixes a balanced symmetry mapping for the complete sampled
 trajectory. The maintained method uses mode 2 for discovery and independent
 mode 3 for consensus, without changing the evaluated player into a much weaker
-high-entropy policy.
+high-entropy policy. When the optional recursive late evaluator is enabled,
+its first and actually selected-path deck-two/deck-three shortlists use the
+full requested ensemble. Hypothetical top-one descendants use their
+information-state-keyed single group member; the surrounding ordinary
+continuation still follows the selected bounded mode.
 
 The maintained default is the measured two-panel ply-14 rollout actor printed
 at the top of this README. The scheduler and semantic challenger generator
@@ -696,7 +895,8 @@ is `worlds:candidates:floor:gate:min_candidates:ply_lo:ply_hi:eval_candidates:`
 `playout_prune:plan_deck_max:plan_block_gap:semantic_candidates:`
 `confirm_exact5:draw_variant_cores:draw_variant_deck_max:policy_prefix_mode:`
 `belief_alpha:draw_root_deck_max:draw_playout_deck_max:prefix_confirm_k:`
-`prefix_confirm_min:confirm_temp:action_core_count`;
+`prefix_confirm_min:confirm_temp:action_core_count:exact_terminal:`
+`deck2_replan_worlds:deck2_replan_cores:bounded_late_root:bounded_late_min`;
 objective is
 `0` for round margin, `1` for pure final-round match result, or `2` for the
 champion hybrid. Continuation mode `0` is exact-group greedy, `1` is the
@@ -710,17 +910,20 @@ trusted-prefix consensus panel. `draw_variant_cores` admits pile-draw variants
 only for the top one or two distinct card/disposition actions and never grows
 the root list beyond eight; `draw_variant_deck_max=0` means no phase limit.
 `policy_prefix_mode=0` gates every override, mode `1` trusts the numerical
-leader within the ordinary policy prefix, and mode `2` requires that same
-leader on a fresh balanced fixed-world panel. Low-prior semantic or draw
+leader within the ordinary policy prefix, and mode `2` uses a fresh balanced
+fixed-world panel. With paired evidence thresholds disabled it requires the
+same leader. Low-prior semantic or draw
 variants remain statistically gated in modes 1/2. Mode `3` applies the same
 consensus rule with separate coherent player orientations. `belief_alpha`
 scales the learned fixed-cardinality posterior (`0` is uniform); `rolloutu`
 remains uniform regardless of that field.
 The optional `prefix_confirm_k` and `prefix_confirm_min` fields strengthen
-modes 2/3: after numerical agreement, the fresh panel's proposed move must
-beat candidate zero by both the configured number of paired standard errors
-and the configured objective-unit floor.  Both must be positive to enable the
-gate; leaving both at zero preserves the earlier consensus behavior.
+modes 2/3: the fresh panel's proposed move must beat candidate zero by both the
+configured number of paired standard errors and the configured objective-unit
+floor. It may rank another statistically close improvement first; the question
+is whether the proposed correction independently beats the deployed baseline.
+Both thresholds must be positive to enable the gate; leaving both at zero
+preserves the earlier exact-leader consensus behavior.
 `confirm_temp>0` makes only fresh confirmation continuations near-greedy:
 actions are sampled from the shortest policy prefix covering 99.5% mass with
 stateless move-keyed common Gumbel noise. A value of `0` preserves exact
@@ -734,7 +937,19 @@ coverage is the aggregate mass of every draw source in the retained cores,
 not merely the representative complete moves. Both controls are opt-in and
 leave all historical specs equivalent.
 
-Both controls remain disabled in live play. On seven frozen, human-reviewed
+`exact_terminal=1` enables the all-action-core one-card solver. The two
+historically named `deck2_replan_*` fields configure recursive deck-two/deck-three
+descendant panels and set their number of top semantic cores. Their world value
+remains the historical recursive cap. `bounded_late_root=1` instead requires
+both recursive fields to be zero and independently enables the exhaustive
+actual-root panel. Its ordered support remains at most 90/990. A completed root
+panel is authoritative; an unavailable panel alone falls back to the ordinary
+policy-focused evaluator. `bounded_late_min` controls its two-horizon practical
+gain requirement independently of `prefix_confirm_min`.
+
+Exact one-card solving is enabled in live play. Recursive replanning and the
+bounded actual-root resolver remain disabled there; they are audit-only. On
+seven frozen, human-reviewed
 positions with 4,096 shared worlds, three action cores removed duplicate
 draw-source crowding and the criticized Green-5 choices at plies 29 and 31,
 while preserving the Blue-10 correction at ply 36 and admitting stronger

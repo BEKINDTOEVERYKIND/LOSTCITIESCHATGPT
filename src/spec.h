@@ -17,7 +17,9 @@
  *            [:policy_prefix_mode[:belief_alpha[:draw_root_deck_max
  *            [:draw_playout_deck_max[:prefix_confirm_k
  *            [:prefix_confirm_min[:confirm_temp
- *            [:action_core_count]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]
+ *            [:action_core_count[:exact_terminal[:deck2_replan_worlds
+ *            [:deck2_replan_cores[:bounded_late_root
+ *            [:bounded_late_min]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]
  *                 objective: 0 margin; 1 final match result; 2 final hybrid
  *                 symmetries: 1, 5, 10, 20, or 120 exact suit relabellings
  *                 sample: continuation mode 0 exact-group argmax, 1 random-
@@ -56,11 +58,14 @@
  *                   below this deck count (0 disables the phase limit)
  *                 policy_prefix_mode: 0 gates every override; 1 trusts the
  *                   numerical leader among ordinary policy-floor candidates;
- *                   2 additionally requires the same leader on a fresh,
- *                   balanced fixed-world-symmetry panel; 3 uses that same
- *                   consensus rule with independently stratified, coherent
- *                   suit mappings for the two players.  Added low-prior
- *                   challengers always retain both statistical gates.
+ *                   2 adds a fresh balanced fixed-world-symmetry panel; 3
+ *                   uses independently stratified, coherent suit mappings
+ *                   for the two players.  With paired thresholds disabled,
+ *                   modes 2/3 require the same numerical leader.  With both
+ *                   thresholds enabled, the primary proposal instead has to
+ *                   beat candidate zero by both fresh paired tests; a nearly
+ *                   tied alternative leader does not erase that evidence.
+ *                   Added low-prior challengers retain both statistical gates.
  *                 prefix_confirm_k / prefix_confirm_min: optional paired
  *                   evidence and practical-effect thresholds for the fresh
  *                   trusted-prefix panel.  Both must be positive to enable;
@@ -83,6 +88,38 @@
  *                   alternative per selected core when its complete-move
  *                   prior clears cand_floor; 0 retains complete-move policy
  *                   ranking.
+ *                 exact_terminal: 1 solves one-card-deck decisions exactly at
+ *                   the root and in every continuation (default); 2 solves
+ *                   the real root only; 3 solves the real root and, in each
+ *                   continuation, preserves the ordinary policy's card/action
+ *                   while forcing its terminal deck draw.  Modes 2/3 are
+ *                   propagation controls; 0 disables both and is retained
+ *                   only for low-level regression.
+ *                 deck2_replan_worlds / deck2_replan_cores: optional bounded
+ *                   recursive information-set search at two or three deck
+ *                   cards.  At every late node it compares only the requested
+ *                   top policy semantic action cores, using common ordered
+ *                   hidden assignments from the mover's sanitized view, and
+ *                   recurses through later stalls to the exact one-card leaf.
+ *                   The first late panel always receives its configured world
+ *                   count (or complete support); deeper panels share a strict
+ *                   work/depth bound and report every fallback.  Both zero is
+ *                   off; enabling it requires exact_terminal mode 1 and the
+ *                   uniform `rolloutu` world model.  A 128-world deck-two
+ *                   panel exhausts all at-most-90 ordered assignments.
+ *                 bounded_late_root: run the separate finite-support H2/H4
+ *                   resolver only at the real root with two or three deck
+ *                   cards (0/1).  It enumerates all ordered assignments (at
+ *                   most 90/990), carries each particle through the complete
+ *                   trajectory without child redeterminization, and either
+ *                   authorizes one horizon-stable practical improvement or
+ *                   conservatively retains the literal policy baseline.  It
+ *                   requires uniform worlds, exact_terminal mode 1, disabled
+ *                   root planners, and disabled recursive deck2 replanning.
+ *                 bounded_late_min: objective gain a non-policy candidate
+ *                   must exceed in both bounded horizons (default 1 point).
+ *                   This is intentionally independent of the ordinary
+ *                   policy-prefix confirmation thresholds.
  *   rolloutu:PATH[...]                 (same, but uniform world sampling: the
  *                                       ablation for the learned hand beliefs)
  *   mcts:PATH[:dets[:sims[:root_width[:node_width[:symmetries]]]]]
@@ -100,7 +137,9 @@
  * moves with at least 2% prior.  If it proposes a different
  * leader, a fresh balanced 512-world panel keeps one suit mapping fixed for
  * each complete trajectory; both panels must select the same move.  The exact
- * one-card-deck rule is intrinsic to rollout.
+ * one-card-deck solver is intrinsic to rollout and is also used at the
+ * end of every simulated continuation, so earlier search values inherit the
+ * optimal final action rather than a policy-network mistake.
  *
  * The visible-hand scheduler and focused semantic candidates remain available
  * for post-hoc review and component experiments, but neither demonstrated an
@@ -109,15 +148,22 @@
  */
 #define LC_CHAMPION_AGENT_SPEC \
     "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:2:20:" \
-    "0:0:20:1:0:512:1:0:0:0:0:0:0:2"
+    "0:0:20:1:0:512:1:0:0:0:0:0:0:2:1:0:0:0:0:0:0:1"
 
 /* Higher-compute post-game review.  It retains the match-tested ply-14 phase
- * boundary, then spends its worlds on at most three distinct top-policy
- * card/action cores.  Keeping this beside the champion spec prevents the UI,
- * analyzer and documentation from silently drifting to different methods. */
+ * boundary, then spends its ordinary rollout worlds on at most three distinct
+ * top-policy card/action cores plus two policy-supported draw alternatives.
+ * At a real deck depth of two or three, the separate bounded late resolver
+ * enumerates the complete ordered 90/990 information-state support, solves
+ * two stall horizons and accepts only horizon-consistent practical gains.
+ * The final boolean enables that panel independently; the older recursive
+ * continuation replanner stays off and cannot multiply or overturn it.
+ * This is an audit instrument, not a live self-play override.  Keeping the
+ * spec here prevents the UI, analyzer and documentation from silently
+ * drifting. */
 #define LC_AUDIT_AGENT_SPEC \
-    "rolloutu:data/champion.bin:2048:3:0.01:0:1:14:0:0:0:0:3.5:2:2:20:" \
-    "0:0:20:1:0:2048:1:0:0:0:0:0:0:2:1:0:0:2:1:0:3"
+    "rolloutu:data/champion.bin:2048:5:0.01:0:1:14:0:0:0:0:3.5:2:2:20:" \
+    "0:0:20:1:0:2048:1:0:0:0:0:0:0:2:1:0:0:2:1:0:3:1:0:0:1"
 
 /* Parses spec into *a, loading a network if needed.  Exits on error. */
 void spec_parse(const char *spec, Agent *a);
