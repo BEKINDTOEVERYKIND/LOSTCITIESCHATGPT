@@ -238,6 +238,10 @@ static void j_search_rows(FILE *fp, const SearchStats *ss, Move played,
                     "\"confirmation_se\":%.3f,"
                     "\"coherent_evaluated\":%s,"
                     "\"coherent_q\":%.3f,\"coherent_q_se\":%.3f,"
+                    "\"coherent_delta_vs_baseline\":%.3f,"
+                    "\"coherent_delta_se\":%.3f,"
+                    "\"coherent_numerical_agreement\":%s,"
+                    "\"coherent_gate_pass\":%s,"
                     "\"confirmation_pass\":%s,"
                     "\"guard_rejected\":%s",
                 ss->q[k], ss->se[k], ss->delta[k], ss->dse[k],
@@ -260,6 +264,12 @@ static void j_search_rows(FILE *fp, const SearchStats *ss, Move played,
                         k < ss->trusted_candidates
                     ? "true" : "false",
                 ss->prefix_q[k], ss->prefix_se[k],
+                ss->prefix_delta[k], ss->prefix_dse[k],
+                k == ss->prefix_proposed &&
+                        ss->prefix_numerical_agreement
+                    ? "true" : "false",
+                k == ss->prefix_proposed && ss->prefix_gate_passed
+                    ? "true" : "false",
                 ss->csupported[k] ? "true" : "false",
                 ss->guard_rejected[k] ? "true" : "false");
         if (ss->qw[k] >= 0.0) fprintf(fp, ",\"qw\":%.3f", ss->qw[k]);
@@ -279,9 +289,7 @@ static uint64_t mix64(uint64_t x)
 int main(int argc, char **argv)
 {
     const char *actor_spec = LC_CHAMPION_AGENT_SPEC;
-    const char *eval_spec =
-        "rolloutu:data/champion.bin:2048:5:0.01:0:1:0:0:0:0:0:3.5:2:2:"
-        "20:0:0:20:1:0:2048:1:0:0:0:0:0:0:2";
+    const char *eval_spec = LC_AUDIT_AGENT_SPEC;
     uint64_t seed = 1;
     int rounds = MATCH_ROUNDS;
     float belief_alpha = 1.15f;
@@ -515,10 +523,18 @@ int main(int argc, char **argv)
                     "\"policy_block_cost\":%d,\"selected_block_cost\":%d},"
                     "\"semantic_candidates\":%d,"
                     "\"draw_variant_candidates\":%d,"
+                    "\"action_core_shortlist\":{\"configured_cores\":%d,"
+                    "\"core_candidates\":%d,\"draw_candidates\":%d},"
                     "\"policy_prefix\":{\"mode\":%d,"
+                    "\"confirmation_temp\":%.9g,"
                     "\"trusted_candidates\":%d,\"proposed\":%d,"
                     "\"selected_reference\":%d,\"overrode\":%s,"
                     "\"confirmation_required\":%s,"
+                    "\"numerical_agreement\":%s,"
+                    "\"evidence_threshold_se\":%.3f,"
+                    "\"practical_threshold\":%.3f,"
+                    "\"delta_vs_baseline\":%.3f,\"delta_se\":%.3f,"
+                    "\"gate_passed\":%s,"
                     "\"confirmed\":%s,\"worlds\":%d},"
                     "\"confirmation\":{\"required\":%s,\"passed\":%s,"
                     "\"worlds\":%d,\"configured_worlds\":%d},"
@@ -580,7 +596,13 @@ int main(int argc, char **argv)
                     ? actor_ss.semantic_candidates : 0,
                 actor.kind == AG_ROLLOUT
                     ? actor_ss.draw_variant_candidates : 0,
+                actor.kind == AG_ROLLOUT ? actor.action_core_count : 0,
+                actor.kind == AG_ROLLOUT
+                    ? actor_ss.action_core_candidates : 0,
+                actor.kind == AG_ROLLOUT
+                    ? actor_ss.action_draw_candidates : 0,
                 actor.kind == AG_ROLLOUT ? actor.policy_prefix_mode : 0,
+                actor.kind == AG_ROLLOUT ? actor.confirm_temp : 0.0f,
                 actor.kind == AG_ROLLOUT ? actor_ss.trusted_candidates : 0,
                 actor.kind == AG_ROLLOUT ? actor_ss.prefix_proposed : 0,
                 actor.kind == AG_ROLLOUT ? actor_ss.selection_reference : 0,
@@ -588,6 +610,17 @@ int main(int argc, char **argv)
                     ? "true" : "false",
                 actor.kind == AG_ROLLOUT && actor.policy_prefix_mode >= 2 &&
                         actor_ss.prefix_proposed != 0
+                    ? "true" : "false",
+                actor.kind == AG_ROLLOUT &&
+                        actor_ss.prefix_numerical_agreement
+                    ? "true" : "false",
+                actor.kind == AG_ROLLOUT ? actor.prefix_confirm_k : 0.0f,
+                actor.kind == AG_ROLLOUT ? actor.prefix_confirm_min : 0.0f,
+                actor.kind == AG_ROLLOUT && actor_ss.prefix_proposed > 0
+                    ? actor_ss.prefix_delta[actor_ss.prefix_proposed] : 0.0,
+                actor.kind == AG_ROLLOUT && actor_ss.prefix_proposed > 0
+                    ? actor_ss.prefix_dse[actor_ss.prefix_proposed] : 0.0,
+                actor.kind == AG_ROLLOUT && actor_ss.prefix_gate_passed
                     ? "true" : "false",
                 actor.kind == AG_ROLLOUT && actor_ss.prefix_confirmed
                     ? "true" : "false",
@@ -637,10 +670,18 @@ int main(int argc, char **argv)
                     "\"policy_block_cost\":%d,\"selected_block_cost\":%d},"
                     "\"semantic_candidates\":%d,"
                     "\"draw_variant_candidates\":%d,"
+                    "\"action_core_shortlist\":{\"configured_cores\":%d,"
+                    "\"core_candidates\":%d,\"draw_candidates\":%d},"
                     "\"policy_prefix\":{\"mode\":%d,"
+                    "\"confirmation_temp\":%.9g,"
                     "\"trusted_candidates\":%d,\"proposed\":%d,"
                     "\"selected_reference\":%d,\"overrode\":%s,"
                     "\"confirmation_required\":%s,"
+                    "\"numerical_agreement\":%s,"
+                    "\"evidence_threshold_se\":%.3f,"
+                    "\"practical_threshold\":%.3f,"
+                    "\"delta_vs_baseline\":%.3f,\"delta_se\":%.3f,"
+                    "\"gate_passed\":%s,"
                     "\"confirmed\":%s,\"worlds\":%d},"
                     "\"baseline_source\":\"%s\","
                     "\"confirmation\":{\"required\":%s,"
@@ -703,13 +744,25 @@ int main(int argc, char **argv)
                 ss.planner_selected_block,
                 ss.semantic_candidates,
                 ss.draw_variant_candidates,
+                evaluator.action_core_count,
+                ss.action_core_candidates,
+                ss.action_draw_candidates,
                 evaluator.policy_prefix_mode,
+                evaluator.confirm_temp,
                 ss.trusted_candidates,
                 ss.prefix_proposed,
                 ss.selection_reference,
                 ss.trusted_prefix_override ? "true" : "false",
                 evaluator.policy_prefix_mode >= 2 && ss.prefix_proposed != 0
                     ? "true" : "false",
+                ss.prefix_numerical_agreement ? "true" : "false",
+                evaluator.prefix_confirm_k,
+                evaluator.prefix_confirm_min,
+                ss.prefix_proposed > 0
+                    ? ss.prefix_delta[ss.prefix_proposed] : 0.0,
+                ss.prefix_proposed > 0
+                    ? ss.prefix_dse[ss.prefix_proposed] : 0.0,
+                ss.prefix_gate_passed ? "true" : "false",
                 ss.prefix_confirmed ? "true" : "false",
                 ss.prefix_confirm_worlds,
                 ss.planned_baseline

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -22,6 +23,13 @@ SPEC.loader.exec_module(showcase)
 
 class ShowcaseProvenanceTests(unittest.TestCase):
     ACTOR = "policy:data/c8.bin:0:20"
+    TRACKED_AUDIT = (
+        "rolloutu:data/champion.bin:2048:3:0.01:0:1:14:0:0:0:0:3.5:2:2:"
+        "20:0:0:20:1:0:2048:1:0:0:0:0:0:0:2:1:0:0:2:1:0:3"
+    )
+    CHAMPION_SHA256 = (
+        "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417"
+    )
 
     @classmethod
     def analyzer_result(cls):
@@ -187,6 +195,34 @@ class ShowcaseProvenanceTests(unittest.TestCase):
             self.assertEqual(standalone["meta"]["actor"], self.ACTOR)
             self.assertEqual(os.stat(output).st_mode & 0o777, 0o640)
             self.assertEqual(os.stat(viewer).st_mode & 0o777, 0o644)
+
+    def test_tracked_viewer_payload_matches_attested_random_match(self) -> None:
+        standalone_text = (ROOT / "data/analysis.json").read_text(
+            encoding="utf-8"
+        ).strip()
+        viewer_text = (ROOT / "web/viewer.html").read_text(encoding="utf-8")
+        match = re.search(
+            r'<script type="application/json" id="game-data">(.*?)</script>',
+            viewer_text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(match)
+        assert match is not None
+        self.assertEqual(match.group(1), standalone_text)
+        tracked = json.loads(standalone_text)
+        meta = tracked["meta"]
+        self.assertEqual(meta["actor"], showcase.DEFAULT_ACTOR)
+        self.assertEqual(meta["evaluator"], self.TRACKED_AUDIT)
+        self.assertEqual(meta["seed"], 95647345759839)
+        self.assertEqual(meta["plies"], 137)
+        self.assertEqual(len(tracked["plies"]), meta["plies"])
+        self.assertEqual(meta["final"], [24, 130])
+        self.assertEqual(meta["model_sha256"], self.CHAMPION_SHA256)
+        self.assertEqual(
+            hashlib.sha256((ROOT / "data/champion.bin").read_bytes()).hexdigest(),
+            self.CHAMPION_SHA256,
+        )
+        self.assertEqual(meta["selection"], "random_unfiltered")
 
 
 if __name__ == "__main__":

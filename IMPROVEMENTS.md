@@ -42,6 +42,10 @@ take Yellow.”
 - At a real final-round terminal, MCTS now includes the carried cumulative
   score and uses the checkpoint's hybrid match return. It can no longer call a
   won match a loss merely because the last round was lost narrowly.
+- Center MCTS leaves and first-play urgency with the antisymmetric critic
+  `0.5 * (V(player) - V(opponent))`. The opponent view is evaluated only after
+  a root determinization, never against the real hidden hand, so common value
+  bias is removed without leaking information.
 - Harden weighted sampling so zero, negative, NaN, or overflowed weights cannot
   select a zero-probability action or produce an invalid index.
 - Treat identical wager copies correctly when public knowledge is updated.
@@ -121,7 +125,10 @@ take Yellow.”
   tempered policy and correct chain-rule gradient.
 - Replaced silent full-buffer truncation with unbiased reservoir sampling and
   report retained/generated counts.
-- Excluded publicly known opponent cards from belief BCE.
+- Excluded publicly known opponent cards from belief supervision and replaced
+  independent-card BCE with the exact fixed-cardinality joint likelihood used
+  by deployment sampling.  Its gradient is posterior marginal minus the true
+  K-card label, and only mover-perspective states after ply zero are trained.
 - Use fixed configurable evaluation seeds across checkpoints.
 - Preserve exact cumulative match totals in training, analysis, mining,
   qpair, and the Python referee. Independent ±320 clipping previously changed
@@ -145,6 +152,19 @@ take Yellow.”
   interactions while restoring every inherited parameter byte-for-byte after
   each optimizer step. Policy gradients compensate for the smaller actor
   fraction in opponent games without changing the historical self-play scale.
+- Add default-off, trajectory-coherent PPO suit augmentation with
+  `--trajectory-symmetries`. A seed/global-match-id selects one exact-group
+  mapping that stays fixed across every round and ply. States, chosen actions,
+  old probabilities, value targets and belief labels remain in that orientation;
+  only the selected action is inverse-mapped for the canonical engine. Frozen
+  opponent decisions remain explicitly excluded from PPO gradients.
+- Couple the two perspective value gradients into the same antisymmetric
+  critic used by search. Complete self-play states provide both legal views;
+  paired perspective rows are half-weighted so they sum to one centralized
+  squared loss, and the common value bias receives exactly zero gradient.
+- Add `--belief-only` calibration. It backpropagates exact-K likelihood only
+  into `wbel`/`bbel` and uses an Adam range update whose weight decay cannot
+  touch trunk, policy, value or interaction parameters.
 
 ### Evaluation and tooling
 
@@ -157,6 +177,17 @@ take Yellow.”
 - Analyzer belief dumps can now contain every uncertain card and the
   card-count prior. The evaluator reports within-state AUC, Brier score, log
   loss, top-hand-size recall, calibration error, and baseline lift.
+- Added `bin/belief_eval`, a deterministic held-out evaluator for the actual
+  exact-K joint posterior. Its frozen exact-policy trajectories do not consult
+  beliefs. The trajectory actor is a separately loaded checkpoint, so a
+  full-model belief candidate cannot change which states it is scored on. A
+  reusable information-view boundary removes hidden opponent cards and future
+  deck order before every network call. It reports joint NLL
+  per state/card, Brier, tie-correct within-state AUC and top-K recall against
+  analytic uniform card-count baselines. Its finite-cluster sandwich
+  uncertainty targets the same pooled state/card/pair-weighted estimators that
+  are printed, clustered by full match. Hidden-assignment invariance,
+  frozen-actor separation, and malformed CLI inputs are regression tested.
 - Learned-world rollout exposes a bounded `belief_alpha` calibration control;
   analyzer output records both the world model and exact alpha.
 - Analyzer and replay UI now distinguish raw-policy, visible-hand, last-deck,
@@ -258,23 +289,34 @@ The interactive match audit treats rollout as a post-hoc measurement
 instrument, not as a source of authoritative labels. Its exact default is:
 
 ```text
-rolloutu:data/champion.bin:2048:5:0.01:0:1:0:0:0:0:0:3.5:2:2:20:0:0:20:1:0:2048:1:0:0:0:0:0:0:2
+rolloutu:data/champion.bin:2048:3:0.01:0:1:14:0:0:0:0:3.5:2:2:20:0:0:20:1:0:2048:1:0:0:0:0:0:0:2:1:0:0:2:1:0:3
 ```
 
 - The actor, deals, and evaluator have independent deterministic RNG streams,
   so audit compute cannot change the recorded match.
-- The audit evaluates at most five policy moves with at least 1% prior. It does
-  not scan every legal move, manufacture draw variants, or enable the planner
-  and semantic research tails.
+- For the first 14 actions of each round the audit reports the exact policy
+  and explicitly skips rollout. Search begins at zero-based `round_ply=14`,
+  the 15th displayed action. A 2,048-world opening probe still produced a confident low-prior
+  ply-8 override, confirming that extra worlds do not repair the long-horizon
+  continuation bias. This matches the live phase boundary selected by direct
+  match play.
+- From that 15th action the audit first groups complete moves by semantic card/play-discard action,
+  then evaluates at most three distinct top-policy action cores with at least
+  1% aggregate prior. When three cores qualify, the three-slot budget leaves
+  no room for duplicate draw variants; spare slots may retain a strong draw
+  variant when fewer cores qualify. It does not scan every legal move or enable the planner and
+  semantic research tails.
 - The primary panel gives all candidates the same 2,048 uniform hidden worlds.
   Each downstream decision draws one member of the 20-way suit group and takes
   its greedy move, preserving a strong low-cost continuation instead of
   sampling high-entropy policy actions.
 - If the primary ordinary-prefix leader differs from the raw policy, a fresh
   2,048-world panel assigns balanced suit mappings that remain fixed for each
-  complete hidden-world trajectory. Both panels must select the same leader or
-  the audit falls back to the policy. This is a robustness consensus check,
-  not proof that the shared continuation model is unbiased.
+  complete hidden-world trajectory. Both panels must select the same leader,
+  and the fresh paired difference must exceed both two standard errors and one
+  objective point; otherwise the audit labels the result inconclusive and
+  falls back to the policy. This is a conservative review threshold, not proof
+  that the shared continuation model is unbiased.
 - Hidden hands use the uniform card-count prior. The learned hand estimate is
   displayed separately and cannot bias Q.
 - Every reported Q has its own standard error plus a paired difference and
@@ -288,13 +330,14 @@ rolloutu:data/champion.bin:2048:5:0.01:0:1:0:0:0:0:0:3.5:2:2:20:0:0:20:1:0:2048:
 The second human-reviewed match exposed the key distinction between variance
 and continuation-policy bias: simply increasing the world count made several
 bad conclusions more certain. The revised method therefore spends worlds only
-on the top-policy prefix, keeps policy actions greedy, separates the cheap and
-coherent continuation panels, and requires agreement before changing the move.
-At fixed component probes, the green-start overrides at plies 21/23 disappear,
-low-prior green discards remain excluded, and B10 at ply 36 was independently
-confirmed over Y10 (`+2.42 ± 0.34` discovery, `+1.48 ± 0.36` confirmation for
-the locked seed). Those probes validate specific regressions; they are not
-additional live candidates.
+on distinct top-policy action cores, keeps policy actions greedy, separates
+the cheap and coherent continuation panels, and requires agreement before
+changing the move. On the locked 2,048-world audit, neither Green-5 action is
+admitted at plies 29 or 31; ply 31 selects the clean R6 discard. At ply 36 the
+three candidates are exactly Y10/B10/W10 and B10 beats Y10 by `+2.27 ± 0.24`
+in discovery and `+1.95 ± 0.21` on the fresh panel. These are executable
+regressions in `make audit-test`, not claims that every continuation value is
+unbiased, and they do not silently change the live actor.
 
 ### Pre-consensus rollout and component history
 
@@ -366,6 +409,35 @@ matches and 20 untouched validation matches. Twenty-way suit averaging with
 and log loss from 0.53272 to 0.49622. Its marginals and sampler now describe
 the same exact-K joint distribution. It remains labelled experimental and is
 not used by the decision audit.
+
+A belief-head-only continuation then improved again on one 100-match
+evaluation set and a separate 100-match alpha-calibration set without changing
+any trunk, policy, value, or interaction byte. On evaluation seed
+`208020712`, joint NLL/state improved from `13.20308` to `13.03848`, Brier
+from `0.164236` to `0.162103`, within-state AUC from `0.658982` to `0.673527`,
+and top-K recall from `0.470341` to `0.480762`. On calibration seed
+`208020713`, which selected `alpha=1.15`, it improved NLL/state from `13.002282`
+to `12.823294`, Brier from `0.162092` to `0.159679`, AUC from `0.670997` to
+`0.683571`, and recall from `0.484400` to `0.494815`.
+
+That inference win did not justify deployment. Used by itself for live hidden
+worlds against the uniform-world champion on fresh seed `208020714`, the
+candidate scored only `40.0% ± 6.9%` over 20 mirrored pairs (W/L/D 16/24/0),
+with a noisy `+1.57 ± 6.92` point margin. The candidate was rejected: posterior
+quality is a component metric, while match wins remain the promotion gate.
+Combining that belief head (`alpha=1.15`) with the three-core shortlist and a
+near-greedy `0.03` fresh-panel temperature also failed on locked seed
+`208020716`: `−6.78 ± 7.40` points and exactly `50.0% ± 5.1%` match score over
+20 mirrored pairs (W/L/D 20/20/0). It is not deployed.
+
+The uniform-world three-slot/three-core shortlist (`root_width=3`) was also
+tested without the rejected belief head. Its exploratory seed `208020715`
+scored `+20.23 ± 7.29` points and `65.0% ± 5.3%` match score over 20 mirrored
+pairs (W/L/D 26/14/0). That screen was not treated as promotion evidence. On
+the precommitted independent seed `208020717`, 40 further pairs produced only
+`+1.04 ± 5.37` points and `51.2% ± 3.8%` match score (W/L/D 41/39/0). The
+method therefore remains the focused post-game audit shortlist; the
+maintained five-complete-move live actor and checkpoint are unchanged.
 
 ### Historical frozen-showcase review
 
@@ -583,15 +655,19 @@ the failed checkpoints are not.
 3. Train v6 with the frozen-opponent/KL path over several independent seeds,
    select on fixed validation deals,
    and report only once on a locked final set.
-4. Re-measure playing strength for learned-world search. The calibrated
-   fixed-cardinality posterior now beats the card-count prior on held-out
-   Brier score and log loss, but the decision audit deliberately remains
-   uniform until a locked match-strength ablation shows that learned worlds
-   improve choices.
+4. Revisit learned-world search only together with a better continuation
+   policy or a separately validated root method. The corrected posterior beats
+   the card-count prior on held-out metrics, but a direct flat-rollout ablation
+   lost match score; the decision audit therefore remains uniform.
 5. Measure and report the 300-ply cap rate. Consider an explicit repetition or
    adjudication rule for evaluation.
 6. Replace raw native C-struct persistence with a canonical endian-stable,
    checksummed parameter format.
+7. Make complete PPO checkpoint generation invariant to `--threads`. Match
+   evaluation and trajectory suit-map selection are thread-stable, but PPO's
+   worker-local gameplay/reservoir streams and floating gradient reduction
+   still make fixed-seed training depend on the configured worker count; use
+   the same count when comparing training runs.
 
 ## Validation
 
@@ -602,6 +678,7 @@ make
 make test
 make audit-test  # slower semantic probes; optional in the fast CI loop
 make history-belief-test
+make belief-eval-test
 python3 tools/referee.py --selftest data/champion.bin 424242 --dumpfeat bin/dumpfeat
 python3 tools/verify_transcript.py data/game.txt
 ```
@@ -611,7 +688,8 @@ permutation round trips and ensemble equivariance, wager knowledge and
 parameter/gradient tying, pile-order distinguishability, v4-to-v6 migration,
 interaction-head isolation, model round trips, hybrid final-round utility,
 robust sampling, fixed-cardinality marginal/sampler agreement, exact
-policy-prefix selection, visible-hand planning and regret guards, raw-policy
+joint truth scoring, hidden-state input scrubbing, exact policy-prefix
+selection, visible-hand planning and regret guards, raw-policy
 phase gating, final-deck dominance, perspective-scrubbed history inference,
 role-separated coherent continuation, opponent-population actor masking and
 seat balance, v6-only byte preservation, and one-versus-four-thread identity

@@ -40,9 +40,13 @@ void agent_default(Agent *a, AgentKind k, const Net *net)
     a->draw_variant_cores = 0;
     a->draw_variant_deck_max = 0;
     a->policy_prefix_mode = 0;
+    a->prefix_confirm_k = 0.0f;
+    a->prefix_confirm_min = 0.0f;
     a->belief_alpha = 1.0f;
     a->draw_root_deck_max = 0;
     a->draw_playout_deck_max = 0;
+    a->confirm_temp = 0.0f;
+    a->action_core_count = 0;
     switch (k) {
     case AG_RANDOM: a->name = "random"; break;
     case AG_HEUR:   a->name = "heuristic"; break;
@@ -51,6 +55,14 @@ void agent_default(Agent *a, AgentKind k, const Net *net)
     case AG_MCTS:   a->name = "mcts"; break;
     case AG_ROLLOUT: a->name = "rollout"; a->dets = 128; a->root_width = 4; break;
     }
+}
+
+void agent_information_view(const State *complete, int p, State *view)
+{
+    *view = *complete;
+    view->hand[p ^ 1] = complete->known[p ^ 1];
+    memset(view->deck, 0, sizeof view->deck);
+    view->deck_pos = 0;
 }
 
 void determinize(const State *st, int p, Rng *rng, State *out)
@@ -103,6 +115,107 @@ static void belief_logits_sym(const Net *net, const State *st, int p,
     for (int i = 0; i < n; i++) logit[i] *= inv;
 }
 
+float net_value_state_sym(const Net *net, const State *st, int p,
+                          int symmetries)
+{
+    uint8_t perms[120][NSUIT];
+    int nsym = suit_permutations(symmetries, perms);
+    double total = 0.0;
+    for (int k = 0; k < nsym; k++) {
+        State ps;
+        const State *view = st;
+        if (nsym > 1) {
+            lc_permute_suits(st, &ps, perms[k]);
+            view = &ps;
+        }
+        Features f;
+        feat_extract(view, p, &f);
+        total += (double)net_value(net, &f) * VAL_SCALE;
+    }
+    return (float)(total / (double)nsym);
+}
+
+static int exact_k_fill(const double *weight, int n, int need,
+                        double suffix[NCARD + 1][HAND_SIZE + 1],
+                        float *marginal, double *normalizer)
+{
+    memset(suffix, 0,
+           sizeof(double) * (NCARD + 1) * (HAND_SIZE + 1));
+    suffix[n][0] = 1.0;
+    for (int i = n - 1; i >= 0; i--) {
+        suffix[i][0] = 1.0;
+        for (int r = 1; r <= need; r++)
+            suffix[i][r] = suffix[i + 1][r]
+                           + weight[i] * suffix[i + 1][r - 1];
+    }
+    double z = suffix[0][need];
+    if (!(z > 0.0) || !lc_double_isfinite(z)) return 0;
+
+    double prefix[NCARD + 1][HAND_SIZE + 1];
+    memset(prefix, 0, sizeof prefix);
+    prefix[0][0] = 1.0;
+    for (int i = 0; i < n; i++) {
+        double include = 0.0;
+        for (int r = 0; r < need; r++)
+            include += prefix[i][r] * suffix[i + 1][need - 1 - r];
+        marginal[i] = (float)(weight[i] * include / z);
+        prefix[i + 1][0] = 1.0;
+        for (int r = 1; r <= need; r++)
+            prefix[i + 1][r] = prefix[i][r]
+                               + weight[i] * prefix[i][r - 1];
+    }
+    if (normalizer) *normalizer = z;
+    return 1;
+}
+
+static int exact_k_prepare(const float *logits, int n, int need, float alpha,
+                           double *weight, double *used_log_weight,
+                           double suffix[NCARD + 1][HAND_SIZE + 1],
+                           float *marginal, double *normalizer)
+{
+    if (n < 0 || n > NCARD || need < 0 || need > HAND_SIZE || need > n ||
+        !lc_float_isfinite(alpha) || alpha < 0.0f)
+        return 0;
+    double mean = 0.0;
+    for (int i = 0; i < n; i++) {
+        if (!lc_float_isfinite(logits[i])) return 0;
+        mean += logits[i];
+    }
+    if (n > 0) mean /= n;
+    for (int i = 0; i < n; i++) {
+        double u = (double)alpha * ((double)logits[i] - mean);
+        if (u > 20.0) u = 20.0;
+        if (u < -20.0) u = -20.0;
+        used_log_weight[i] = u;
+        weight[i] = exp(u);
+    }
+    return exact_k_fill(weight, n, need, suffix, marginal, normalizer);
+}
+
+int belief_exact_k_eval(const float *logits, const uint8_t *held,
+                        int n, int need, float alpha,
+                        float *marginal, double *nll)
+{
+    if (!logits || !marginal || (nll && !held)) return 0;
+    double weight[NCARD], log_weight[NCARD], z;
+    double suffix[NCARD + 1][HAND_SIZE + 1];
+    if (!exact_k_prepare(logits, n, need, alpha, weight, log_weight,
+                         suffix, marginal, &z))
+        return 0;
+    if (nll) {
+        int count = 0;
+        double selected = 0.0;
+        for (int i = 0; i < n; i++) {
+            if (held[i] > 1) return 0;
+            if (held[i]) { count++; selected += log_weight[i]; }
+        }
+        if (count != need) return 0;
+        *nll = log(z) - selected;
+        if (!lc_double_isfinite(*nll)) return 0;
+    }
+    return 1;
+}
+
 int belief_dist_init(const Net *net, const State *st, int p, int symmetries,
                      float alpha, BeliefDist *dist)
 {
@@ -116,49 +229,46 @@ int belief_dist_init(const Net *net, const State *st, int p, int symmetries,
     /* Before the opponent has acted there is no behavioural evidence.  Make
      * the exact card-count prior a hard invariant instead of allowing a suit
      * slot artefact to masquerade as information. */
+    float logit[NCARD];
     if (!net || alpha <= 0.0f || st->nply == 0) {
-        for (int i = 0; i < dist->n; i++) dist->weight[i] = 1.0;
+        for (int i = 0; i < dist->n; i++) logit[i] = 0.0f;
     } else {
-        float logit[NCARD];
         belief_logits_sym(net, st, p, dist->card, dist->n, symmetries, logit);
-        double mean = 0.0;
-        for (int i = 0; i < dist->n; i++) mean += logit[i];
-        if (dist->n > 0) mean /= dist->n;
-        for (int i = 0; i < dist->n; i++) {
-            double u = (double)alpha * ((double)logit[i] - mean);
-            if (u > 20.0) u = 20.0;
-            if (u < -20.0) u = -20.0;
-            dist->weight[i] = exp(u);
-        }
     }
 
-    /* Elementary-symmetric-polynomial DP.  Conditioning independent odds on
-     * exactly K held cards yields a coherent joint hand distribution:
-     * P(S | |S|=K) is proportional to the product of its card weights. */
-    dist->suffix[dist->n][0] = 1.0;
-    for (int i = dist->n - 1; i >= 0; i--) {
-        dist->suffix[i][0] = 1.0;
-        for (int r = 1; r <= dist->need; r++)
-            dist->suffix[i][r] = dist->suffix[i + 1][r]
-                               + dist->weight[i] * dist->suffix[i + 1][r - 1];
-    }
+    double used_log_weight[NCARD], z;
+    if (!exact_k_prepare(logit, dist->n, dist->need,
+                         (!net || alpha <= 0.0f || st->nply == 0)
+                             ? 0.0f : alpha,
+                         dist->weight, used_log_weight, dist->suffix,
+                         dist->marginal, &z))
+        return 0;
+    (void)used_log_weight;
+    (void)z;
+    return 1;
+}
+
+int belief_dist_true_nll(const BeliefDist *dist, uint64_t opponent_hand,
+                         double *nll)
+{
+    if (!dist || !nll || dist->n < 0 || dist->n > NCARD ||
+        dist->need < 0 || dist->need > HAND_SIZE || dist->need > dist->n)
+        return 0;
     double z = dist->suffix[0][dist->need];
     if (!(z > 0.0) || !lc_double_isfinite(z)) return 0;
-
-    double prefix[NCARD + 1][HAND_SIZE + 1];
-    memset(prefix, 0, sizeof prefix);
-    prefix[0][0] = 1.0;
+    int count = 0;
+    double selected = 0.0;
     for (int i = 0; i < dist->n; i++) {
-        double include = 0.0;
-        for (int r = 0; r < dist->need; r++)
-            include += prefix[i][r]
-                     * dist->suffix[i + 1][dist->need - 1 - r];
-        dist->marginal[i] = (float)(dist->weight[i] * include / z);
-        prefix[i + 1][0] = 1.0;
-        for (int r = 1; r <= dist->need; r++)
-            prefix[i + 1][r] = prefix[i][r]
-                             + dist->weight[i] * prefix[i][r - 1];
+        if (!((opponent_hand >> dist->card[i]) & 1ULL)) continue;
+        double w = dist->weight[i];
+        if (!(w > 0.0) || !lc_double_isfinite(w)) return 0;
+        selected += log(w);
+        count++;
     }
+    if (count != dist->need) return 0;
+    *nll = log(z) - selected;
+    if (!lc_double_isfinite(*nll) || *nll < -1e-10) return 0;
+    if (*nll < 0.0) *nll = 0.0;
     return 1;
 }
 
@@ -347,6 +457,70 @@ int suit_permutations(int requested, uint8_t out[120][NSUIT])
         out[n][4] = (uint8_t)e;
         n++;
     }
+    return n;
+}
+
+static uint64_t trajectory_mix64(uint64_t x)
+{
+    x ^= x >> 30;
+    x *= UINT64_C(0xBF58476D1CE4E5B9);
+    x ^= x >> 27;
+    x *= UINT64_C(0x94D049BB133111EB);
+    return x ^ (x >> 31);
+}
+
+int trajectory_suit_permutation(int symmetries, uint64_t seed,
+                                uint64_t trajectory,
+                                uint8_t perm[NSUIT])
+{
+    if (!perm) return 0;
+    if (symmetries == 0 || symmetries == 1) {
+        for (int s = 0; s < NSUIT; s++) perm[s] = (uint8_t)s;
+        return 1;
+    }
+    if (symmetries != 5 && symmetries != 10 &&
+        symmetries != 20 && symmetries != 120)
+        return 0;
+    uint8_t group[120][NSUIT];
+    int n = suit_permutations(symmetries, group);
+    uint64_t key = seed ^ UINT64_C(0xA0761D6478BD642F)
+                 ^ trajectory * UINT64_C(0xE7037ED1A0B428DB);
+    int pick = (int)(trajectory_mix64(key) % (uint64_t)n);
+    memcpy(perm, group[pick], NSUIT);
+    return 1;
+}
+
+int trajectory_policy_probs(const Net *net, const State *engine_state,
+                            const uint8_t perm[NSUIT], float temperature,
+                            State *view, Move *view_mv, Move *engine_mv,
+                            float *raw_prob, float *behavior_prob)
+{
+    if (!net || !engine_state || !perm || !view || !view_mv || !engine_mv ||
+        !raw_prob || !behavior_prob || !(temperature > 0.0f) ||
+        !lc_float_isfinite(temperature))
+        return 0;
+    uint8_t inverse[NSUIT], seen = 0;
+    for (int s = 0; s < NSUIT; s++) {
+        if (perm[s] >= NSUIT || (seen & (uint8_t)(1u << perm[s])))
+            return 0;
+        seen |= (uint8_t)(1u << perm[s]);
+        inverse[perm[s]] = (uint8_t)s;
+    }
+
+    lc_permute_suits(engine_state, view, perm);
+    int n = policy_probs(net, view, view_mv, raw_prob, NULL);
+    if (n <= 0) return n;
+    float sum = 0.0f;
+    for (int i = 0; i < n; i++) {
+        engine_mv[i] = lc_permute_move(view_mv[i], inverse);
+        behavior_prob[i] = temperature == 1.0f
+                         ? raw_prob[i]
+                         : powf(raw_prob[i], 1.0f / temperature);
+        sum += behavior_prob[i];
+    }
+    if (!(sum > 0.0f) || !lc_float_isfinite(sum)) return 0;
+    float inv = 1.0f / sum;
+    for (int i = 0; i < n; i++) behavior_prob[i] *= inv;
     return n;
 }
 

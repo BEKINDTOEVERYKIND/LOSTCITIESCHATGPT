@@ -20,13 +20,12 @@
  * accuracy any regression on game outcomes can reach.  Predicting the choice
  * directly sidesteps that.
  *
- * Belief : one logit per card, trained to predict whether the opponent holds
- *          it (the true hand is known when self-play data is generated, so the
- *          labels are free).  This is where behavioural inference lives: the
- *          trunk sees what the opponent has committed to and thrown away, and
- *          the head learns what that implies about the cards they kept.  The
- *          determinized search samples opponent hands from this posterior
- *          instead of uniformly.
+ * Belief : one log-odds contribution per card.  Training and inference both
+ *          condition the resulting exponential-family distribution on the
+ *          opponent holding exactly K unknown cards.  The true K-card subset
+ *          is known in self-play, so its joint likelihood is a free label.
+ *          The trunk sees what the opponent committed to and threw away, and
+ *          determinized search samples coherent hands from this posterior.
  */
 #ifndef NET_H
 #define NET_H
@@ -78,6 +77,9 @@ void  net_zero(Net *n);
  * exact three-copy symmetry.  The cards are indistinguishable under the
  * rules; tying these rows removes arbitrary ID-specific behaviour. */
 void  net_project_wager_symmetry(Net *n);
+/* Belief-only variant: project identical physical wager copies only in the
+ * belief head, leaving every trunk/policy/value byte untouched. */
+void  net_project_belief_wager_symmetry(Net *n);
 /* Convert ordinary per-row gradients into the gradient of the tied wager
  * parameter: sum the three copies, then give every copy that same update. */
 void  net_tie_wager_gradients(Net *g);
@@ -100,7 +102,14 @@ void  net_backward(const Net *n, const Features *f, const NetAct *act,
                    float dvalue, const uint16_t *mv, const float *dlogit, int nmv,
                    const uint8_t *bc, const float *dbel, int nb,
                    Net *g);
+/* Accumulate only belief-head rows/biases.  No gradient is propagated into
+ * the shared trunk; this is the primitive for calibrated head-only fitting. */
+void  net_backward_belief_head(const NetAct *act, const uint8_t *bc,
+                               const float *dbel, int nb, Net *g);
 void  net_adam_step(Net *n, const Net *g, Adam *a, float lr, float scale, float wd);
+/* Adam update restricted byte-for-byte to wbel/bbel, including weight decay. */
+void  net_adam_step_belief(Net *n, const Net *g, Adam *a,
+                           float lr, float scale, float wd);
 int   net_save(const Net *n, const char *path);
 int   net_load(Net *n, const char *path);
 

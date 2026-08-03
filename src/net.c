@@ -105,6 +105,15 @@ static void sum_three_rows(float *a, size_t stride, int i0, int i1, int i2)
 
 typedef void (*row_op)(float *, size_t, int, int, int);
 
+static void wager_belief_groups(Net *n, row_op op)
+{
+    for (int s = 0; s < NSUIT; s++) {
+        int card = s * NRANK;
+        op(&n->wbel[0][0], NET_H2, card, card + 1, card + 2);
+        op(n->bbel, 1, card, card + 1, card + 2);
+    }
+}
+
 static void wager_row_groups(Net *n, row_op op)
 {
     for (int plane = 0; plane < FEAT_PLANES; plane++)
@@ -130,9 +139,8 @@ static void wager_row_groups(Net *n, row_op op)
                 op(n->bcomb, 1, c0, c1, c2);
             }
         }
-        op(&n->wbel[0][0], NET_H2, card, card + 1, card + 2);
-        op(n->bbel, 1, card, card + 1, card + 2);
     }
+    wager_belief_groups(n, op);
 }
 
 static void net_copy_wager_symmetry(Net *n)
@@ -143,6 +151,11 @@ static void net_copy_wager_symmetry(Net *n)
 void net_project_wager_symmetry(Net *n)
 {
     wager_row_groups(n, tie_three_rows);
+}
+
+void net_project_belief_wager_symmetry(Net *n)
+{
+    wager_belief_groups(n, tie_three_rows);
 }
 
 void net_tie_wager_gradients(Net *g)
@@ -319,7 +332,22 @@ void net_backward(const Net *n, const Features *f, const NetAct *act,
     }
 }
 
-void net_adam_step(Net *n, const Net *g, Adam *a, float lr, float scale, float wd)
+void net_backward_belief_head(const NetAct *act, const uint8_t *bc,
+                              const float *dbel, int nb, Net *g)
+{
+    if (!act || !bc || !dbel || !g) return;
+    for (int i = 0; i < nb; i++) {
+        float d = dbel[i];
+        if (d == 0.0f) continue;
+        int card = bc[i];
+        g->bbel[card] += d;
+        for (int h = 0; h < NET_H2; h++)
+            g->wbel[card][h] += d * act->a2[h];
+    }
+}
+
+static void adam_step_range(Net *n, const Net *g, Adam *a, float lr,
+                            float scale, float wd, size_t from, size_t to)
 {
     a->t++;
     const float b1 = 0.9f, b2 = 0.999f, eps = 1e-8f;
@@ -329,13 +357,31 @@ void net_adam_step(Net *n, const Net *g, Adam *a, float lr, float scale, float w
 
     float *w = (float *)n, *gm = (float *)&a->m, *gv = (float *)&a->v;
     const float *gr = (const float *)g;
-    size_t nw = sizeof(Net) / sizeof(float);
-    for (size_t i = 0; i < nw; i++) {
+    for (size_t i = from; i < to; i++) {
         float grad = gr[i] * scale + wd * w[i];
         gm[i] = b1 * gm[i] + (1.0f - b1) * grad;
         gv[i] = b2 * gv[i] + (1.0f - b2) * grad * grad;
         w[i] -= step * gm[i] / (sqrtf(gv[i]) + eps);
     }
+}
+
+void net_adam_step(Net *n, const Net *g, Adam *a, float lr, float scale, float wd)
+{
+    size_t nw = sizeof(Net) / sizeof(float);
+    adam_step_range(n, g, a, lr, scale, wd, 0, nw);
+}
+
+void net_adam_step_belief(Net *n, const Net *g, Adam *a,
+                          float lr, float scale, float wd)
+{
+    _Static_assert(offsetof(Net, wbel) % sizeof(float) == 0,
+                   "belief head must be float aligned");
+    _Static_assert(offsetof(Net, wcomb) ==
+                   offsetof(Net, bbel) + sizeof(((Net *)0)->bbel),
+                   "belief weights and biases must be one contiguous range");
+    size_t from = offsetof(Net, wbel) / sizeof(float);
+    size_t to = offsetof(Net, wcomb) / sizeof(float);
+    adam_step_range(n, g, a, lr, scale, wd, from, to);
 }
 
 #define NET_MAGIC 0x4C435651U /* "LCVQ" */

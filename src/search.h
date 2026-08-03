@@ -45,11 +45,15 @@ typedef struct {
                                dominance rule                                */
     int semantic_candidates; /* targeted non-prefix candidates actually added */
     int draw_variant_candidates; /* bounded top-action pile variants added    */
+    int action_core_candidates; /* distinct ordinary semantic cores selected */
+    int action_draw_candidates; /* safe draw alternatives within core budget */
     int trusted_candidates; /* ordinary policy-prefix moves eligible directly */
     int prefix_proposed;    /* primary panel's trusted-prefix leader             */
     int selection_reference; /* index low-prior confirmation is compared to   */
     int trusted_prefix_override; /* selected a nonzero trusted-prefix leader   */
-    int prefix_confirmed; /* trusted-prefix leader repeated on fresh panel     */
+    int prefix_numerical_agreement; /* fresh panel repeated primary leader      */
+    int prefix_gate_passed; /* configured paired evidence/effect gate passed   */
+    int prefix_confirmed; /* agreement and configured gate both passed          */
     int prefix_confirm_worlds; /* balanced fixed-world panel size               */
     int metric_kind;        /* SEARCH_METRIC_* meaning of q[]               */
     int planner_turns;      /* own visible-card turns used by scheduler      */
@@ -62,7 +66,8 @@ typedef struct {
     int confirmed;          /* a non-policy override passed an independent
                                stochastic continuation check                  */
     int confirm_worlds;     /* independent worlds used by confirmation        */
-    double policy_mass;     /* policy probability covered by mv[]            */
+    double policy_mass;     /* complete-move mass, or aggregate semantic-core
+                               mass for a hierarchical shortlist              */
     Move mv[MAX_MOVES];
     double visits[MAX_MOVES];
     double q[MAX_MOVES];   /* mean selection objective, mover's view */
@@ -75,6 +80,8 @@ typedef struct {
     double cdse[MAX_MOVES];   /* SE of cdelta                                 */
     double prefix_q[MAX_MOVES]; /* fresh coherent-panel objective mean          */
     double prefix_se[MAX_MOVES]; /* SE of coherent-panel objective mean          */
+    double prefix_delta[MAX_MOVES]; /* fresh paired delta against candidate zero */
+    double prefix_dse[MAX_MOVES]; /* SE of fresh paired delta                    */
     uint8_t pqualified[MAX_MOVES]; /* passed the primary significance gates   */
     uint8_t csupported[MAX_MOVES]; /* candidate passed both independent gates */
     uint8_t guard_rejected[MAX_MOVES]; /* supported but blocked structural risk */
@@ -94,5 +101,14 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
                   float *out_value, SearchStats *stats);
 /* Exact terminal objective used by rollout mode 0/1/2. */
 double rollout_terminal_objective(const State *terminal, int p, int mode);
+
+/* Near-greedy continuation sampler used by optional fresh confirmation.
+ * Only the shortest policy prefix covering 99.5% mass is eligible.  Noise is
+ * a pure function of seed/depth/player/packed move, so reordering or adding
+ * unrelated candidates cannot change a shared move's Gumbel variate.  A
+ * non-positive temperature is exact argmax. */
+int rollout_near_greedy_pick(const Move *mv, const float *prob, int n,
+                             float temperature, uint64_t seed,
+                             int depth, int player);
 
 #endif

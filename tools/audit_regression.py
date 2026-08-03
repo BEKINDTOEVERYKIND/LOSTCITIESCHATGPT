@@ -52,7 +52,12 @@ CASES = (
          ("W3 d deck", "W7 p deck", "Wx d deck"), (1,), (2,)),
 )
 
-EVAL_SPEC = (
+DEFAULT_EVAL_SPEC = (
+    "rolloutu:data/champion.bin:2048:3:0.01:0:1:14:0:0:0:0:3.5:2:2:"
+    "20:0:0:20:1:0:2048:1:0:0:0:0:0:0:2:1:0:0:2:1:0:3"
+)
+
+SEMANTIC_EVAL_SPEC = (
     "rolloutu:data/champion.bin:1000:4:0.01:0.995:2:20:0:0:"
     "2:0:1.96:1:2:20:0.995:250:20:1:0:1000:1:16:12:1"
 )
@@ -64,6 +69,7 @@ class EvaluatorCase:
     state: str
     seed: int
     selected: str
+    evaluator: str = DEFAULT_EVAL_SPEC
     absent: tuple[str, ...] = ()
     blocked: tuple[str, ...] = ()
     not_blocked: tuple[str, ...] = ()
@@ -79,38 +85,52 @@ class EvaluatorCase:
 # guard.  They are positions from the second human-reviewed UI match.
 EVALUATOR_CASES = (
     EvaluatorCase(
-        "ply 29: admit one planner play, not the G5 discard",
-        "ui_seed725402798_p29.state",
-        990029,
-        "G5 p deck",
-        absent=("G5 d deck",),
+        "ply 16: weak wager challenger remains inconclusive",
+        "ui_seed2214615196_p16.state",
+        880016,
+        "Y2 d deck",
+        exact_candidates=("Y2 d deck", "W7 p deck", "Yx d deck"),
+        status_contains=(
+            "numerical agreement: yes; paired gate: not passed",
+        ),
     ),
     EvaluatorCase(
-        "ply 36: visible-hand planner chooses B10 over Y10",
+        "ply 29: distinct action cores exclude both G5 moves",
+        "ui_seed725402798_p29.state",
+        990029,
+        "Y7 p deck",
+        absent=("G5 p deck", "G5 d deck"),
+        exact_candidates=("Y7 p deck", "Wx d deck", "R6 d deck"),
+    ),
+    EvaluatorCase(
+        "ply 36: focused audit confirms B10 over Y10",
         "ui_seed725402798_p36.state",
         990036,
         "B10 p deck",
+        exact_candidates=("Y10 p deck", "B10 p deck", "W10 p deck"),
+        status_contains=("prefix_check: 2048 worlds, passed",),
     ),
     EvaluatorCase(
-        "ply 40: block unsafe dead-discard replacements",
+        "ply 40: focused audit finds the clean R2 discard",
         "ui_seed725402798_p40.state",
         991588,
-        "W10 p deck",
-        blocked=("W2 d deck",),
-        not_blocked=("R2 d deck",),
+        "R2 d deck",
+        exact_candidates=("W10 p deck", "R2 d deck", "Y2 d deck"),
     ),
     EvaluatorCase(
-        "ply 31: do not admit the low-prior G5 discard",
+        "ply 31: prefer R6 without admitting either G5 move",
         "ui_seed725402798_p31.state",
         991442,
-        "Y9 p deck",
-        absent=("G5 d deck",),
+        "R6 d deck",
+        absent=("G5 p deck", "G5 d deck"),
+        exact_candidates=("Y9 p deck", "B9 p deck", "R6 d deck"),
     ),
     EvaluatorCase(
         "showcase ply 59: one-sided B wager plus useful R pickup",
         "showcase_5726968372613385_p59.state",
         990059,
         "Bx d R",
+        evaluator=SEMANTIC_EVAL_SPEC,
         not_blocked=("Bx d R",),
         status_contains=("confirmation: 16384 worlds, passed",),
         exact_candidates=("Y2 p deck", "Bx d R"),
@@ -123,6 +143,7 @@ EVALUATOR_CASES = (
         "showcase_5726968372613385_p61.state",
         990061,
         "Bx d R",
+        evaluator=SEMANTIC_EVAL_SPEC,
         status_contains=("confirmation: 16384 worlds, passed",),
         primary_cap=16384,
         min_primary_worlds=1000,
@@ -133,6 +154,7 @@ EVALUATOR_CASES = (
         "showcase_5726968372613385_p96.state",
         990096,
         "G9 p deck",
+        evaluator=SEMANTIC_EVAL_SPEC,
         status_contains=("worlds: 0/1000",),
     ),
 )
@@ -202,7 +224,7 @@ def run_evaluator_case(case: EvaluatorCase) -> None:
         "-n", str(ROOT / "data/champion.bin"),
         "-S", str(ROOT / "data/probes" / case.state),
         "-s", str(case.seed),
-        "-E", EVAL_SPEC,
+        "-E", case.evaluator,
     ]
     result = subprocess.run(
         command,
@@ -216,7 +238,8 @@ def run_evaluator_case(case: EvaluatorCase) -> None:
     rows = [
         line for line in result.stdout.splitlines()
         if line and not line.startswith(("position:", "hand:", "rollout ",
-                                         "worlds:", "candidate"))
+                                         "worlds:", "candidate",
+                                         "prefix fresh evidence:"))
     ]
     selected = [
         line for line in rows

@@ -54,6 +54,18 @@ static float terminal_value(const State *s)
     return value / VAL_SCALE;
 }
 
+/* A full tree state is a sampled determinization, so both player views are
+ * available without leaking information from the real root.  Centering the
+ * two raw heads removes arbitrary common-mode value drift while preserving
+ * the zero-sum quantity MCTS needs. */
+static float centered_value(const Net *net, const State *s, int p,
+                            int symmetries)
+{
+    float vp = net_value_state_sym(net, s, p, symmetries);
+    float vo = net_value_state_sym(net, s, p ^ 1, symmetries);
+    return 0.5f * (vp - vo) / VAL_SCALE;
+}
+
 /* Fill a node from a set of moves and their priors, keeping the best `width`. */
 static void node_fill(Node *nd, const Move *mv, const float *prob, int n, int width)
 {
@@ -95,7 +107,8 @@ static void expand(Tree *t, Node *nd, const State *s, int width)
     float value = 0.0f;
     int n = policy_probs(t->net, s, mv, prob, &value);
     node_fill(nd, mv, prob, n, width);
-    nd->value = value / VAL_SCALE;
+    float opponent = net_value_state_sym(t->net, s, s->turn ^ 1, 1);
+    nd->value = 0.5f * (value - opponent) / VAL_SCALE;
 }
 
 static float simulate(Tree *t, State *s, int node)
@@ -124,7 +137,7 @@ static float simulate(Tree *t, State *s, int node)
         if (c < 0) {
             float lv;
             if (s->over) lv = terminal_value(s);
-            else { Features f; feat_extract(s, s->turn, &f); lv = net_value(t->net, &f); }
+            else lv = centered_value(t->net, s, s->turn, 1);
             nd->nvisit[best]++;
             nd->wsum[best] += -lv;
             nd->visits++;
@@ -181,7 +194,10 @@ Move search_move(const struct Agent *a, const State *st, Rng *rng,
 
     Node root_tmpl;
     node_fill(&root_tmpl, rmv, rprob, rn, rw);
-    root_tmpl.value = rvalue / VAL_SCALE;
+    /* The opponent view is intentionally not evaluated on `st`: its hand is
+     * hidden from the player making this decision.  Each determinized root
+     * gets a separately centered FPU below. */
+    root_tmpl.value = 0.0f;
     int nroot = root_tmpl.nchild;
 
     double agg_visits[MAXC], agg_w[MAXC];
@@ -197,6 +213,9 @@ Move search_move(const struct Agent *a, const State *st, Rng *rng,
         t.nnode = 0;
         int rootn = new_node(&t);
         t.nodes[rootn] = root_tmpl;
+        float opponent = net_value_state_sym(a->net, &root, st->turn ^ 1,
+                                             a->symmetries);
+        t.nodes[rootn].value = 0.5f * (rvalue - opponent) / VAL_SCALE;
         for (int i = 0; i < a->sims; i++) {
             State s = root;
             simulate(&t, &s, rootn);

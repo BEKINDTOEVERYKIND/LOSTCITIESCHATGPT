@@ -174,6 +174,7 @@ static void normalize_probs(float *pr, int n)
 
 #define CHAIN_MAX (MATCH_ROUNDS * LC_MAX_PLIES + 4)
 static _Thread_local State chain[CHAIN_MAX];
+static _Thread_local float chain_v[2][CHAIN_MAX];
 static _Thread_local uint16_t chain_pmv[CHAIN_MAX][PI_K];
 static _Thread_local float chain_ppr[CHAIN_MAX][PI_K];
 static _Thread_local uint8_t chain_npi[CHAIN_MAX];
@@ -185,8 +186,6 @@ static void *gen_worker(void *arg)
     Rng reservoir_rng;
     rng_seed(&reservoir_rng, j->seed ^ (0xD1B54A32D192ED03ULL
                                      * (uint64_t)(j->thread + 1)));
-    Features f;
-
     for (int g = j->thread; g < j->games; g += j->nthread) {
         int T = 0;
         int cum[2] = { 0, 0 };
@@ -283,6 +282,17 @@ static void *gen_worker(void *arg)
         }   /* rounds */
         int score[2] = { cum[0], cum[1] };
 
+        /* The generator owns each complete self-play state.  Project the two
+         * perspective predictions onto one centralized zero-sum value before
+         * bootstrapping so common head bias cannot enter lambda returns. */
+        if (j->lambda < 0.999f)
+            for (int t = 0; t < T; t++) {
+                float v0 = net_value_state_sym(j->net, &chain[t], 0, 1);
+                float v1 = net_value_state_sym(j->net, &chain[t], 1, 1);
+                chain_v[0][t] = 0.5f * (v0 - v1);
+                chain_v[1][t] = -chain_v[0][t];
+            }
+
         for (int p = 0; p < 2; p++) {
             float G = j->margin_weight * (float)(score[p] - score[p ^ 1]);
             if (score[p] > score[p ^ 1]) G += j->winbonus;
@@ -293,9 +303,8 @@ static void *gen_worker(void *arg)
                      * confidence/ply gate skipped search.  It is a policy
                      * target, not a value bootstrap.  The network value keeps
                      * lambda returns on one consistent continuation scale. */
-                    feat_extract(&chain[t + 1], p, &f);
-                    float vnext = net_value(j->net, &f) * VAL_SCALE;
-                    G = (1.0f - j->lambda) * vnext + j->lambda * G;
+                    G = (1.0f - j->lambda) * chain_v[p][t + 1]
+                      + j->lambda * G;
                 }
                 Sample s = { 0 };
                 s.st = chain[t];
@@ -331,7 +340,7 @@ typedef struct {
                             on a return scale far from margin targets, and
                             the resulting gradients deform the shared trunk
                             (the c1/c2 collapse mechanism) */
-    float bw;            /* belief BCE weight (rl.c trains this head too;
+    float bw;            /* exact-K belief NLL weight (rl.c trains it too;
                             without it a fine-tune drifts the shared trunk
                             out from under the belief head) */
     int suit_augment;    /* train on an exact random renaming of all suits */
@@ -369,13 +378,13 @@ static void *train_worker(void *arg)
     net_zero(t->grad);
     double vloss = 0.0, ploss = 0.0;
     int pn = 0;
-    Features f;
-    NetAct act;
+    Features f, of;
+    NetAct act, oact;
     Move mv[MAX_MOVES];
     uint16_t pk[MAX_MOVES];
     float logit[MAX_MOVES], prob[MAX_MOVES], dlog[MAX_MOVES], tgt[MAX_MOVES];
-    uint8_t bcard[NCARD];
-    float blogit[NCARD], dbel[NCARD];
+    uint8_t bcard[NCARD], held[NCARD];
+    float blogit[NCARD], bmarg[NCARD], dbel[NCARD];
 
     for (int i = t->from; i < t->to; i++) {
         const Sample *s = &t->rp->buf[t->idx[i]];
@@ -399,11 +408,18 @@ static void *train_worker(void *arg)
         }
         feat_extract(&s->st, s->persp, &f);
         net_trunk(t->net, &f, &act);
+        feat_extract(&s->st, s->persp ^ 1, &of);
+        net_trunk(t->net, &of, &oact);
 
-        float v = net_value_act(t->net, &act);
+        float vp = net_value_act(t->net, &act);
+        float vo = net_value_act(t->net, &oact);
+        float v = 0.5f * (vp - vo);
         float y = s->target / VAL_SCALE;
         float e = v - y;
         vloss += (double)e * e;
+        /* Perspective pairs duplicate each complete state.  Half weight per
+         * row makes their sum one coupled centralized-critic loss. */
+        float dcenter = 0.5f * e * t->vw;
 
         int n = 0;
         if (s->npi > 0) {
@@ -434,34 +450,34 @@ static void *train_worker(void *arg)
             }
             pn++;
         }
-        /* The sample's state stores the true opponent hand, a free
-         * supervised label.  Publicly known opponent cards are excluded:
-         * they are not uncertain belief targets. */
+        /* Train the same fixed-cardinality likelihood sampled at deployment.
+         * The sampler is queried only for the player to move, so restrict
+         * labels to that same state distribution.  Ply zero is uniform. */
         int nb = 0;
-        if (t->bw > 0.0f) {
+        if (t->bw > 0.0f && s->persp == s->st.turn && s->st.nply > 0) {
             const State *st = &s->st;
             int p = s->persp, o = p ^ 1;
-            uint64_t vis = st->hand[p] | st->known[o]
-                         | st->played[0] | st->played[1] | st->discarded;
-            uint64_t cands = ~vis & ((1ULL << NCARD) - 1);
-            while (cands) {
-                int cc = __builtin_ctzll(cands);
-                cands &= cands - 1;
-                bcard[nb++] = (uint8_t)cc;
-            }
+            lc_unseen(st, p, bcard, &nb);
+            int need = st->hand_n[o] - __builtin_popcountll(st->known[o]);
+            for (int k = 0; k < nb; k++)
+                held[k] = (uint8_t)((st->hand[o] >> bcard[k]) & 1ULL);
             net_belief_act(t->net, &act, bcard, nb, blogit);
-            float scale = t->bw / (float)(nb > 0 ? nb : 1);
-            for (int k = 0; k < nb; k++) {
-                float lab = ((st->hand[o] >> bcard[k]) & 1ULL) ? 1.0f : 0.0f;
-                float l = blogit[k];
-                if (l > 15.0f) l = 15.0f;
-                if (l < -15.0f) l = -15.0f;
-                float pr2 = 1.0f / (1.0f + expf(-l));
-                dbel[k] = scale * (pr2 - lab);
+            double validated_nll = 0.0;
+            if (belief_exact_k_eval(blogit, held, nb, need, 1.0f,
+                                    bmarg, &validated_nll)) {
+                float scale = t->bw / (float)(nb > 0 ? nb : 1);
+                for (int k = 0; k < nb; k++)
+                    dbel[k] = scale * (bmarg[k] - held[k]);
+            } else {
+                nb = 0;
             }
         }
-        net_backward(t->net, &f, &act, 2.0f * e * t->vw, pk, s->npi > 0 ? dlog : NULL, n,
+        net_backward(t->net, &f, &act, dcenter,
+                     pk, s->npi > 0 ? dlog : NULL, n,
                      nb > 0 ? bcard : NULL, nb > 0 ? dbel : NULL, nb, t->grad);
+        if (dcenter != 0.0f)
+            net_backward(t->net, &of, &oact, -dcenter,
+                         pk, NULL, 0, NULL, NULL, 0, t->grad);
     }
     t->vloss = vloss; t->ploss = ploss; t->pn = pn;
     return NULL;

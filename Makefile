@@ -16,6 +16,7 @@ all: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/arena $(BIN)/train \
 	$(BIN)/showgame $(BIN)/dumpfeat $(BIN)/analyze $(BIN)/searchcmp \
 	$(BIN)/qpair $(BIN)/mine $(BIN)/robust_distill $(BIN)/symmetrize \
 	$(BIN)/history_belief $(BIN)/planprobe $(BIN)/planarena \
+	$(BIN)/belief_eval $(BIN)/test_belief_eval \
 	$(DATA)/champion.bin
 
 $(BIN):
@@ -36,10 +37,13 @@ $(BIN)/train: tools/train.c tools/train_target.h $(CORE) $(HDRS) | $(BIN)
 $(BIN)/bench: tools/bench.c $(CORE) $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
 
-test: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/rl $(DATA)/champion.bin
+test: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_belief_eval \
+	$(BIN)/belief_eval $(BIN)/rl $(DATA)/champion.bin
 	./$(BIN)/test_engine
 	./$(BIN)/test_runtime
+	./$(BIN)/test_belief_eval
 	python3 -m unittest tests/test_rl_population.py
+	python3 -m unittest tests/test_belief_eval.py
 
 audit-test: $(BIN)/qpair $(DATA)/champion.bin
 	python3 tools/audit_regression.py
@@ -47,11 +51,16 @@ audit-test: $(BIN)/qpair $(DATA)/champion.bin
 history-belief-test: $(BIN)/history_belief $(DATA)/champion.bin
 	python3 -m unittest tests/test_history_belief.py
 
+belief-eval-test: $(BIN)/belief_eval $(BIN)/test_belief_eval \
+	$(DATA)/champion.bin
+	./$(BIN)/test_belief_eval
+	python3 -m unittest tests/test_belief_eval.py
+
 clean:
 	rm -rf $(BIN)
 	rm -f $(DATA)/champion.bin
 
-.PHONY: all test audit-test history-belief-test clean
+.PHONY: all test audit-test history-belief-test belief-eval-test clean
 
 $(BIN)/probe: tools/probe.c $(CORE) $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
@@ -93,6 +102,12 @@ $(BIN)/planprobe: tools/planprobe.c $(CORE) $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
 
 $(BIN)/planarena: tools/planarena.c $(CORE) $(HDRS) | $(BIN)
+	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
+
+$(BIN)/belief_eval: tools/belief_eval.c $(CORE) $(HDRS) | $(BIN)
+	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
+
+$(BIN)/test_belief_eval: tests/test_belief_eval.c $(CORE) $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
 
 $(BIN)/symmetrize: tools/symmetrize.c $(SRC)/net.c $(SRC)/features.c \

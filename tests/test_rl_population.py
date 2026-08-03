@@ -100,6 +100,208 @@ class PopulationTrainingTest(unittest.TestCase):
                                 after[legacy_w1_end:b1_start])
             self.assertNotEqual(before[wcomb_start:], after[wcomb_start:])
 
+    def test_centered_critic_and_exact_k_belief_smoke(self) -> None:
+        source = ROOT / "data" / "champion.bin"
+        with tempfile.TemporaryDirectory(prefix="lc-rl-centered-test-") as tmp:
+            candidate = Path(tmp) / "candidate.bin"
+            command = [
+                str(ROOT / "bin" / "rl"),
+                "--init", str(source),
+                "--out", str(candidate),
+                "--iters", "1",
+                "--games", "2",
+                "--rounds", "1",
+                "--threads", "1",
+                "--epochs", "1",
+                "--batch", "32",
+                "--vcoef", "1",
+                "--bw", "1",
+                "--ent", "0",
+                "--wd", "0",
+                "--eval", "0",
+                "--seed", "4242",
+            ]
+            run = subprocess.run(
+                command,
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            loss = re.search(
+                r"belief exact-K nll/card ([0-9]+(?:\.[0-9]+)?)",
+                run.stdout,
+            )
+            self.assertIsNotNone(loss, run.stdout)
+            self.assertGreater(float(loss.group(1)), 0.0)
+
+            before = source.read_bytes()
+            after = candidate.read_bytes()
+            _, feat_dim, h1, h2, _, _ = struct.unpack("=6I", before[:24])
+            # b3 follows w1, b1, w2, b2 and w3 in the raw v6 payload.
+            b3_offset = 24 + (
+                feat_dim * h1 + h1 + h1 * h2 + h2 + h2
+            ) * 4
+            self.assertEqual(
+                before[b3_offset:b3_offset + 4],
+                after[b3_offset:b3_offset + 4],
+                "the coupled +d/-d critic gradient must cancel common b3",
+            )
+
+            explicit_off = Path(tmp) / "explicit-off.bin"
+            off_command = command.copy()
+            off_command[off_command.index(str(candidate))] = str(explicit_off)
+            off_command.extend(["--trajectory-symmetries", "0"])
+            subprocess.run(off_command, cwd=ROOT, text=True,
+                           capture_output=True, check=True)
+            self.assertEqual(
+                after,
+                explicit_off.read_bytes(),
+                "explicitly disabled trajectory augmentation changed defaults",
+            )
+
+    def test_augmented_population_keeps_opponent_policy_masked(self) -> None:
+        source = ROOT / "data" / "champion.bin"
+        with tempfile.TemporaryDirectory(prefix="lc-rl-augment-test-") as tmp:
+            candidate = Path(tmp) / "candidate.bin"
+            command = [
+                str(ROOT / "bin" / "rl"),
+                "--init", str(source),
+                "--out", str(candidate),
+                "--gen-opponent", f"policy:{source}:0:20",
+                "--opponent-mix", "1",
+                "--trajectory-symmetries", "20",
+                "--v6-only",
+                "--iters", "1",
+                "--games", "2",
+                "--rounds", "1",
+                "--threads", "2",
+                "--epochs", "1",
+                "--batch", "32",
+                "--vcoef", "0",
+                "--bw", "0",
+                "--ent", "0",
+                "--wd", "0",
+                "--eval", "0",
+                "--seed", "20260803",
+            ]
+            run = subprocess.run(
+                command,
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertIn("trajectory suit augmentation: exact group 20",
+                          run.stdout)
+            rows = re.search(r"policy-gradient rows (\d+)/(\d+)", run.stdout)
+            self.assertIsNotNone(rows, run.stdout)
+            actor_rows, all_rows = map(int, rows.groups())
+            self.assertGreater(actor_rows, 0)
+            # Every ply supplies two perspective rows.  If frozen-opponent
+            # decisions leaked into PPO, actor_rows would equal all_rows/2;
+            # correctly masked alternating learner decisions are near 1/4.
+            self.assertLess(5 * actor_rows, 2 * all_rows)
+
+            one_thread = Path(tmp) / "one-thread.bin"
+            one_command = command.copy()
+            one_command[one_command.index(str(candidate))] = str(one_thread)
+            one_command[one_command.index("--threads") + 1] = "1"
+            one_run = subprocess.run(
+                one_command, cwd=ROOT, text=True, capture_output=True,
+                check=True,
+            )
+            fingerprint = re.search(
+                r"augmentation fingerprint ([0-9a-f]{16})", run.stdout
+            )
+            one_fingerprint = re.search(
+                r"augmentation fingerprint ([0-9a-f]{16})", one_run.stdout
+            )
+            self.assertIsNotNone(fingerprint, run.stdout)
+            self.assertIsNotNone(one_fingerprint, one_run.stdout)
+            self.assertEqual(fingerprint.group(1), one_fingerprint.group(1))
+
+    def test_belief_only_freezes_every_other_model_byte(self) -> None:
+        source = ROOT / "data" / "champion.bin"
+        with tempfile.TemporaryDirectory(prefix="lc-rl-belief-only-") as tmp:
+            asymmetric = Path(tmp) / "asymmetric.bin"
+            candidate = Path(tmp) / "candidate.bin"
+            asymmetric_bytes = bytearray(source.read_bytes())
+            # Deliberately break a non-belief wager-row symmetry.  Belief-only
+            # setup must not silently project this trunk byte before training.
+            first_w1 = struct.unpack_from("=f", asymmetric_bytes, 24)[0]
+            struct.pack_into("=f", asymmetric_bytes, 24, first_w1 + 0.12345)
+            asymmetric.write_bytes(asymmetric_bytes)
+            run = subprocess.run(
+                [
+                    str(ROOT / "bin" / "rl"),
+                    "--init", str(asymmetric),
+                    "--out", str(candidate),
+                    "--belief-only",
+                    "--trajectory-symmetries", "20",
+                    "--iters", "1",
+                    "--games", "2",
+                    "--rounds", "1",
+                    "--threads", "1",
+                    "--epochs", "1",
+                    "--batch", "32",
+                    "--bw", "1",
+                    "--wd", "0.001",
+                    "--eval", "0",
+                    "--seed", "83003",
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertRegex(
+                run.stdout,
+                r"belief-head-only updates .*exact-K nll/card [0-9.]+",
+            )
+
+            before = asymmetric.read_bytes()
+            after = candidate.read_bytes()
+            self.assertEqual(len(before), len(after))
+            _, feat_dim, h1, h2, nplay, _ = struct.unpack("=6I", before[:24])
+            cards, draws, header = 60, 6, 24
+            prefix_floats = (
+                feat_dim * h1 + h1 + h1 * h2 + h2 + h2 + 1
+                + nplay * h2 + nplay + draws * h2 + draws
+            )
+            belief_start = header + prefix_floats * 4
+            belief_end = belief_start + (cards * h2 + cards) * 4
+            self.assertEqual(before[:belief_start], after[:belief_start])
+            self.assertNotEqual(before[belief_start:belief_end],
+                                after[belief_start:belief_end])
+            self.assertEqual(before[belief_end:], after[belief_end:])
+
+    def test_new_mode_validation(self) -> None:
+        source = ROOT / "data" / "champion.bin"
+        cases = [
+            (["--trajectory-symmetries", "3"],
+             "--trajectory-symmetries must be"),
+            (["--trajectory-symmetries", "not-a-number"],
+             "--trajectory-symmetries must be"),
+            (["--belief-only", "--bw", "0"],
+             "--belief-only requires --bw greater than zero"),
+            (["--belief-only", "--v6-only"],
+             "--belief-only and --v6-only are mutually exclusive"),
+            (["--belief-only", "--anchor", str(source), "--kl", "0.1"],
+             "--belief-only cannot optimize an anchor KL"),
+        ]
+        for args, error in cases:
+            with self.subTest(args=args):
+                run = subprocess.run(
+                    [str(ROOT / "bin" / "rl"), "--init", str(source),
+                     "--eval", "0", *args],
+                    cwd=ROOT,
+                    text=True,
+                    capture_output=True,
+                )
+                self.assertNotEqual(run.returncode, 0)
+                self.assertIn(error, run.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

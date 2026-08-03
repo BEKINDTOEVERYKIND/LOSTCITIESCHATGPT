@@ -54,6 +54,14 @@ static int named_move(Move m, const char *card, int discard, int draw)
     return !strcmp(name, card) && m.discard == discard && m.draw == draw;
 }
 
+static int same_test_action(Move a, Move b)
+{
+    if (a.discard != b.discard) return 0;
+    if (CARD_IS_WAGER(a.card) && CARD_IS_WAGER(b.card))
+        return CARD_SUIT(a.card) == CARD_SUIT(b.card);
+    return a.card == b.card;
+}
+
 static void test_sampler(void)
 {
     Rng rng;
@@ -73,6 +81,84 @@ static void test_sampler(void)
     int k = sample_index(unusable, 3, &rng);
     CHECK(k >= 0 && k < 3, "invalid fallback index %d", k);
     CHECK(sample_index(unusable, 0, &rng) == -1, "empty sample must return -1");
+}
+
+static void test_near_greedy_confirmation_sampler(void)
+{
+    Move mv[4] = {
+        { (uint8_t)CARD_MAKE(0, 3), 0, 0 },
+        { (uint8_t)CARD_MAKE(1, 4), 1, 0 },
+        { (uint8_t)CARD_MAKE(2, 5), 0, 0 },
+        { (uint8_t)CARD_MAKE(3, 6), 1, 0 }
+    };
+    float prob[4] = { 0.7000f, 0.2990f, 0.0009f, 0.0001f };
+    CHECK(rollout_near_greedy_pick(mv, prob, 4, 0.0f, 1, 0, 0) == 0,
+          "zero confirmation temperature did not preserve argmax");
+
+    Move reversed[4];
+    float reversed_prob[4];
+    for (int i = 0; i < 4; i++) {
+        reversed[i] = mv[3 - i];
+        reversed_prob[i] = prob[3 - i];
+    }
+    for (uint64_t seed = 1; seed <= 1000; seed++) {
+        int a = rollout_near_greedy_pick(
+            mv, prob, 4, 5.0f, seed, 7, 1);
+        int shared_only = rollout_near_greedy_pick(
+            mv, prob, 2, 5.0f, seed, 7, 1);
+        int repeat = rollout_near_greedy_pick(
+            mv, prob, 4, 5.0f, seed, 7, 1);
+        int b = rollout_near_greedy_pick(
+            reversed, reversed_prob, 4, 5.0f, seed, 7, 1);
+        CHECK(a == repeat, "near-greedy confirmation is not deterministic");
+        CHECK(a == shared_only,
+              "unrelated low-mass moves changed shared confirmation noise");
+        CHECK(a == 0 || a == 1,
+              "confirmation sampled outside the top-99.5%% mass prefix");
+        CHECK(MOVE_PACK(mv[a]) == MOVE_PACK(reversed[b]),
+              "move-keyed confirmation noise depends on legal-move order");
+    }
+
+    /* A probability tie crossing the 99.5% boundary is one equivalence
+     * class: legal-move enumeration order must not decide which tied action
+     * is eligible. */
+    Move tied[3] = {
+        { (uint8_t)CARD_MAKE(0, 3), 0, 0 },
+        { (uint8_t)CARD_MAKE(1, 4), 1, 0 },
+        { (uint8_t)CARD_MAKE(2, 5), 0, 0 }
+    };
+    Move tied_swapped[3] = { tied[0], tied[2], tied[1] };
+    float tied_prob[3] = { 0.994f, 0.003f, 0.003f };
+    for (uint64_t seed = 1; seed <= 1000; seed++) {
+        int a = rollout_near_greedy_pick(
+            tied, tied_prob, 3, 5.0f, seed, 9, 0);
+        int b = rollout_near_greedy_pick(
+            tied_swapped, tied_prob, 3, 5.0f, seed, 9, 0);
+        CHECK(MOVE_PACK(tied[a]) == MOVE_PACK(tied_swapped[b]),
+              "99.5%% cutoff split an exact probability tie");
+    }
+
+    /* The three physical wager IDs are publicly indistinguishable.  They
+     * must receive the same stateless Gumbel key against an unchanged rival. */
+    Move wager0[2] = {
+        { (uint8_t)CARD_MAKE(0, 0), 0, 0 },
+        { (uint8_t)CARD_MAKE(1, 4), 1, 0 }
+    };
+    Move wager1[2] = { wager0[0], wager0[1] };
+    Move wager2[2] = { wager0[0], wager0[1] };
+    wager1[0].card = (uint8_t)CARD_MAKE(0, 1);
+    wager2[0].card = (uint8_t)CARD_MAKE(0, 2);
+    float wager_prob[2] = { 0.5f, 0.5f };
+    for (uint64_t seed = 1; seed <= 1000; seed++) {
+        int a = rollout_near_greedy_pick(
+            wager0, wager_prob, 2, 1.0f, seed, 11, 1);
+        int b = rollout_near_greedy_pick(
+            wager1, wager_prob, 2, 1.0f, seed, 11, 1);
+        int c = rollout_near_greedy_pick(
+            wager2, wager_prob, 2, 1.0f, seed, 11, 1);
+        CHECK(a == b && a == c,
+              "physical wager ID changed stateless confirmation noise");
+    }
 }
 
 static void test_rollout_terminal_objective(void)
@@ -222,6 +308,131 @@ static void test_belief_distribution(void)
     free(net);
 }
 
+static void test_exact_k_belief_objective(void)
+{
+    enum { N = 5 };
+    const float logits[N] = { -0.7f, 0.2f, 1.1f, -0.1f, 0.6f };
+    const uint8_t held[N] = { 1, 0, 0, 1, 0 };
+    float marginal[N];
+    double nll = 0.0;
+    CHECK(belief_exact_k_eval(logits, held, N, 2, 1.0f,
+                              marginal, &nll),
+          "evaluate exact-K belief likelihood");
+    double msum = 0.0, gsum = 0.0;
+    for (int i = 0; i < N; i++) {
+        CHECK(marginal[i] >= 0.0f && marginal[i] <= 1.0f,
+              "exact-K marginal outside [0,1]");
+        msum += marginal[i];
+        gsum += marginal[i] - held[i];
+    }
+    CHECK(fabs(msum - 2.0) < 1e-6,
+          "exact-K marginals sum %.9f instead of two", msum);
+    CHECK(fabs(gsum) < 1e-6,
+          "exact-K logit gradient has nonzero common mode %.9g", gsum);
+
+    float shifted[N], shifted_marginal[N];
+    for (int i = 0; i < N; i++) shifted[i] = logits[i] + 7.25f;
+    double shifted_nll = 0.0;
+    CHECK(belief_exact_k_eval(shifted, held, N, 2, 1.0f,
+                              shifted_marginal, &shifted_nll),
+          "evaluate shifted exact-K likelihood");
+    CHECK(fabs(shifted_nll - nll) < 2e-7,
+          "exact-K likelihood changed under common logit shift");
+    for (int i = 0; i < N; i++)
+        CHECK(fabsf(shifted_marginal[i] - marginal[i]) < 2e-7f,
+              "exact-K marginal changed under common logit shift");
+
+    const float eps = 1e-3f;
+    for (int i = 0; i < N; i++) {
+        float plus[N], minus[N], scratch[N];
+        memcpy(plus, logits, sizeof plus);
+        memcpy(minus, logits, sizeof minus);
+        plus[i] += eps;
+        minus[i] -= eps;
+        double lp = 0.0, lm = 0.0;
+        CHECK(belief_exact_k_eval(plus, held, N, 2, 1.0f,
+                                  scratch, &lp) &&
+              belief_exact_k_eval(minus, held, N, 2, 1.0f,
+                                  scratch, &lm),
+              "finite-difference exact-K likelihood");
+        double numerical = (lp - lm) / (2.0 * eps);
+        double analytic = marginal[i] - held[i];
+        CHECK(fabs(numerical - analytic) < 2e-4,
+              "exact-K gradient %.7f != finite difference %.7f at %d",
+              analytic, numerical, i);
+    }
+
+    const float uniform_logits[N] = { 0, 0, 0, 0, 0 };
+    CHECK(belief_exact_k_eval(uniform_logits, held, N, 2, 1.0f,
+                              marginal, NULL),
+          "evaluate uniform exact-K posterior");
+    for (int i = 0; i < N; i++)
+        CHECK(fabsf(marginal[i] - 0.4f) < 1e-7f,
+              "uniform exact-K marginal %.8f is not 2/5", marginal[i]);
+
+    const uint8_t wrong_count[N] = { 1, 0, 0, 0, 0 };
+    CHECK(!belief_exact_k_eval(logits, wrong_count, N, 2, 1.0f,
+                               marginal, &nll),
+          "exact-K likelihood accepted a wrong-cardinality label");
+}
+
+static void test_centered_mcts_value(void)
+{
+    Net *base = calloc(1, sizeof *base);
+    Net *shifted = calloc(1, sizeof *shifted);
+    CHECK(base != NULL && shifted != NULL,
+          "network allocation for centered MCTS value");
+    if (!base || !shifted) { free(base); free(shifted); return; }
+    shifted->b3 = 7.0f;
+
+    uint8_t deck[NCARD];
+    for (int i = 0; i < NCARD; i++) deck[i] = (uint8_t)i;
+    State st;
+    lc_deal_from_deck(&st, deck);
+    st.round = MATCH_ROUNDS - 1;
+    st.cum[0] = 23;
+    st.cum[1] = -11;
+
+    float b0 = net_value_state_sym(base, &st, 0, 5);
+    float b1 = net_value_state_sym(base, &st, 1, 5);
+    float s0 = net_value_state_sym(shifted, &st, 0, 5);
+    float s1 = net_value_state_sym(shifted, &st, 1, 5);
+    CHECK(fabsf(0.5f * (b0 - b1) - 0.5f * (s0 - s1)) < 1e-6f,
+          "centralized critic changed under a common b3 shift");
+
+    Agent a, b;
+    agent_default(&a, AG_MCTS, base);
+    a.dets = 3;
+    a.sims = 32;
+    a.root_width = 4;
+    a.node_width = 4;
+    a.symmetries = 5;
+    b = a;
+    b.net = shifted;
+
+    Rng arng, brng;
+    rng_seed(&arng, 0xC3117EULL);
+    rng_seed(&brng, 0xC3117EULL);
+    SearchStats as, bs;
+    float av = 0.0f, bv = 0.0f;
+    Move am = search_move(&a, &st, &arng, &av, &as);
+    Move bm = search_move(&b, &st, &brng, &bv, &bs);
+    CHECK(MOVE_PACK(am) == MOVE_PACK(bm),
+          "MCTS move changed under a common value-head bias");
+    CHECK(as.n == bs.n && as.nlegal == bs.nlegal,
+          "MCTS shortlist changed under a common value-head bias");
+    CHECK(fabsf(av - bv) < 1e-5f,
+          "MCTS root value changed under a common value-head bias");
+    for (int i = 0; i < as.n && i < bs.n; i++) {
+        CHECK(MOVE_PACK(as.mv[i]) == MOVE_PACK(bs.mv[i]) &&
+              as.visits[i] == bs.visits[i] &&
+              fabs(as.q[i] - bs.q[i]) < 1e-5,
+              "MCTS row %d changed under a common value-head bias", i);
+    }
+    free(base);
+    free(shifted);
+}
+
 static void test_rollout_policy_shortlist(void)
 {
     Net *net = malloc(sizeof(*net));
@@ -318,6 +529,136 @@ static void test_rollout_policy_shortlist(void)
           s20.policy_mass, expected_mass);
     CHECK(s20.delta[0] == 0.0 && s20.dse[0] == 0.0,
           "policy baseline paired statistics are nonzero");
+
+    /* Optional hierarchical selection spends its fixed budget on distinct
+     * card/action cores before considering one public-information draw repair
+     * per core.  It must never displace candidate zero or exceed five. */
+    Agent cores = audit;
+    cores.root_width = 5;
+    cores.min_cand = 3;
+    cores.cand_mass = 0.0f;
+    cores.cand_floor = 0.02f;
+    cores.action_core_count = 3;
+    SearchStats core_stats;
+    rng_seed(&rng, 732020);
+    (void)rollout_move(&cores, &p20, &rng, NULL, &core_stats);
+    CHECK(core_stats.action_core_candidates == 3,
+          "hierarchical shortlist retained %d cores, expected 3",
+          core_stats.action_core_candidates);
+    CHECK(core_stats.action_draw_candidates >= 0 &&
+          core_stats.action_draw_candidates <= 2 &&
+          core_stats.trusted_candidates <= 5 && core_stats.n <= 5,
+          "hierarchical shortlist exceeded its budget (cores=%d draws=%d trusted=%d n=%d)",
+          core_stats.action_core_candidates,
+          core_stats.action_draw_candidates,
+          core_stats.trusted_candidates, core_stats.n);
+    CHECK(MOVE_PACK(core_stats.mv[0]) == MOVE_PACK(pmv[order[0]]),
+          "hierarchical shortlist displaced the complete policy baseline");
+    for (int i = 0; i < core_stats.action_core_candidates; i++)
+        for (int j = 0; j < i; j++)
+            CHECK(!same_test_action(core_stats.mv[i], core_stats.mv[j]),
+                  "hierarchical core prefix contains duplicate semantic actions");
+    for (int i = core_stats.action_core_candidates;
+         i < core_stats.trusted_candidates; i++) {
+        CHECK(core_stats.prior[i] + 1e-7 >= cores.cand_floor,
+              "hierarchical draw alternative bypassed the policy floor");
+        int attached = 0;
+        for (int j = 0; j < core_stats.action_core_candidates; j++)
+            if (same_test_action(core_stats.mv[i], core_stats.mv[j])) {
+                attached = 1;
+                break;
+            }
+        CHECK(attached,
+              "hierarchical draw alternative is not attached to a selected core");
+    }
+    double expected_core_mass = 0.0;
+    for (int i = 0; i < pn; i++) {
+        int represented = 0;
+        for (int j = 0; j < core_stats.action_core_candidates; j++)
+            if (same_test_action(pmv[i], core_stats.mv[j])) {
+                represented = 1;
+                break;
+            }
+        if (represented) expected_core_mass += prior[i];
+    }
+    CHECK(fabs(core_stats.policy_mass - expected_core_mass) < 1e-6,
+          "hierarchical shortlist reports %.6f representative mass, expected %.6f aggregate core mass",
+          core_stats.policy_mass, expected_core_mass);
+
+    /* Exercise production-style min_cand=1 eligibility instead of forcing
+     * all requested cores.  Every nonbaseline core must clear the aggregate
+     * floor, candidate zero remains the exact complete-move policy leader,
+     * and the trusted budget remains bounded. */
+    Agent floor_cores = cores;
+    floor_cores.root_width = 3;
+    floor_cores.min_cand = 1;
+    floor_cores.action_core_count = 3;
+    SearchStats floor_stats;
+    rng_seed(&rng, 732021);
+    Move floor_move = rollout_move(
+        &floor_cores, &p20, &rng, NULL, &floor_stats);
+    CHECK(MOVE_PACK(floor_stats.mv[0]) == MOVE_PACK(pmv[order[0]]),
+          "aggregate-floor shortlist displaced the complete policy leader");
+    CHECK(floor_stats.action_core_candidates >= 1 &&
+          floor_stats.action_core_candidates <= 3 &&
+          floor_stats.trusted_candidates <= 3,
+          "aggregate-floor shortlist exceeded core budget (cores=%d trusted=%d)",
+          floor_stats.action_core_candidates, floor_stats.trusted_candidates);
+    double floor_mass = 0.0;
+    for (int j = 0; j < floor_stats.action_core_candidates; j++) {
+        double action_mass = 0.0;
+        for (int i = 0; i < pn; i++)
+            if (same_test_action(pmv[i], floor_stats.mv[j]))
+                action_mass += prior[i];
+        if (j > 0)
+            CHECK(action_mass + 1e-7 >= floor_cores.cand_floor,
+                  "hierarchical core %d bypassed aggregate floor (%.6f < %.6f)",
+                  j, action_mass, floor_cores.cand_floor);
+        floor_mass += action_mass;
+    }
+    CHECK(fabs(floor_stats.policy_mass - floor_mass) < 1e-6,
+          "aggregate-floor shortlist reports %.6f mass, expected %.6f",
+          floor_stats.policy_mass, floor_mass);
+
+    /* Candidate construction is an information-set operation.  Exchange one
+     * unknown opponent card with one hidden deck card while preserving every
+     * observation; the shortlist, aggregate coverage and selected move must
+     * remain byte-for-byte equivalent under the same RNG stream. */
+    State hidden_variant = p20;
+    int mover = p20.turn, opponent = mover ^ 1;
+    uint64_t hidden = p20.hand[opponent] & ~p20.known[opponent];
+    CHECK(hidden != 0 && p20.deck_left > 0,
+          "locked shortlist state lacks a hidden assignment to exchange");
+    if (hidden && p20.deck_left > 0) {
+        int held_card = __builtin_ctzll(hidden);
+        int deck_card = p20.deck[p20.deck_pos];
+        hidden_variant.hand[opponent] &= ~(1ULL << held_card);
+        hidden_variant.hand[opponent] |= 1ULL << deck_card;
+        hidden_variant.deck[hidden_variant.deck_pos] = (uint8_t)held_card;
+        SearchStats hidden_stats;
+        rng_seed(&rng, 732021);
+        Move hidden_move = rollout_move(
+            &floor_cores, &hidden_variant, &rng, NULL, &hidden_stats);
+        CHECK(MOVE_PACK(hidden_move) == MOVE_PACK(floor_move) &&
+              hidden_stats.n == floor_stats.n &&
+              hidden_stats.trusted_candidates ==
+                  floor_stats.trusted_candidates &&
+              hidden_stats.action_core_candidates ==
+                  floor_stats.action_core_candidates &&
+              hidden_stats.action_draw_candidates ==
+                  floor_stats.action_draw_candidates &&
+              hidden_stats.policy_mass == floor_stats.policy_mass,
+              "hierarchical shortlist leaked hidden hand/deck assignment");
+        for (int i = 0; i < hidden_stats.n && i < floor_stats.n; i++)
+            CHECK(MOVE_PACK(hidden_stats.mv[i]) ==
+                      MOVE_PACK(floor_stats.mv[i]) &&
+                  hidden_stats.prior[i] == floor_stats.prior[i] &&
+                  hidden_stats.q[i] == floor_stats.q[i] &&
+                  hidden_stats.se[i] == floor_stats.se[i] &&
+                  hidden_stats.delta[i] == floor_stats.delta[i] &&
+                  hidden_stats.dse[i] == floor_stats.dse[i],
+                  "hidden assignment changed hierarchical candidate %d", i);
+    }
 
     /* Phase gates must return the unmodified actor policy.  Root
      * dead-discard focusing cannot silently alter play before the configured
@@ -470,6 +811,90 @@ static void test_rollout_policy_shortlist(void)
     CHECK(checked.rdelta[checked.selection_reference] == 0.0 &&
           checked.rdse[checked.selection_reference] == 0.0,
           "selection-reference paired statistics are nonzero");
+    CHECK(checked.prefix_numerical_agreement == checked.prefix_confirmed &&
+          checked.prefix_gate_passed == checked.prefix_confirmed,
+          "disabled paired prefix gate changed numerical consensus");
+    for (int c = 0; c < checked.trusted_candidates; c++) {
+        CHECK(isfinite(checked.prefix_delta[c]) &&
+              isfinite(checked.prefix_dse[c]) &&
+              checked.prefix_dse[c] >= 0.0,
+              "fresh paired prefix statistic %d is invalid", c);
+        CHECK(fabs(checked.prefix_delta[c] -
+                   (checked.prefix_q[c] - checked.prefix_q[0])) < 1e-9,
+              "fresh paired delta %d disagrees with candidate means", c);
+    }
+    CHECK(checked.prefix_delta[0] == 0.0 &&
+          checked.prefix_dse[0] == 0.0,
+          "fresh paired baseline statistics are nonzero");
+
+    if (checked.prefix_numerical_agreement &&
+        checked.prefix_delta[proposed] > 0.0) {
+        double pd = checked.prefix_delta[proposed];
+        double pse = checked.prefix_dse[proposed];
+        Agent permissive_prefix = consensus;
+        permissive_prefix.prefix_confirm_k = pse > 0.0
+            ? (float)(pd / (4.0 * pse)) : 1.0f;
+        permissive_prefix.prefix_confirm_min = (float)(pd / 4.0);
+        SearchStats permissive_stats;
+        rng_seed(&rng, 9008);
+        (void)rollout_move(&permissive_prefix, &p8, &rng, NULL,
+                           &permissive_stats);
+        CHECK(permissive_stats.prefix_gate_passed &&
+              permissive_stats.prefix_confirmed &&
+              permissive_stats.selection_reference == proposed,
+              "trusted-prefix move clearing both paired gates was rejected");
+
+        Agent effect_blocked = permissive_prefix;
+        effect_blocked.prefix_confirm_min = (float)(pd * 2.0 + 1.0);
+        SearchStats effect_stats;
+        rng_seed(&rng, 9008);
+        (void)rollout_move(&effect_blocked, &p8, &rng, NULL, &effect_stats);
+        CHECK(effect_stats.prefix_numerical_agreement &&
+              !effect_stats.prefix_gate_passed &&
+              effect_stats.selection_reference == 0,
+              "trusted-prefix practical-effect floor was not required");
+
+        if (pse > 0.0) {
+            Agent evidence_blocked = permissive_prefix;
+            evidence_blocked.prefix_confirm_k =
+                (float)(pd / pse * 2.0 + 1.0);
+            SearchStats evidence_stats;
+            rng_seed(&rng, 9008);
+            (void)rollout_move(&evidence_blocked, &p8, &rng, NULL,
+                               &evidence_stats);
+            CHECK(evidence_stats.prefix_numerical_agreement &&
+                  !evidence_stats.prefix_gate_passed &&
+                  evidence_stats.selection_reference == 0,
+                  "trusted-prefix paired-SE threshold was not required");
+        }
+    }
+
+    /* The optional trusted-prefix gate uses that same fresh paired panel.  An
+     * intentionally unreachable evidence/effect threshold must reject the
+     * proposal without changing its worlds or diagnostics. */
+    Agent gated_prefix = consensus;
+    gated_prefix.prefix_confirm_k = 1000000.0f;
+    gated_prefix.prefix_confirm_min = 1000000.0f;
+    SearchStats gated_stats;
+    rng_seed(&rng, 9008);
+    Move prefix_gated_move =
+        rollout_move(&gated_prefix, &p8, &rng, NULL, &gated_stats);
+    CHECK(gated_stats.prefix_proposed == proposed &&
+          gated_stats.prefix_confirm_worlds == checked.prefix_confirm_worlds &&
+          gated_stats.selection_reference == 0 &&
+          !gated_stats.prefix_gate_passed &&
+          !gated_stats.prefix_confirmed &&
+          MOVE_PACK(prefix_gated_move) == MOVE_PACK(gated_stats.mv[0]),
+          "paired trusted-prefix gate did not fall back to baseline");
+    CHECK(gated_stats.prefix_numerical_agreement ==
+              checked.prefix_numerical_agreement,
+          "enabling the prefix gate changed fresh-panel numerical agreement");
+    for (int c = 0; c < checked.trusted_candidates; c++)
+        CHECK(fabs(gated_stats.prefix_delta[c] -
+                   checked.prefix_delta[c]) < 1e-12 &&
+              fabs(gated_stats.prefix_dse[c] -
+                   checked.prefix_dse[c]) < 1e-12,
+              "enabling the prefix gate changed paired diagnostic %d", c);
 
     /* Mode 3 is the same independent consensus contract, but each player gets
      * its own coherent, independently stratified suit orientation.  It must be
@@ -638,10 +1063,14 @@ static void test_rollout_spec_tail(void)
     Agent a;
     agent_default(&a, AG_ROLLOUT, NULL);
     CHECK(a.playout_prune == -1 && a.draw_root_deck_max == 0 &&
-          a.draw_playout_deck_max == 0,
+          a.draw_playout_deck_max == 0 &&
+          a.prefix_confirm_k == 0.0f &&
+          a.prefix_confirm_min == 0.0f &&
+          a.confirm_temp == 0.0f &&
+          a.action_core_count == 0,
           "rollout default no longer makes continuation pruning follow root");
     spec_parse("rolloutu:data/champion.bin:256:5:0.03:0.9:2:14:50:4:"
-               "2:1:3.5:1.5:3:20:0.995:64:20:1:24:128:0:16:12:1:1:2:12:1:1.25:4:3",
+               "2:1:3.5:1.5:3:20:0.995:64:20:1:24:128:0:16:12:1:1:2:12:1:1.25:4:3:2.75:1.125:0.2:3",
                &a);
     CHECK(a.kind == AG_ROLLOUT && a.no_belief,
           "rolloutu kind/world model parsed incorrectly");
@@ -666,7 +1095,11 @@ static void test_rollout_spec_tail(void)
           a.policy_prefix_mode == 1 &&
           fabsf(a.belief_alpha - 1.25f) < 1e-6f &&
           a.draw_root_deck_max == 4 &&
-          a.draw_playout_deck_max == 3,
+          a.draw_playout_deck_max == 3 &&
+          fabsf(a.prefix_confirm_k - 2.75f) < 1e-6f &&
+          fabsf(a.prefix_confirm_min - 1.125f) < 1e-6f &&
+          fabsf(a.confirm_temp - 0.2f) < 1e-6f &&
+          a.action_core_count == 3,
           "rollout planner/semantic tail parsed incorrectly");
     free((void *)a.net);
 
@@ -701,9 +1134,26 @@ static void test_rollout_spec_tail(void)
           champion.policy_prefix_mode == 2 &&
           fabsf(champion.belief_alpha - 1.0f) < 1e-6f &&
           champion.draw_root_deck_max == 0 &&
-          champion.draw_playout_deck_max == 0,
+          champion.draw_playout_deck_max == 0 &&
+          champion.prefix_confirm_k == 0.0f &&
+          champion.prefix_confirm_min == 0.0f &&
+          champion.confirm_temp == 0.0f &&
+          champion.action_core_count == 0,
           "maintained champion spec drifted from its locked configuration");
     free((void *)champion.net);
+
+    Agent audit;
+    spec_parse(LC_AUDIT_AGENT_SPEC, &audit);
+    CHECK(audit.kind == AG_ROLLOUT && audit.no_belief &&
+          audit.dets == 2048 && audit.root_width == 3 &&
+          fabsf(audit.cand_floor - 0.01f) < 1e-6f &&
+          audit.ply_lo == 14 && audit.confirm_dets == 2048 &&
+          audit.policy_prefix_mode == 2 &&
+          fabsf(audit.prefix_confirm_k - 2.0f) < 1e-6f &&
+          fabsf(audit.prefix_confirm_min - 1.0f) < 1e-6f &&
+          audit.action_core_count == 3,
+          "post-game audit spec drifted from its focused configuration");
+    free((void *)audit.net);
 
     /* Training's live-network form must not have a private, fixed-size copy of
      * the rollout parser.  This deliberately exceeds the old 128-byte buffer
@@ -714,7 +1164,7 @@ static void test_rollout_spec_tail(void)
     const char *self_spec =
         "selfrollout:256:5:0.0123456789:0.8765432109:7:14:299:8:2:1:"
         "3.5000000001:1.5000000001:4:20:0.9950000001:128:20:1:24:128:"
-        "0:16:12:1:1:2:12:3:1.25:4:3";
+        "0:16:12:1:1:2:12:3:1.25:4:3:2.75:1.125:0.2:3";
     CHECK(strlen(self_spec) > 128,
           "selfrollout regression no longer exceeds the old parser buffer");
     Agent live_rollout;
@@ -738,7 +1188,11 @@ static void test_rollout_spec_tail(void)
           live_rollout.policy_prefix_mode == 3 &&
           fabsf(live_rollout.belief_alpha - 1.25f) < 1e-6f &&
           live_rollout.draw_root_deck_max == 4 &&
-          live_rollout.draw_playout_deck_max == 3,
+          live_rollout.draw_playout_deck_max == 3 &&
+          fabsf(live_rollout.prefix_confirm_k - 2.75f) < 1e-6f &&
+          fabsf(live_rollout.prefix_confirm_min - 1.125f) < 1e-6f &&
+          fabsf(live_rollout.confirm_temp - 0.2f) < 1e-6f &&
+          live_rollout.action_core_count == 3,
           "selfrollout planner/semantic/consensus tail was not parsed");
     free(live);
 }
@@ -1375,12 +1829,96 @@ static void test_suit_symmetry_ensemble(void)
     free(net);
 }
 
+static void test_trajectory_suit_augmentation(void)
+{
+    enum { NTRAJ = 32 };
+    uint8_t sequential[NTRAJ][NSUIT];
+    uint8_t partitioned[NTRAJ][NSUIT];
+    for (int g = 0; g < NTRAJ; g++)
+        CHECK(trajectory_suit_permutation(20, 881726ULL, (uint64_t)g,
+                                          sequential[g]),
+              "choose sequential trajectory permutation");
+    for (int worker = 0; worker < 4; worker++)
+        for (int g = worker; g < NTRAJ; g += 4)
+            CHECK(trajectory_suit_permutation(20, 881726ULL, (uint64_t)g,
+                                              partitioned[g]),
+                  "choose partitioned trajectory permutation");
+    int saw_different = 0;
+    for (int g = 0; g < NTRAJ; g++) {
+        CHECK(memcmp(sequential[g], partitioned[g], NSUIT) == 0,
+              "trajectory permutation depends on worker partition at %d", g);
+        if (g > 0 && memcmp(sequential[0], sequential[g], NSUIT) != 0)
+            saw_different = 1;
+    }
+    CHECK(saw_different,
+          "trajectory permutation selector produced no augmentation variety");
+    uint8_t identity[NSUIT];
+    CHECK(trajectory_suit_permutation(0, 7, 9, identity),
+          "explicitly disabled trajectory permutation rejected");
+    for (int s = 0; s < NSUIT; s++)
+        CHECK(identity[s] == s,
+              "disabled trajectory augmentation is not identity");
+    CHECK(!trajectory_suit_permutation(3, 7, 9, identity),
+          "invalid trajectory suit group was accepted");
+
+    Net *net = malloc(sizeof *net);
+    CHECK(net != NULL, "network allocation for trajectory augmentation");
+    if (!net) return;
+    CHECK(net_load(net, "data/champion.bin") == 0,
+          "load champion for trajectory augmentation");
+    State st = reviewed_state(net, 20), view;
+    uint8_t perm[NSUIT];
+    CHECK(trajectory_suit_permutation(20, 20260803ULL, 17, perm),
+          "choose common-state test permutation");
+    Move vm[MAX_MOVES], em[MAX_MOVES], check_mv[MAX_MOVES];
+    float raw[MAX_MOVES], behavior[MAX_MOVES], check_raw[MAX_MOVES];
+    const float temperature = 0.7f;
+    int n = trajectory_policy_probs(net, &st, perm, temperature, &view,
+                                    vm, em, raw, behavior);
+    int cn = policy_probs(net, &view, check_mv, check_raw, NULL);
+    CHECK(n > 1 && n == cn,
+          "trajectory policy changed oriented legal-move count");
+    double bsum = 0.0, expected_sum = 0.0;
+    for (int i = 0; i < n; i++)
+        expected_sum += pow(check_raw[i], 1.0 / temperature);
+
+    Move legal[MAX_MOVES];
+    int nlegal = lc_moves(&st, legal);
+    for (int i = 0; i < n; i++) {
+        CHECK(MOVE_PACK(vm[i]) == MOVE_PACK(check_mv[i]) &&
+              raw[i] == check_raw[i],
+              "stored state/action probability changed orientation at %d", i);
+        double expected = pow(check_raw[i], 1.0 / temperature)
+                        / expected_sum;
+        CHECK(fabs(behavior[i] - expected) < 2e-7,
+              "stored old probability is inconsistent at %d", i);
+        bsum += behavior[i];
+        int found = 0;
+        for (int k = 0; k < nlegal; k++)
+            if (MOVE_PACK(em[i]) == MOVE_PACK(legal[k])) found = 1;
+        CHECK(found, "mapped-back engine move %d is not legal", i);
+
+        State engine_next = st, view_next = view, mapped_next;
+        lc_apply(&engine_next, em[i]);
+        lc_apply(&view_next, vm[i]);
+        lc_permute_suits(&engine_next, &mapped_next, perm);
+        CHECK(memcmp(&view_next, &mapped_next, sizeof(State)) == 0,
+              "mapped engine transition diverged at action %d", i);
+    }
+    CHECK(fabs(bsum - 1.0) < 2e-6,
+          "trajectory behavior probabilities sum to %.9f", bsum);
+    free(net);
+}
+
 int main(void)
 {
     test_sampler();
+    test_near_greedy_confirmation_sampler();
     test_rollout_terminal_objective();
     test_rollout_value_scale();
     test_belief_distribution();
+    test_exact_k_belief_objective();
+    test_centered_mcts_value();
     test_rollout_policy_shortlist();
     test_random_symmetry_policy_sample();
     test_rollout_spec_tail();
@@ -1394,6 +1932,7 @@ int main(void)
     test_match_thread_determinism();
     test_rollout_match_thread_determinism();
     test_suit_symmetry_ensemble();
+    test_trajectory_suit_augmentation();
     if (failures == 0) {
         printf("all runtime regression tests passed\n");
         return 0;

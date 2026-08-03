@@ -17,7 +17,7 @@ static Net *load_net(const char *path)
     return n;
 }
 
-enum { ROLLOUT_TAIL_FIELDS = 31 };
+enum { ROLLOUT_TAIL_FIELDS = 35 };
 
 static int valid_suit_group(int n)
 {
@@ -59,12 +59,21 @@ static void validate_rollout(const Agent *a, const char *label)
         a->draw_variant_deck_max >= 0 &&
         a->draw_variant_deck_max <= NCARD &&
         a->policy_prefix_mode >= 0 && a->policy_prefix_mode <= 3 &&
+        isfinite(a->prefix_confirm_k) && a->prefix_confirm_k >= 0.0f &&
+        isfinite(a->prefix_confirm_min) && a->prefix_confirm_min >= 0.0f &&
+        ((a->prefix_confirm_k == 0.0f &&
+          a->prefix_confirm_min == 0.0f) ||
+         (a->prefix_confirm_k > 0.0f &&
+          a->prefix_confirm_min > 0.0f)) &&
         isfinite(a->belief_alpha) && a->belief_alpha >= 0.0f &&
         a->belief_alpha <= 5.0f &&
         a->draw_root_deck_max >= 0 &&
         a->draw_root_deck_max <= NCARD &&
         a->draw_playout_deck_max >= 0 &&
-        a->draw_playout_deck_max <= NCARD;
+        a->draw_playout_deck_max <= NCARD &&
+        isfinite(a->confirm_temp) && a->confirm_temp >= 0.0f &&
+        a->confirm_temp <= 5.0f &&
+        a->action_core_count >= 0 && a->action_core_count <= 5;
     if (!valid) {
         fprintf(stderr, "agent '%s' has an invalid rollout configuration\n",
                 label);
@@ -125,6 +134,10 @@ static void parse_rollout_tail(const char *tail, Agent *a, const char *label)
         case 28: a->belief_alpha = (float)atof(v); break;
         case 29: a->draw_root_deck_max = atoi(v); break;
         case 30: a->draw_playout_deck_max = atoi(v); break;
+        case 31: a->prefix_confirm_k = (float)atof(v); break;
+        case 32: a->prefix_confirm_min = (float)atof(v); break;
+        case 33: a->confirm_temp = (float)atof(v); break;
+        case 34: a->action_core_count = atoi(v); break;
         }
         v = strtok_r(NULL, ":", &save);
     }

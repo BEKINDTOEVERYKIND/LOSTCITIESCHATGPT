@@ -11,9 +11,10 @@ unchanged.
 
 ## Current status
 
-The maintained playing agent uses the exact 20-way champion policy through
-round ply 13. From ply 14 it evaluates at most five policy-ranked moves with
-at least 2% prior on 512 shared uniform hidden worlds. If that primary panel
+The maintained playing agent uses the exact 20-way champion policy for the
+first 14 actions of each round. Beginning at zero-based `round_ply=14` (the
+15th displayed action), it evaluates at most five policy-ranked moves with at
+least 2% prior on 512 shared uniform hidden worlds. If that primary panel
 prefers a move other than the raw policy leader, a fresh 512-world panel uses
 balanced suit mappings that remain fixed for each complete trajectory. The
 move changes only when both panels select the same leader; disagreement falls
@@ -56,6 +57,15 @@ preceding actor; the full planner+semantic tail was -6.06 ± 4.36 over 40 pairs.
 They are therefore not silently enabled for live play. `play`, `showgame`,
 `analyze`, and the replay generator use the measured configuration above;
 `analyze` separately labels its higher-compute review recommendations.
+
+The newer three-slot/three-core shortlist (`root_width=3`) received the same
+direct promotion test. An exploratory 20-pair screen was promising (+20.23 ±
+7.29 points, 65.0% ± 5.3% match score), but the precommitted independent seed
+did not reproduce a clear match-win gain: over 40 mirrored pairs it scored
+only +1.04 ± 5.37 points and 51.2% ± 3.8% (W/L/D 41/39/0) against the
+maintained actor. The screen is selection-biased and the independent result is
+inconclusive, so the three-core method is used by the post-game audit but not
+live play.
 
 The tracked [interactive match viewer](web/viewer.html) embeds one unscreened
 random self-play match generated once under the maintained actor, with no
@@ -132,6 +142,7 @@ tools/arena.c       head-to-head matches with error bars (-r 3 for full matches)
 tools/ladder.c      round robin with fitted Elo
 tools/analyze.c     per-ply JSON dump: state, values, policy, search, beliefs
 tools/qpair.c       paired rollout Q for any named moves at a replayed position
+tools/belief_eval.c frozen held-out exact-K belief metrics and card-count prior
 tools/history_belief.py actor-aware offline hand posterior from scrubbed history
 tools/planarena.c   isolated mirrored evaluation of the visible-hand scheduler
 tools/robust_distill.c conservative confirmed-correction residual trainer
@@ -194,8 +205,11 @@ evidence.
 This learned posterior remains experimental. The authoritative decision audit
 samples hidden hands from the uniform card-count prior, so questionable belief
 calibration cannot distort its Q comparisons. Learned-world rollout and MCTS
-remain available for research, but their playing-strength measurements must be
-rerun after the fixed-cardinality sampler change.
+remain available for research. A post-fix live-actor screen using only the
+new learned worlds scored `+1.57 ± 6.92` points but just `40.0% ± 6.9%` match
+score over 20 fresh mirrored pairs (W/L/D 16/24/0). Better inference metrics
+therefore did not translate into better play, and uniform worlds remain the
+deployed default.
 
 For offline review, `tools/history_belief.py` also provides an actor-aware
 posterior. It reconstructs only the observer's original hand, public actions,
@@ -264,12 +278,16 @@ prior. What works is predicting decisions directly. The policy retains shared
 card-and-disposition and draw-source terms, then adds a full 720-way
 interaction residual. Consequently, whether drawing from Yellow is preferred
 over the deck can depend on which card is played or discarded. The value head
-serves as a PPO baseline where its errors cancel, and search is principally
-done by *rollouts*: play a policy-ranked shortlist to the end of the round in
-shared hidden worlds. Pairing every candidate on the same worlds sharply
-reduces uncertainty in the move-to-move difference. The audit reports the
-standard error of each Q mean separately from the paired standard error of
-each difference.
+serves as a PPO baseline. In complete self-play states and sampled search
+worlds it is projected to the antisymmetric critic
+`0.5 × (V(player) − V(opponent))`, removing common head bias and guaranteeing
+opposite values for the two seats. A real hidden root is never evaluated from
+the opponent's perspective; centering happens only after a legal
+determinization. Search is principally done by *rollouts*: play a
+policy-ranked shortlist to the end of the round in shared hidden worlds.
+Pairing every candidate on the same worlds sharply reduces uncertainty in the
+move-to-move difference. The audit reports the standard error of each Q mean
+separately from the paired standard error of each difference.
 
 Training is: imitate the heuristic for a sane start (it knows nothing about
 match context or beliefs), then PPO over full three-round matches with the
@@ -326,11 +344,29 @@ still a small validation set and not a demonstrated playing-strength gain.
 The UI therefore labels the hand estimate experimental, and authoritative
 rollout continues to use uniform fixed-card-count worlds.
 
+`bin/belief_eval` makes that validation reproducible against the corrected
+joint distribution. It generates deterministic, fixed-seed games with a
+separately loaded frozen exact-symmetry policy argmax (`--actor-net`, default
+`data/champion.bin`), so changing the evaluated checkpoint cannot change the
+scored states; beliefs never select an action. Before
+either policy or belief inference, an explicit information-view boundary
+removes the opponent's unknown hand and future deck order. Referee truth is
+used only afterward to score the exact unknown K-card subset. The report gives
+joint NLL per state and uncertain card, Brier score, tie-correct within-state
+AUC, tie-correct top-K recall, exact uniform card-count baselines, and
+finite-cluster sandwich standard errors for those pooled estimators, clustered
+by complete three-round match. On the default 20-match
+validation seed, the maintained wager-projected champion scores joint NLL/state `13.0302`
+versus `14.0770` for uniform, Brier `0.16353` versus `0.17721`, within-state
+AUC `0.6638`, and top-K recall `0.4739` versus `0.3369`. These are inference
+metrics, not evidence that using learned worlds improves match play.
+
 ## When to search, and when the policy alone is enough
 
 Early low-compute experiments established that policy confidence alone is not
 a reliable phase gate. The maintained agent instead uses a round-ply cutoff
-selected by direct match play: rollout is off for plies 0–13 and on thereafter.
+selected by direct match play: rollout is off for zero-based plies 0–13 (the
+first 14 displayed actions) and on beginning with the 15th action.
 At each searched position it evaluates at most five policy moves with at least
 2% prior on 512 shared uniform hidden worlds. Ordinary prefix moves are not
 accepted through a noisy significance threshold: if the primary numerical
@@ -437,7 +473,8 @@ pattern:
 
 Those runs are historical evidence, not the production strength claim. Their
 wide intervals motivated the larger world count, independent confirmation,
-corrected continuation policy, and the current two-panel ply-14 deployment.
+corrected continuation policy, and the current two-panel deployment after the
+first 14 actions of each round.
 Early-round moves are often near-equivalent in true value, so there is little
 for rollout to find; late-round positions diverge more sharply and have much
 shorter, more accurately evaluated horizons.
@@ -445,12 +482,21 @@ shorter, more accurately evaluated horizons.
 **The search reports its own noise and reference.** Every reported Q carries
 its own standard error. `delta_vs_baseline` is paired against candidate zero;
 `delta_vs_reference` is paired against the move that an optional low-prior
-challenger must actually beat. A newly generated deep audit uses 2,048 primary
-worlds on at most five moves with at least 1% policy prior. When that panel's
-ordinary-prefix leader differs from the policy, a fresh 2,048-world panel with
-balanced, trajectory-fixed suit mappings must choose the same leader or the
-audit falls back to candidate zero. The coherent repeat is a robustness check,
-not a claim of statistical proof. In the final round the dump also reports
+challenger must actually beat. The default deep audit reports policy evidence
+but deliberately skips rollout for the first 14 actions of each round; search
+starts at zero-based `round_ply=14`, the 15th displayed action. A 2,048-world ply-8 probe
+still produced a confident low-prior override, confirming that more worlds do
+not cure the long opening horizon. From that 15th action it uses 2,048 primary worlds on
+at most three distinct top-policy card/play-discard cores with at least 1%
+aggregate prior. When three action cores qualify, its three-slot budget cannot
+be consumed by several draw variants of one action; when fewer qualify, a
+strong alternative draw can use a spare slot. When that panel's leader differs from the policy, a
+fresh 2,048-world panel with balanced, trajectory-fixed suit mappings must
+choose the same leader and beat it by both two paired standard errors and at
+least one objective point, or the audit falls back to candidate zero. This
+rejects visually misleading recommendations supported only by a tiny noisy
+difference. The coherent repeat is a robustness check, not a claim of
+statistical proof. In the final round the dump also reports
 each candidate's exact match-score fraction over the playouts. Selecting by that win
 fraction is available (`win_q`) but off by default, because it measured no
 better than margin selection -- 50.4% ± 0.8% match wins pooled over 2,000
@@ -584,7 +630,26 @@ high-compute post-hoc audit spec is printed into every analysis artifact by
 ./bin/rl --init data/champion.bin --gen-opponent policy:data/champion.bin:0:20 \
          --opponent-mix 0.5 --anchor data/champion.bin --kl 0.5 --v6-only \
          --games 1000 --rounds 3 --out data/v6-population-candidate.bin
+
+# Optional, default-off PPO suit augmentation.  One exact-group mapping is
+# fixed for each complete match; learner actions are mapped back before the
+# canonical engine applies them.  Valid group sizes: 1, 5, 10, 20, 120.
+./bin/rl --init data/champion.bin --trajectory-symmetries 20 \
+         --games 1000 --rounds 3 --out data/trajectory-augmented.bin
+
+# Optional belief calibration with every trunk/policy/value byte frozen.
+# This mode uses the same exact-cardinality hand likelihood as deployment.
+./bin/rl --init data/champion.bin --belief-only --bw 1 \
+         --trajectory-symmetries 20 --games 1000 --rounds 3 \
+         --out data/belief-head-only.bin
 ```
+
+Both PPO capabilities above are opt-in research tools and are disabled by
+default. `--belief-only` requires positive `--bw`, cannot be combined with
+`--v6-only` or anchor-KL optimization, and applies weight decay only inside
+the belief head. Match evaluation and trajectory suit-map selection are
+thread-stable, but complete PPO training is not yet checkpoint-identical when
+`--threads` changes; keep the worker count fixed across training comparisons.
 
 ## Playing, analysing, measuring
 
@@ -593,6 +658,9 @@ high-compute post-hoc audit spec is printed into every analysis artifact by
 ./bin/showgame -r 3                                # same actor, self-play
 python3 tools/verify_transcript.py <transcript>    # independent rules audit
 ./bin/analyze -r 3 > data/analysis.json
+./bin/belief_eval                                   # fixed held-out exact-K report
+./bin/belief_eval --net candidate.bin --json       # machine-readable comparison
+./bin/belief_eval --net candidate.bin --actor-net data/champion.bin
 python3 tools/make_showcase.py --seed SEED --output /path/to/showcase.json \
         --embed-viewer web/viewer.html
 ./bin/arena -a policy:data/champion.bin:0:20 -b heur -n 300 -r 3
@@ -601,6 +669,7 @@ python3 tools/referee.py match NETA NETB --pairs 400 --rounds 3
 ./bin/qpair -n data/champion.bin -s SEED -f moves.txt -p N -w 4000 \
             -U -y 20 -c "Y2 d deck" -c "W4 p deck"
 make audit-test   # slow locked checks for the reviewed UI positions
+make belief-eval-test
 ```
 
 The analysis console replays a match ply by ply: board, both hands (marked
@@ -626,7 +695,8 @@ is `worlds:candidates:floor:gate:min_candidates:ply_lo:ply_hi:eval_candidates:`
 `batch_worlds:playout_symmetries:discard_guard:deck_max:confirm_worlds:`
 `playout_prune:plan_deck_max:plan_block_gap:semantic_candidates:`
 `confirm_exact5:draw_variant_cores:draw_variant_deck_max:policy_prefix_mode:`
-`belief_alpha:draw_root_deck_max:draw_playout_deck_max`;
+`belief_alpha:draw_root_deck_max:draw_playout_deck_max:prefix_confirm_k:`
+`prefix_confirm_min:confirm_temp:action_core_count`;
 objective is
 `0` for round margin, `1` for pure final-round match result, or `2` for the
 champion hybrid. Continuation mode `0` is exact-group greedy, `1` is the
@@ -646,6 +716,38 @@ variants remain statistically gated in modes 1/2. Mode `3` applies the same
 consensus rule with separate coherent player orientations. `belief_alpha`
 scales the learned fixed-cardinality posterior (`0` is uniform); `rolloutu`
 remains uniform regardless of that field.
+The optional `prefix_confirm_k` and `prefix_confirm_min` fields strengthen
+modes 2/3: after numerical agreement, the fresh panel's proposed move must
+beat candidate zero by both the configured number of paired standard errors
+and the configured objective-unit floor.  Both must be positive to enable the
+gate; leaving both at zero preserves the earlier consensus behavior.
+`confirm_temp>0` makes only fresh confirmation continuations near-greedy:
+actions are sampled from the shortest policy prefix covering 99.5% mass with
+stateless move-keyed common Gumbel noise. A value of `0` preserves exact
+argmax. `action_core_count=1..5` enables a hierarchical ordinary shortlist:
+distinct card/play-discard actions are ranked by aggregate policy mass, one
+complete move per core is retained, and any room left in the hard five-move
+budget receives at most one information-set-safe draw alternative per core
+whose complete-move prior clears the configured policy floor. Candidate zero
+is always the unmodified deployed baseline. In this mode reported policy
+coverage is the aggregate mass of every draw source in the retained cores,
+not merely the representative complete moves. Both controls are opt-in and
+leave all historical specs equivalent.
+
+Both controls remain disabled in live play. On seven frozen, human-reviewed
+positions with 4,096 shared worlds, three action cores removed duplicate
+draw-source crowding and the criticized Green-5 choices at plies 29 and 31,
+while preserving the Blue-10 correction at ply 36 and admitting stronger
+late-round alternatives at plies 62 and 64. It did not repair ply 23; four or
+five cores reintroduced the bad Green-5 candidates. Confirmation temperatures
+from 0.2 through 1.0 changed none of those tested leaders. The focused core
+method is now the default post-game audit: its locked 2,048-world checks admit
+neither G5 move at plies 29/31, choose R6 at ply 31, and confirm B10 over Y10
+on both panels at ply 36. In live-actor testing, however, the independent
+40-pair confirmation of the five-slot/three-core configuration was only
+`+2.20 ± 5.91` points and `50.6% ± 4.4%` match score. That is compatible with
+a gain but far from promotion evidence, so the maintained playing spec still
+leaves both fields at zero.
 Supported symmetry modes are `1`, `5`, `10`, `20`, and `120`.
 
 All matches are paired: every deal (all three of them, in match mode) is

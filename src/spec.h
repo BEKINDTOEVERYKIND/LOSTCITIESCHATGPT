@@ -15,7 +15,9 @@
  *            [:semantic_candidates[:confirm_exact5
  *            [:draw_variant_cores[:draw_variant_deck_max
  *            [:policy_prefix_mode[:belief_alpha[:draw_root_deck_max
- *            [:draw_playout_deck_max]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]
+ *            [:draw_playout_deck_max[:prefix_confirm_k
+ *            [:prefix_confirm_min[:confirm_temp
+ *            [:action_core_count]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]
  *                 objective: 0 margin; 1 final match result; 2 final hybrid
  *                 symmetries: 1, 5, 10, 20, or 120 exact suit relabellings
  *                 sample: continuation mode 0 exact-group argmax, 1 random-
@@ -59,6 +61,10 @@
  *                   consensus rule with independently stratified, coherent
  *                   suit mappings for the two players.  Added low-prior
  *                   challengers always retain both statistical gates.
+ *                 prefix_confirm_k / prefix_confirm_min: optional paired
+ *                   evidence and practical-effect thresholds for the fresh
+ *                   trusted-prefix panel.  Both must be positive to enable;
+ *                   both zero preserves numerical-consensus behavior.
  *                 belief_alpha: strength/temperature of the coherent
  *                   fixed-cardinality opponent-hand posterior (default 1;
  *                   0 is the exact uniform prior).
@@ -66,6 +72,17 @@
  *                   repair the chosen semantic action's draw source at the
  *                   deployed root and inside rollout continuations.  Each
  *                   threshold is 0 (off) or a remaining-deck count.
+ *                 confirm_temp: optional near-greedy fresh-confirmation
+ *                   action temperature.  Sampling is restricted to the top
+ *                   99.5% policy mass and uses move-keyed common Gumbel noise;
+ *                   0 retains deterministic argmax confirmation.
+ *                 action_core_count: optional hierarchical ordinary
+ *                   shortlist over this many distinct card/play-discard
+ *                   cores (1-5).  Remaining room in a hard five-candidate
+ *                   budget admits at most one public-information draw-source
+ *                   alternative per selected core when its complete-move
+ *                   prior clears cand_floor; 0 retains complete-move policy
+ *                   ranking.
  *   rolloutu:PATH[...]                 (same, but uniform world sampling: the
  *                                       ablation for the learned hand beliefs)
  *   mcts:PATH[:dets[:sims[:root_width[:node_width[:symmetries]]]]]
@@ -78,8 +95,9 @@
 
 /*
  * Strongest locked play-time configuration.  The 20-way policy acts directly
- * before round ply 14.  From ply 14, a 512-world primary panel compares at
- * most five policy moves with at least 2% prior.  If it proposes a different
+ * for the first 14 actions of each round.  Beginning at zero-based round ply
+ * 14 (the 15th action), a 512-world primary panel compares at most five policy
+ * moves with at least 2% prior.  If it proposes a different
  * leader, a fresh balanced 512-world panel keeps one suit mapping fixed for
  * each complete trajectory; both panels must select the same move.  The exact
  * one-card-deck rule is intrinsic to rollout.
@@ -92,6 +110,14 @@
 #define LC_CHAMPION_AGENT_SPEC \
     "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:2:20:" \
     "0:0:20:1:0:512:1:0:0:0:0:0:0:2"
+
+/* Higher-compute post-game review.  It retains the match-tested ply-14 phase
+ * boundary, then spends its worlds on at most three distinct top-policy
+ * card/action cores.  Keeping this beside the champion spec prevents the UI,
+ * analyzer and documentation from silently drifting to different methods. */
+#define LC_AUDIT_AGENT_SPEC \
+    "rolloutu:data/champion.bin:2048:3:0.01:0:1:14:0:0:0:0:3.5:2:2:20:" \
+    "0:0:20:1:0:2048:1:0:0:0:0:0:0:2:1:0:0:2:1:0:3"
 
 /* Parses spec into *a, loading a network if needed.  Exits on error. */
 void spec_parse(const char *spec, Agent *a);

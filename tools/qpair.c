@@ -310,6 +310,19 @@ int main(int argc, char **argv)
                ss.selection_reference,
                ss.prefix_confirm_worlds,
                ss.prefix_confirmed ? "passed" : "not passed");
+        if (ss.prefix_confirm_worlds > 0 && ss.prefix_proposed > 0) {
+            int k = ss.prefix_proposed;
+            printf("prefix fresh evidence: %+.2f +- %.2f vs baseline; "
+                   "numerical agreement: %s; paired gate: %s "
+                   "(> %.2f SE and > %.2f objective units%s)\n",
+                   ss.prefix_delta[k], ss.prefix_dse[k],
+                   ss.prefix_numerical_agreement ? "yes" : "no",
+                   ss.prefix_gate_passed ? "passed" : "not passed",
+                   evaluator.prefix_confirm_k,
+                   evaluator.prefix_confirm_min,
+                   evaluator.prefix_confirm_k == 0.0f
+                       ? ", disabled" : "");
+        }
         printf("%-16s %8s %17s %8s %17s %8s %9s %8s\n",
                "candidate", "prior", "delta vs ref", "p-pass",
                "confirm delta", "c-pass", "guard", "selected");

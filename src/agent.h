@@ -41,6 +41,17 @@ typedef struct Agent {
                                   rollout continuations (0 = off).  Keeping
                                   this separate makes the root and world-model
                                   effects directly ablatable. */
+    float confirm_temp; /* AG_ROLLOUT: optional near-greedy action temperature
+                           used only by fresh confirmation playouts.  Sampling
+                           is limited to the top 99.5% policy mass and uses
+                           stateless move-keyed common Gumbel noise; 0 keeps
+                           deterministic argmax confirmation. */
+    int action_core_count; /* AG_ROLLOUT: optional hierarchical ordinary
+                              shortlist.  Keep this many distinct semantic
+                              card/play-discard cores, then use remaining room
+                              in a five-candidate budget for at most one safe
+                              policy-floor draw alternative per core.  0 keeps
+                              complete-move policy ranking. */
     int semantic_cand;  /* AG_ROLLOUT: add at most one useful pile pickup for
                            each of a top policy play/discard action, plus one
                            isolated one-sided-wager discard (0/1); these are
@@ -66,6 +77,14 @@ typedef struct Agent {
                                and avoids assuming an unknown opponent shares
                                our arbitrary network orientation.
                                Added low-prior challengers remain gated. */
+    float prefix_confirm_k; /* AG_ROLLOUT: optional fresh trusted-prefix
+                               evidence gate.  When enabled together with
+                               prefix_confirm_min, the proposed leader must
+                               beat candidate zero by this many paired SEs.
+                               Both zero preserves numerical consensus. */
+    float prefix_confirm_min; /* AG_ROLLOUT: paired fresh-panel improvement
+                                 required in objective units.  The prefix gate
+                                 is enabled only when both thresholds are >0. */
     /* AG_MCTS */
     int dets;           /* determinizations                                */
     int sims;           /* simulations per determinization                 */
@@ -175,6 +194,14 @@ float move_value_heur(const State *st, Move m, const DrawSamples *ds);
 
 void agent_default(Agent *a, AgentKind k, const Net *net);
 
+/* Build exactly the information state available to player p.  The returned
+ * view retains p's hand, all public state and public hand sizes, but replaces
+ * the opponent's hidden hand by only its known face-up cards and erases the
+ * future deck order.  Use this boundary in diagnostics that also retain a
+ * complete referee state for labels: no neural-network call should receive
+ * that complete state. */
+void agent_information_view(const State *complete, int p, State *view);
+
 /* Policy head evaluated on st for the player to move.  Fills mv[] with the
  * legal moves and prob[] with the normalized policy; returns the count. */
 int  policy_probs(const Net *net, const State *st, Move *mv, float *prob, float *value);
@@ -194,6 +221,36 @@ int  policy_probs_perm(const Net *net, const State *st, Move *mv, float *prob,
  * identity.  The returned maps send original suit -> permuted suit. */
 int  suit_permutations(int requested, uint8_t out[120][NSUIT]);
 
+/* Deterministically choose one member of an exact suit group for a global
+ * trajectory id.  Supported group sizes are 1, 5, 10, 20 and 120; zero is an
+ * explicit identity/off setting.  Selection depends only on seed and id, not
+ * on the worker that happens to generate the trajectory. */
+int  trajectory_suit_permutation(int symmetries, uint64_t seed,
+                                 uint64_t trajectory,
+                                 uint8_t perm[NSUIT]);
+
+/* Evaluate a behaviour policy in one relabelled trajectory orientation.
+ * `view` and view_mv are the exact state/action rows to store for PPO;
+ * engine_mv maps each action back to the engine's original orientation.
+ * raw_prob is the network softmax and behavior_prob applies `temperature`.
+ * This keeps chosen action, old probability, value and belief labels in one
+ * coherent coordinate system while the canonical engine advances normally. */
+int  trajectory_policy_probs(const Net *net, const State *engine_state,
+                             const uint8_t perm[NSUIT], float temperature,
+                             State *view, Move *view_mv, Move *engine_mv,
+                             float *raw_prob, float *behavior_prob);
+
+/* Network value for an explicitly chosen perspective, averaged over the same
+ * exact suit group as the policy and returned in points.  Unlike
+ * policy_probs_sym(), this does not require p to be the player to move.
+ *
+ * Combining two calls as 0.5 * (V_p - V_{p^1}) is a centralized critic: it
+ * may be used only when the complete state is already available (self-play
+ * training or a sampled determinization), never to inspect the real hidden
+ * hand while making an information-set decision. */
+float net_value_state_sym(const Net *net, const State *st, int p,
+                          int symmetries);
+
 /* Fixed-cardinality opponent-hand posterior.  `marginal[i]` is the true
  * inclusion probability of card[i] under the same distribution sample()
  * uses, and the marginals sum to `need`.  alpha=0 is the exact uniform
@@ -205,6 +262,23 @@ typedef struct {
     double suffix[NCARD + 1][HAND_SIZE + 1];
     float marginal[NCARD];
 } BeliefDist;
+
+/* Score the true unknown part of an opponent hand under an already prepared
+ * BeliefDist.  `opponent_hand` may include publicly known cards; only the
+ * candidate cards in dist are scored.  The call rejects labels whose
+ * cardinality is not exactly dist->need. */
+int  belief_dist_true_nll(const BeliefDist *dist, uint64_t opponent_hand,
+                          double *nll);
+
+/* Evaluate the exact-cardinality exponential-family hand distribution used by
+ * belief_dist_sample().  logits/held are indexed over one candidate array;
+ * held may be NULL when only marginals are required.  When nll is requested,
+ * held must contain exactly need ones.  The returned gradient of nll with
+ * respect to logits (at alpha=1, away from the numerical clamp) is exactly
+ * marginal[i] - held[i]. */
+int  belief_exact_k_eval(const float *logits, const uint8_t *held,
+                         int n, int need, float alpha,
+                         float *marginal, double *nll);
 
 int  belief_dist_init(const Net *net, const State *st, int p, int symmetries,
                       float alpha, BeliefDist *dist);

@@ -14,7 +14,10 @@
  * gradients only on learner decisions; mixing those games with live self-play
  * breaks self-play blind spots without pretending opponent actions are
  * on-policy.  A full-legal-action KL anchor and v6-only warm-up keep this
- * deliberately conservative around an established champion.
+ * deliberately conservative around an established champion.  Optional suit
+ * augmentation fixes one exact relabelling for a complete match, and an
+ * independent belief-only mode can calibrate the exact-K posterior without
+ * changing a single trunk, policy, or value parameter.
  */
 #include "../src/lc.h"
 #include "../src/net.h"
@@ -55,6 +58,7 @@ typedef struct {
     double learner_match_wins;
     int opponent_games;
     int learner_seat_games[2];
+    uint64_t augmentation_fingerprint;
     long entropy_n;
     int done;
     float lambda;
@@ -62,6 +66,7 @@ typedef struct {
     float winbonus;     /* terminal reward for winning the match, in points */
     float mw;           /* weight of the margin term in the return          */
     int rounds;
+    int trajectory_symmetries; /* 0 off; otherwise one fixed group member */
 } GenJob;
 
 static int16_t checked_cumulative_score(int score)
@@ -110,9 +115,8 @@ static void *gen_worker(void *arg)
     Rng opponent_rng;
     rng_seed(&opponent_rng, j->seed ^ (0x8CB92BA72F3D8DD7ULL
                                     * (uint64_t)(j->thread + 1)));
-    Features f;
-    Move mv[MAX_MOVES];
-    float pr[MAX_MOVES];
+    Move mv[MAX_MOVES], engine_mv[MAX_MOVES];
+    float pr[MAX_MOVES], behavior[MAX_MOVES];
 
     for (int g = j->thread; g < j->games; g += j->nthread) {
         /* Select frozen-opponent games in adjacent pairs.  Games 2k and
@@ -123,6 +127,30 @@ static void *gen_worker(void *arg)
         double unit = (double)(selector >> 11) * (1.0 / 9007199254740992.0);
         int versus_opponent = j->opponent && unit < j->opponent_mix;
         int learner_seat = g & 1;
+
+        /* A relabelling is fixed for the entire generated trajectory.  The
+         * two legs of a frozen-opponent pair deliberately share both their
+         * deal and relabelling so augmentation does not add noise to the
+         * mirrored comparison.  Live self-play matches remain independent. */
+        uint64_t augmentation_trajectory = versus_opponent
+                                         ? (uint64_t)(g / 2)
+                                         : (uint64_t)g;
+        uint8_t trajectory_perm[NSUIT];
+        if (!trajectory_suit_permutation(j->trajectory_symmetries, j->seed,
+                                         augmentation_trajectory,
+                                         trajectory_perm)) {
+            fprintf(stderr, "invalid trajectory suit group\n");
+            exit(EXIT_FAILURE);
+        }
+        int augment = j->trajectory_symmetries > 0;
+        if (augment) {
+            uint64_t code = 0;
+            for (int s = 0; s < NSUIT; s++)
+                code = code * NSUIT + trajectory_perm[s];
+            j->augmentation_fingerprint ^=
+                mix64((uint64_t)g * UINT64_C(0xD6E8FEB86659FD93)
+                      ^ code ^ UINT64_C(0x8EBC6AF09C88C6E3));
+        }
         if (versus_opponent) {
             j->opponent_games++;
             j->learner_seat_games[learner_seat]++;
@@ -149,14 +177,30 @@ static void *gen_worker(void *arg)
         st.turn = (uint8_t)(rd & 1);
         int Tstop = T + LC_MAX_PLIES;
         while (!st.over && T < Tstop) {
-            chain[T] = st;
-            Move played;
+            if (augment) lc_permute_suits(&st, &chain[T], trajectory_perm);
+            else chain[T] = st;
+            Move played = { 0, 0, 0 }, stored_played = { 0, 0, 0 };
             if (versus_opponent && st.turn != learner_seat) {
                 played = agent_move(j->opponent, &st, &opponent_rng);
+                stored_played = augment
+                              ? lc_permute_move(played, trajectory_perm)
+                              : played;
                 chain_actor[T] = 0;
                 chain_p[T] = 1.0f;
             } else {
-                int n = policy_probs(j->net, &st, mv, pr, NULL);
+                int n;
+                if (augment) {
+                    n = trajectory_policy_probs(
+                        j->net, &st, trajectory_perm, j->temp,
+                        &chain[T], mv, engine_mv, pr, behavior);
+                    if (n <= 0) {
+                        fprintf(stderr,
+                                "trajectory policy produced no legal move\n");
+                        exit(EXIT_FAILURE);
+                    }
+                } else {
+                    n = policy_probs(j->net, &st, mv, pr, NULL);
+                }
                 double h = 0.0;
                 for (int i = 0; i < n; i++)
                     if (pr[i] > 1e-9f) h -= pr[i] * log(pr[i]);
@@ -164,25 +208,33 @@ static void *gen_worker(void *arg)
                 j->entropy_n++;
 
                 int c;
-                if (j->temp != 1.0f) {
-                    /* Sampling off-policy is fine as long as the recorded
-                     * probability is the behaviour policy's, since that is
-                     * what the PPO ratio divides by. */
-                    float w[MAX_MOVES], sum = 0.0f;
-                    for (int i = 0; i < n; i++) {
-                        w[i] = powf(pr[i], 1.0f / j->temp);
-                        sum += w[i];
-                    }
-                    c = sample_index(w, n, &rng);
-                    chain_p[T] = w[c] / sum;
+                if (augment) {
+                    c = sample_index(behavior, n, &rng);
+                    chain_p[T] = behavior[c];
+                    stored_played = mv[c];
+                    played = engine_mv[c];
                 } else {
-                    c = sample_index(pr, n, &rng);
-                    chain_p[T] = pr[c];
+                    if (j->temp != 1.0f) {
+                        /* Sampling off-policy is fine as long as the recorded
+                         * probability is the behaviour policy's, since that
+                         * is what the PPO ratio divides by. */
+                        float w[MAX_MOVES], sum = 0.0f;
+                        for (int i = 0; i < n; i++) {
+                            w[i] = powf(pr[i], 1.0f / j->temp);
+                            sum += w[i];
+                        }
+                        c = sample_index(w, n, &rng);
+                        chain_p[T] = w[c] / sum;
+                    } else {
+                        c = sample_index(pr, n, &rng);
+                        chain_p[T] = pr[c];
+                    }
+                    stored_played = mv[c];
+                    played = mv[c];
                 }
-                played = mv[c];
                 chain_actor[T] = 1;
             }
-            chain_mv[T] = MOVE_PACK(played);
+            chain_mv[T] = MOVE_PACK(stored_played);
             T++;
             lc_apply(&st, played);
         }
@@ -201,12 +253,16 @@ static void *gen_worker(void *arg)
                 j->learner_match_wins += 0.5;
         }
 
-        /* values of every state from both points of view */
-        for (int p = 0; p < 2; p++)
-            for (int t = 0; t < T; t++) {
-                feat_extract(&chain[t], p, &f);
-                chain_v[p][t] = net_value(j->net, &f) * VAL_SCALE;
-            }
+        /* Self-play stores the complete state, so use a centralized zero-sum
+         * critic for bootstraps.  The antisymmetric projection removes the
+         * large common bias of two independently evaluated perspectives and
+         * guarantees that both lambda-return chains stay exact negatives. */
+        for (int t = 0; t < T; t++) {
+            float v0 = net_value_state_sym(j->net, &chain[t], 0, 1);
+            float v1 = net_value_state_sym(j->net, &chain[t], 1, 1);
+            chain_v[0][t] = 0.5f * (v0 - v1);
+            chain_v[1][t] = -chain_v[0][t];
+        }
 
         for (int p = 0; p < 2; p++) {
             /* terminal return: mw * match margin + winbonus * result.
@@ -255,6 +311,7 @@ typedef struct {
     const int *idx;
     int from, to;
     float clip, vcoef, entcoef, policy_scale, bw, temp, klcoef;
+    int belief_only;
     double ploss, vloss, bloss, klloss, clipped;
     int pn;
     long bn;
@@ -267,53 +324,65 @@ static void *opt_worker(void *arg)
     double ploss = 0, vloss = 0, bloss = 0, klloss = 0, clipped = 0;
     int pn = 0;
     long bn = 0;
-    Features f;
-    NetAct act;
+    Features f, of;
+    NetAct act, oact;
     Move mv[MAX_MOVES];
     uint16_t pk[MAX_MOVES];
     float logit[MAX_MOVES], prob[MAX_MOVES], rawprob[MAX_MOVES];
     float dlog[MAX_MOVES], alogit[MAX_MOVES], aprob[MAX_MOVES];
-    uint8_t bcard[NCARD];
-    float blogit[NCARD], dbel[NCARD];
+    uint8_t bcard[NCARD], held[NCARD];
+    float blogit[NCARD], bmarg[NCARD], dbel[NCARD];
 
     for (int i = t->from; i < t->to; i++) {
         const RLSample *s = &t->buf[t->idx[i]];
         feat_extract(&s->st, s->persp, &f);
         net_trunk(t->net, &f, &act);
+        float dcenter = 0.0f;
+        if (!t->belief_only) {
+            feat_extract(&s->st, s->persp ^ 1, &of);
+            net_trunk(t->net, &of, &oact);
 
-        float v = net_value_act(t->net, &act);
-        float y = s->vtarget / VAL_SCALE;
-        float e = v - y;
-        vloss += (double)e * e;
-        float dvalue = 2.0f * e * t->vcoef;
+            float vp = net_value_act(t->net, &act);
+            float vo = net_value_act(t->net, &oact);
+            float v = 0.5f * (vp - vo);
+            float y = s->vtarget / VAL_SCALE;
+            float e = v - y;
+            vloss += (double)e * e;
+            /* Each complete state occurs once from each perspective.  Half
+             * weight per duplicate gives one centralized squared loss. */
+            dcenter = 0.5f * e * t->vcoef;
+        }
 
-        /* belief head: the sample stores the true opponent hand, so every
-         * state is a free supervised example of "what do their actions imply
-         * about their cards" */
+        /* Match training to deployment's fixed-cardinality posterior.  The
+         * sampler is queried only for the player to move, so restrict labels
+         * to that same information-state distribution.  Ply zero is the
+         * exact uniform prior by construction. */
         int nb = 0;
-        {
+        if (t->bw > 0.0f && s->persp == s->st.turn && s->st.nply > 0) {
             const State *st = &s->st;
             int p = s->persp, o = p ^ 1;
-            uint64_t vis = st->hand[p] | st->played[0] | st->played[1] |
-                           st->discarded | st->known[o];
-            uint64_t cands = ~vis & ((1ULL << NCARD) - 1);
-            uint64_t m2 = cands;
-            while (m2) { int cc = __builtin_ctzll(m2); m2 &= m2 - 1; bcard[nb++] = (uint8_t)cc; }
+            lc_unseen(st, p, bcard, &nb);
+            int need = st->hand_n[o] - __builtin_popcountll(st->known[o]);
+            for (int k = 0; k < nb; k++)
+                held[k] = (uint8_t)((st->hand[o] >> bcard[k]) & 1ULL);
             net_belief_act(t->net, &act, bcard, nb, blogit);
-            float scale = t->bw / (float)(nb > 0 ? nb : 1);
-            for (int k = 0; k < nb; k++) {
-                float lab = ((st->hand[o] >> bcard[k]) & 1ULL) ? 1.0f : 0.0f;
-                /* clamp before the sigmoid: with -ffast-math an overflowing
-                 * expf poisons the gradient with NaN, and a NaN here would
-                 * flow into the shared trunk and destroy all three heads */
-                float l = blogit[k];
-                if (l > 15.0f) l = 15.0f;
-                if (l < -15.0f) l = -15.0f;
-                float pr2 = 1.0f / (1.0f + expf(-l));
-                bloss += -(double)(lab * logf(pr2 + 1e-6f) + (1.0f - lab) * logf(1.0f - pr2 + 1e-6f));
-                dbel[k] = scale * (pr2 - lab);
+            double nll = 0.0;
+            if (belief_exact_k_eval(blogit, held, nb, need, 1.0f,
+                                    bmarg, &nll)) {
+                float scale = t->bw / (float)(nb > 0 ? nb : 1);
+                for (int k = 0; k < nb; k++)
+                    dbel[k] = scale * (bmarg[k] - held[k]);
+                bloss += nll / (double)(nb > 0 ? nb : 1);
+                bn++;
+            } else {
+                nb = 0;
             }
-            bn += nb;
+        }
+
+        if (t->belief_only) {
+            if (nb > 0)
+                net_backward_belief_head(&act, bcard, dbel, nb, t->grad);
+            continue;
         }
 
         int n = 0;
@@ -324,7 +393,15 @@ static void *opt_worker(void *arg)
                 pk[k] = MOVE_PACK(mv[k]);
                 if (pk[k] == s->chosen) ci = k;
             }
-            if (ci < 0) { net_backward(t->net, &f, &act, dvalue, pk, NULL, 0, bcard, dbel, nb, t->grad); continue; }
+            if (ci < 0) {
+                net_backward(t->net, &f, &act, dcenter, pk, NULL, 0,
+                             nb > 0 ? bcard : NULL,
+                             nb > 0 ? dbel : NULL, nb, t->grad);
+                if (dcenter != 0.0f)
+                    net_backward(t->net, &of, &oact, -dcenter, pk, NULL,
+                                 0, NULL, NULL, 0, t->grad);
+                continue;
+            }
             net_policy_act(t->net, &act, pk, n, logit);
             float rawmx = logit[0];
             for (int k = 1; k < n; k++)
@@ -391,10 +468,17 @@ static void *opt_worker(void *arg)
                 }
             }
             pn++;
-            net_backward(t->net, &f, &act, dvalue, pk, dlog, n, bcard, dbel, nb, t->grad);
+            net_backward(t->net, &f, &act, dcenter, pk, dlog, n,
+                         nb > 0 ? bcard : NULL,
+                         nb > 0 ? dbel : NULL, nb, t->grad);
         } else {
-            net_backward(t->net, &f, &act, dvalue, pk, NULL, 0, bcard, dbel, nb, t->grad);
+            net_backward(t->net, &f, &act, dcenter, pk, NULL, 0,
+                         nb > 0 ? bcard : NULL,
+                         nb > 0 ? dbel : NULL, nb, t->grad);
         }
+        if (dcenter != 0.0f)
+            net_backward(t->net, &of, &oact, -dcenter, pk, NULL, 0,
+                         NULL, NULL, 0, t->grad);
     }
     t->ploss = ploss; t->vloss = vloss; t->bloss = bloss;
     t->klloss = klloss; t->pn = pn; t->bn = bn;
@@ -438,8 +522,8 @@ int main(int argc, char **argv)
     float vcoef = 1.0f, entcoef = 0.004f, temp = 1.0f;
     float winbonus = 15.0f, bw = 1.0f, mw = 1.0f;
     float opponent_mix = 0.0f, klcoef = 0.0f;
-    int v6_only = 0;
-    int rounds = MATCH_ROUNDS;
+    int v6_only = 0, belief_only = 0;
+    int rounds = MATCH_ROUNDS, trajectory_symmetries = 0;
     uint64_t seed = 7, eval_seed = 20260727ULL;
 
     for (int i = 1; i < argc; i++) {
@@ -472,12 +556,40 @@ int main(int argc, char **argv)
         else if (ARG("--eval-every")) eval_every = atoi(argv[++i]);
         else if (ARG("--eval-seed")) eval_seed = strtoull(argv[++i], NULL, 10);
         else if (ARG("--seed")) seed = strtoull(argv[++i], NULL, 10);
+        else if (ARG("--trajectory-symmetries")) {
+            const char *v = argv[++i];
+            char *end = NULL;
+            long parsed = strtol(v, &end, 10);
+            trajectory_symmetries = (end == v || *end != '\0' ||
+                                     parsed < INT_MIN || parsed > INT_MAX)
+                                  ? -1 : (int)parsed;
+        }
         else if (!strcmp(k, "--v6-only")) v6_only = 1;
+        else if (!strcmp(k, "--belief-only")) belief_only = 1;
         else { fprintf(stderr, "unknown option %s\n", k); return 1; }
         #undef ARG
     }
     if (!(temp > 0.0f) || !lc_float_isfinite(temp)) {
         fprintf(stderr, "--temp must be finite and greater than zero\n");
+        return 1;
+    }
+    if (trajectory_symmetries != 0 && trajectory_symmetries != 1 &&
+        trajectory_symmetries != 5 && trajectory_symmetries != 10 &&
+        trajectory_symmetries != 20 && trajectory_symmetries != 120) {
+        fprintf(stderr,
+                "--trajectory-symmetries must be 0, 1, 5, 10, 20, or 120\n");
+        return 1;
+    }
+    if (bw < 0.0f || !lc_float_isfinite(bw)) {
+        fprintf(stderr, "--bw must be finite and non-negative\n");
+        return 1;
+    }
+    if (belief_only && !(bw > 0.0f)) {
+        fprintf(stderr, "--belief-only requires --bw greater than zero\n");
+        return 1;
+    }
+    if (belief_only && v6_only) {
+        fprintf(stderr, "--belief-only and --v6-only are mutually exclusive\n");
         return 1;
     }
     if (opponent_mix < 0.0f || opponent_mix > 1.0f ||
@@ -501,6 +613,10 @@ int main(int argc, char **argv)
         fprintf(stderr, "--kl requires --anchor PATH\n");
         return 1;
     }
+    if (belief_only && klcoef > 0.0f) {
+        fprintf(stderr, "--belief-only cannot optimize an anchor KL\n");
+        return 1;
+    }
     if (rounds < 1 || rounds > MATCH_ROUNDS) {
         fprintf(stderr, "--rounds must be between 1 and %d\n", MATCH_ROUNDS);
         return 1;
@@ -517,7 +633,8 @@ int main(int argc, char **argv)
         return 1;
     }
     if (net_load(net, init_path) != 0) { fprintf(stderr, "cannot load %s\n", init_path); return 1; }
-    net_project_wager_symmetry(net);
+    if (belief_only) net_project_belief_wager_symmetry(net);
+    else net_project_wager_symmetry(net);
     if (anchor && net_load(anchor, anchor_path) != 0) {
         fprintf(stderr, "cannot load anchor %s\n", anchor_path);
         return 1;
@@ -551,6 +668,11 @@ int main(int argc, char **argv)
         printf("     opponent population: %.1f%% %s, %.1f%% live self-play\n",
                100.0f * opponent_mix, gen_opponent_spec,
                100.0f * (1.0f - opponent_mix));
+    if (trajectory_symmetries > 0)
+        printf("     trajectory suit augmentation: exact group %d, one fixed "
+               "mapping per match\n", trajectory_symmetries);
+    if (belief_only)
+        printf("     optimizer: belief head only (trunk, policy and value frozen)\n");
     fflush(stdout);
 
     for (int it = 1; it <= iters; it++) {
@@ -575,6 +697,7 @@ int main(int argc, char **argv)
             jobs[i].winbonus = winbonus;
             jobs[i].mw = mw;
             jobs[i].rounds = rounds;
+            jobs[i].trajectory_symmetries = trajectory_symmetries;
         }
         for (int i = 0; i < nthread; i++) pthread_create(&th[i], NULL, gen_worker, &jobs[i]);
         for (int i = 0; i < nthread; i++) pthread_join(th[i], NULL);
@@ -589,6 +712,7 @@ int main(int argc, char **argv)
         size_t seen = 0;
         long entn = 0;
         int gdone = 0, opponent_games = 0;
+        uint64_t augmentation_fingerprint = 0;
         int learner_seat_games[2] = {0, 0};
         for (int i = 0; i < nthread; i++) {
             plies += jobs[i].plies; absm += jobs[i].absmargin; pts += jobs[i].score_sum;
@@ -596,6 +720,7 @@ int main(int argc, char **argv)
             p0w += jobs[i].p0_match_wins;
             learnerw += jobs[i].learner_match_wins;
             opponent_games += jobs[i].opponent_games;
+            augmentation_fingerprint ^= jobs[i].augmentation_fingerprint;
             learner_seat_games[0] += jobs[i].learner_seat_games[0];
             learner_seat_games[1] += jobs[i].learner_seat_games[1];
             seen += jobs[i].nseen;
@@ -611,13 +736,16 @@ int main(int argc, char **argv)
         for (size_t i = 0; i < n; i++) if (buf[i].actor) { double d = buf[i].adv - am; av += d * d; }
         av = sqrt(av / (an ? an : 1)) + 1e-6;
         for (size_t i = 0; i < n; i++) if (buf[i].actor) buf[i].adv = (float)((buf[i].adv - am) / av);
-
         clock_gettime(CLOCK_MONOTONIC, &t1);
         double gs = (t1.tv_sec - t0.tv_sec) + 1e-9 * (t1.tv_nsec - t0.tv_nsec);
         printf("iter %2d: %d matches %.1fs (%.0f m/s), %zu samples, plies %.1f, "
                "points/side %.1f, |margin| %.1f, p0 wins %.1f%%, entropy %.2f, adv sd %.1f\n",
                it, gdone, gs, gdone / gs, n, plies / gdone, pts / (2 * gdone),
                absm / gdone, 100.0 * p0w / gdone, ent / entn, av);
+        if (trajectory_symmetries > 0)
+            printf("         policy-gradient rows %ld/%zu; augmentation "
+                   "fingerprint %016llx\n", an, n,
+                   (unsigned long long)augmentation_fingerprint);
         if (opponent_games > 0)
             printf("         frozen-opponent games %d, learner seats %d/%d, "
                    "learner score %.1f%%\n",
@@ -664,6 +792,7 @@ int main(int argc, char **argv)
                     tj[i].policy_scale = policy_scale;
                     tj[i].bw = bw; tj[i].temp = temp;
                     tj[i].klcoef = klcoef;
+                    tj[i].belief_only = belief_only;
                 }
                 for (int i = 0; i < nt; i++) pthread_create(&tt[i], NULL, opt_worker, &tj[i]);
                 for (int i = 0; i < nt; i++) pthread_join(tt[i], NULL);
@@ -675,18 +804,30 @@ int main(int argc, char **argv)
                 }
                 grad_accumulate(grads[0], grads, nt);
                 net_tie_wager_gradients(grads[0]);
-                net_adam_step(net, grads[0], adam, lr, 1.0f / (float)batch, wd);
+                if (belief_only)
+                    net_adam_step_belief(net, grads[0], adam, lr,
+                                         1.0f / (float)batch, wd);
+                else
+                    net_adam_step(net, grads[0], adam, lr,
+                                  1.0f / (float)batch, wd);
                 if (legacy_base) restore_legacy_parameters(net, legacy_base);
                 steps++;
             }
         }
         clock_gettime(CLOCK_MONOTONIC, &t1);
         double ts = (t1.tv_sec - t0.tv_sec) + 1e-9 * (t1.tv_nsec - t0.tv_nsec);
-        printf("         %ld updates in %.1fs: value rmse %.1f pts, surrogate %.4f, "
-               "belief bce %.3f, anchor KL %.5f, clipped %.1f%%\n",
-               steps, ts, sqrt(vl / ((double)steps * batch)) * VAL_SCALE,
-               pn ? pl / pn : 0.0, bcnt ? bl / bcnt : 0.0,
-               pn ? kl / pn : 0.0, pn ? 100.0 * cl / pn : 0.0);
+        if (belief_only)
+            printf("         %ld belief-head-only updates in %.1fs: "
+                   "exact-K nll/card %.3f\n",
+                   steps, ts, bcnt ? bl / bcnt : 0.0);
+        else
+            printf("         %ld updates in %.1fs: value rmse %.1f pts, surrogate %.4f, "
+                   "belief exact-K nll/card %.3f, anchor KL %.5f, clipped %.1f%%\n",
+                   steps, ts,
+                   sqrt(vl / ((double)steps * batch)) * VAL_SCALE,
+                   pn ? pl / pn : 0.0, bcnt ? bl / bcnt : 0.0,
+                   pn ? kl / pn : 0.0,
+                   pn ? 100.0 * cl / pn : 0.0);
         fflush(stdout);
 
         char path[512];
