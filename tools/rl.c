@@ -845,5 +845,16 @@ int main(int argc, char **argv)
             fflush(stdout);
         }
     }
+    free((void *)ref.net);
+    if (gen_opponent_ptr) free((void *)gen_opponent.net);
+    for (int i = 0; i < nthread; i++) free(grads[i]);
+    free(grads);
+    free(order);
+    free(buf);
+    free(adam);
+    free(legacy_base);
+    free(anchor);
+    free(frozen);
+    free(net);
     return 0;
 }
