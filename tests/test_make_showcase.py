@@ -541,7 +541,22 @@ class ShowcaseProvenanceTests(unittest.TestCase):
         standalone_text = (ROOT / "data/analysis.json").read_text(
             encoding="utf-8"
         ).strip()
-        viewer_text = (ROOT / "web/viewer.html").read_text(encoding="utf-8")
+        viewer_bytes = (ROOT / "web/viewer.html").read_bytes()
+        viewer_text = viewer_bytes.decode("utf-8")
+        viewer_prefix = viewer_bytes[:1024].lower()
+        charset_tag = b'<meta charset="utf-8">'
+        first_non_ascii = next(
+            i for i, byte in enumerate(viewer_bytes) if byte >= 0x80
+        )
+        self.assertTrue(viewer_text.lower().startswith("<!doctype html>"))
+        self.assertIn(charset_tag, viewer_prefix)
+        self.assertLess(
+            viewer_prefix.index(charset_tag),
+            first_non_ascii,
+            "the UTF-8 declaration must precede non-ASCII viewer text",
+        )
+        self.assertIn(" → ", viewer_text)
+        self.assertNotIn("â†’", viewer_text)
         self.assertNotIn(
             "items.push(", viewer_text,
             "viewer references an undefined diagnostics accumulator",

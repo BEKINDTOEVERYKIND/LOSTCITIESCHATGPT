@@ -806,6 +806,13 @@ last-round-only win objective is intentionally preserved. The maintained
 high-compute post-hoc audit spec is printed into every analysis artifact by
 `tools/analyze`.
 
+The production-setting objective-mode comparison is precommitted in
+[`data/experiments/locked_objective_mode2_plan.json`](data/experiments/locked_objective_mode2_plan.json).
+An excluded 50-pair runtime block and its exact command are recorded separately
+in [`data/experiments/objective_mode2_development_runtime.json`](data/experiments/objective_mode2_development_runtime.json);
+it is operational provenance, not strength evidence, and does not change the
+default actor.
+
 ## Reproducing
 
 ```

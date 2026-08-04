@@ -323,6 +323,16 @@ Rollout hybrid objective mode 2 is implemented but remains opt-in. At the full
 were directionally similar, but the full result is much too noisy to count as
 a strength claim; a 1,500–2,000-pair locked comparison is still needed.
 
+That comparison is now precommitted for the maintained 512+512-world actor in
+[`locked_objective_mode2_plan.json`](data/experiments/locked_objective_mode2_plan.json).
+Its explicitly excluded 50-pair runtime block took 2,307.3 seconds and returned
+50.0% ± 4.0% / -2.16 ± 4.87 points; the complete result and command are in
+[`objective_mode2_development_runtime.json`](data/experiments/objective_mode2_development_runtime.json).
+The score is not promotion evidence. It establishes that the two reciprocal
+1,000-pair blocks require roughly 12.8 hours when run concurrently on two
+four-thread groups, and the production default remains mode 0 until that locked
+gate is actually completed.
+
 ## Decision-audit hardening
 
 The interactive match audit treats rollout as a post-hoc measurement

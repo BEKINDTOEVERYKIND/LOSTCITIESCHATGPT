@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "precommitted_locked_strength_test_plan",
+  "status": "precommitted_before_execution",
+  "created_utc": "2026-08-04",
+  "hypothesis": "Use round margin in rounds 0 and 1, then the checkpoint-consistent hybrid match return in round 2, without changing shortlist size or rollout compute.",
+  "source": {
+    "repository": "BEKINDTOEVERYKIND/LOSTCITIESCHATGPT",
+    "base_commit": "2dc48e39b088fbecea017943bf01526270243113",
+    "binary_affecting_worktree_changes_before_test": false
+  },
+  "model": {
+    "path": "data/champion.bin",
+    "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417"
+  },
+  "agents": {
+    "baseline": "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:2:20:0:0:20:1:0:512:1:0:0:0:0:0:0:2:1:0:0:0:0:0:0:1:0:0:0:1",
+    "candidate": "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:2:0:3.5:2:2:20:0:0:20:1:0:512:1:0:0:0:0:0:0:2:1:0:0:0:0:0:0:1:0:0:0:1",
+    "only_intended_difference": "rollout objective mode 0 versus mode 2"
+  },
+  "design": {
+    "rounds_per_game": 3,
+    "mirrored_deals": true,
+    "games_per_pair": 2,
+    "threads": 4,
+    "development": {
+      "seed": "2026080401",
+      "pairs": 50,
+      "use": "runtime, parser, determinism and operational sanity only; excluded from efficacy evidence"
+    },
+    "locked_blocks": [
+      {
+        "seed": "2026080402",
+        "pairs": 1000,
+        "agent_a": "candidate",
+        "agent_b": "baseline"
+      },
+      {
+        "seed": "2026080403",
+        "pairs": 1000,
+        "agent_a": "baseline",
+        "agent_b": "candidate"
+      }
+    ],
+    "uncertainty_unit": "mirrored deal pair",
+    "combination": "Invert the second block to the candidate perspective, then equal-weight the two independent reciprocal blocks. Combined SE is sqrt(SE1^2 + SE2^2) / 2.",
+    "no_optional_stopping": true
+  },
+  "promotion_gate": {
+    "primary": "combined candidate match score minus 1.645 standard errors must exceed 0.5",
+    "orientation_check": "candidate match-score point estimate must exceed 0.5 in each reciprocal block after inversion",
+    "secondary": [
+      "report combined point margin and uncertainty",
+      "report elapsed time",
+      "reject operational errors, unfinished continuations, or configuration drift"
+    ]
+  },
+  "results": null
+}
