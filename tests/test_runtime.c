@@ -2473,8 +2473,41 @@ static void test_match_thread_determinism(void)
           one.winrate == four.winrate && one.winrate_se == four.winrate_se &&
           one.points_a == four.points_a && one.points_b == four.points_b &&
           one.plies == four.plies && one.wins == four.wins &&
-          one.losses == four.losses && one.draws == four.draws,
+          one.losses == four.losses && one.draws == four.draws &&
+          one.capped_rounds == four.capped_rounds,
           "same seed differs between one and four threads");
+}
+
+static void test_match_range_sharding(void)
+{
+    Agent a, b;
+    agent_default(&a, AG_RANDOM, NULL);
+    agent_default(&b, AG_HEUR, NULL);
+    MatchPairResult whole[37], joined[37], one[37], four[37];
+    MatchResult ignored;
+    CHECK(match_run_range_r(&a, &b, 0, 37, 1, 991827,
+                            MATCH_ROUNDS, whole, &ignored) == 0,
+          "monolithic match range failed");
+    CHECK(match_run_range_r(&a, &b, 0, 11, 2, 991827,
+                            MATCH_ROUNDS, joined, &ignored) == 0 &&
+          match_run_range_r(&a, &b, 11, 17, 3, 991827,
+                            MATCH_ROUNDS, joined + 11, &ignored) == 0 &&
+          match_run_range_r(&a, &b, 28, 9, 4, 991827,
+                            MATCH_ROUNDS, joined + 28, &ignored) == 0,
+          "sharded match ranges failed");
+    CHECK(memcmp(whole, joined, sizeof whole) == 0,
+          "concatenated absolute ranges differ from monolithic run");
+
+    CHECK(match_run_range_r(&a, &b, 100, 37, 1, 991828,
+                            MATCH_ROUNDS, one, &ignored) == 0 &&
+          match_run_range_r(&a, &b, 100, 37, 4, 991828,
+                            MATCH_ROUNDS, four, &ignored) == 0,
+          "nonzero match range failed");
+    CHECK(memcmp(one, four, sizeof one) == 0,
+          "nonzero absolute range changed across thread counts");
+    CHECK(match_run_range_r(&a, &b, UINT64_MAX, 2, 1, 1, 1,
+                            NULL, &ignored) != 0,
+          "overflowing absolute match range was accepted");
 }
 
 static void test_rollout_match_thread_determinism(void)
@@ -2527,7 +2560,8 @@ static void test_rollout_match_thread_determinism(void)
               one.points_a == four.points_a &&
               one.points_b == four.points_b && one.plies == four.plies &&
               one.wins == four.wins && one.losses == four.losses &&
-              one.draws == four.draws,
+              one.draws == four.draws &&
+              one.capped_rounds == four.capped_rounds,
               "rollout mode %d differs between one and four threads", mode);
     }
     free(net);
@@ -2743,6 +2777,7 @@ int main(void)
     test_wager_tied_gradients();
     test_pile_order_features();
     test_match_thread_determinism();
+    test_match_range_sharding();
     test_rollout_match_thread_determinism();
     test_suit_symmetry_ensemble();
     test_trajectory_suit_augmentation();

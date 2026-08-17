@@ -45,7 +45,7 @@ $(BIN)/bench: tools/bench.c $(CORE) $(HDRS) | $(BIN)
 
 test: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_late_resolver \
 	$(BIN)/test_belief_eval \
-	$(BIN)/belief_eval $(BIN)/rl $(DATA)/champion.bin
+	$(BIN)/belief_eval $(BIN)/rl $(BIN)/arena $(DATA)/champion.bin
 	./$(BIN)/test_engine
 	./$(BIN)/test_runtime
 	./$(BIN)/test_late_resolver
@@ -53,6 +53,7 @@ test: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_late_resolver \
 	python3 -m unittest tests/test_rl_population.py
 	python3 -m unittest tests/test_belief_eval.py
 	python3 -m unittest tests/test_make_showcase.py
+	python3 -m unittest tests/test_merge_arena.py
 
 audit-test: $(BIN)/qpair $(DATA)/champion.bin
 	python3 tools/audit_regression.py

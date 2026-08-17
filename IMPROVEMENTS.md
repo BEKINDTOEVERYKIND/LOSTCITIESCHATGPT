@@ -211,6 +211,14 @@ take Yellow.”
   agent's random stream.
 - Compute both margin and match-score uncertainty over complete mirrored
   deal-pairs, using sample variance across pairs.
+- Add absolute pair ranges and atomic per-pair arena evidence. Expensive
+  comparisons can now be split without repeating deals: the deal and both
+  actor streams remain keyed by the original block seed plus absolute pair
+  index. `tools/merge_arena.py` validates a complete nonoverlapping range,
+  rejects cap-terminated games and provenance drift, recomputes exact
+  pair-clustered statistics from integer rows, and combines reciprocal blocks
+  only after inverting the second orientation. Allocation/thread failures and
+  incomplete workers fail before an evidence footer can be published.
 - Corrected qpair's displayed value head, which was scaled by 50 twice.
 - Analyzer belief dumps can now contain every uncertain card and the
   card-count prior. The evaluator reports within-state AUC, Brier score, log

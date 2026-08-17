@@ -870,6 +870,18 @@ python3 tools/verify_transcript.py <transcript>    # independent rules audit
 python3 tools/make_showcase.py --seed SEED --output /path/to/showcase.json \
         --embed-viewer web/viewer.html
 ./bin/arena -a policy:data/champion.bin:0:20 -b heur -n 300 -r 3
+# Restartable evidence: keep one seed and split its absolute pair range.
+./bin/arena -a AGENT_A -b AGENT_B -n 125 -r 3 -s BLOCK_SEED \
+    --pair-start 0 --raw-pairs results/a-000.jsonl --raw-only \
+    --provenance PLAN_SHA256,ARENA_SHA256,MODEL_SHA256
+./bin/arena -a AGENT_A -b AGENT_B -n 125 -r 3 -s BLOCK_SEED \
+    --pair-start 125 --raw-pairs results/a-125.jsonl --raw-only \
+    --provenance PLAN_SHA256,ARENA_SHA256,MODEL_SHA256
+python3 tools/merge_arena.py block --expect-start 0 --expect-pairs 250 \
+    --output results/a.json results/a-000.jsonl results/a-125.jsonl
+# Combine two complete, independently seeded A/B and B/A blocks.
+python3 tools/merge_arena.py reciprocal --first results/a.json \
+    --second results/b.json --output results/reciprocal.json
 python3 tools/referee.py match NETA NETB --pairs 400 --rounds 3
 # what was move X worth at ply N of an analysed game? (paired, with SE)
 ./bin/qpair -n data/champion.bin -s SEED -f moves.txt -p N -w 4000 \
@@ -877,6 +889,16 @@ python3 tools/referee.py match NETA NETB --pairs 400 --rounds 3
 make audit-test   # slow locked checks for the reviewed UI positions
 make belief-eval-test
 ```
+
+Raw arena artifacts contain every mirrored pair's integer scores, plies, and
+cap count. Shards of one block must use the same seed and disjoint absolute
+`--pair-start` ranges; changing the seed creates a different block rather than
+continuing one. The merger rejects gaps, overlaps, incomplete files, metadata
+drift, cap-terminated rounds, summary tampering, and overlapping reciprocal
+RNG domains. It recomputes pair-clustered uncertainty from the raw rows instead
+of averaging rounded shard error bars. Completed files and merged artifacts
+are published with no-clobber writes so reruns cannot silently replace
+evidence.
 
 The analysis console replays a match ply by ply: board, both hands (marked
 where publicly known), the policy distribution, actual playing-search
