@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "locked_policy_compute_gate_result",
+  "status": "completed_passed_compute_gate_not_promotion_evidence",
+  "completed_utc": "2026-08-17",
+  "plan": {
+    "path": "data/experiments/locked_root120_plan.json",
+    "sha256": "166e66b23e6c7f0676b8dfda88a48425380ec562890118ee6700c2bc83c37458",
+    "commit": "8285541"
+  },
+  "evaluation": {
+    "code_commit": "7c7ebc1a097a7a00da977db771663255c47adccd",
+    "arena_sha256": "9fb6331e8c4f572ff651eca54fd5c601fb18ecd959d7daf6531fba243ecea6ab",
+    "model_sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+    "compiler": "cc (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0",
+    "threads_per_block": 4,
+    "wall_seconds_approximate": 488,
+    "blocks_ran_concurrently": true
+  },
+  "design": {
+    "candidate": "policy:data/champion.bin:0:120",
+    "baseline": "policy:data/champion.bin:0:20",
+    "rounds": 3,
+    "pairs_per_reciprocal_block": 5000,
+    "candidate_first_seed": "202608171201",
+    "baseline_first_seed": "202608171202",
+    "pair_start": "0"
+  },
+  "candidate_result": {
+    "margin_per_game": 0.5582,
+    "margin_pair_clustered_se": 0.28923322425268216,
+    "match_score": 0.5065,
+    "match_score_pair_clustered_se": 0.002523539112026993,
+    "one_sided_95_lower_bound": 0.5023487781607155,
+    "orientation_match_scores": [
+      0.5058,
+      0.5072
+    ],
+    "wins": 10070,
+    "losses": 9810,
+    "draws": 120,
+    "capped_rounds": 0
+  },
+  "gate": {
+    "passed": true,
+    "reasons": [
+      "one-sided 95% match-score lower bound exceeds 0.5",
+      "candidate match-score point estimate exceeds 0.5 in both reciprocal orientations",
+      "combined candidate point margin exceeds 0",
+      "zero capped rounds and complete provenance-matched raw evidence"
+    ],
+    "consequence": "Advance the unchanged candidate to the independent full rollout-actor gate. This policy proxy result cannot itself promote the playing default."
+  },
+  "artifacts": {
+    "candidate_first_raw_sha256": "462e71c301e07ea6087b0d2ad93c8642babe1692e7dbd1d0b295b949fda9acf8",
+    "baseline_first_raw_sha256": "0b15ddc6e050594e97dc79df63c40099e67e115968b40899e8d4cbd49830a3d1",
+    "candidate_first_merged_sha256": "2af9ede184b10676d68a1a8efa217729e47512b12462f021c13c18748de3152d",
+    "baseline_first_merged_sha256": "93be3fb707c83f2b7971239e236da67ecd0fb3f6f9eeee853124c8a4a0b6e8b7",
+    "reciprocal_sha256": "b221c0e511824db5281a4f5123b4134dca59bf2cde791c3f1a82d2214953ff85"
+  }
+}

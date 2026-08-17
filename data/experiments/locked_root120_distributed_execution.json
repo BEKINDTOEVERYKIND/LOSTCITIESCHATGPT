@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "precommitted_distributed_execution_addendum",
+  "status": "precommitted_before_stage_2_interim_results",
+  "created_utc": "2026-08-17",
+  "parent_plan": "data/experiments/locked_root120_plan.json",
+  "parent_plan_sha256": "166e66b23e6c7f0676b8dfda88a48425380ec562890118ee6700c2bc83c37458",
+  "reason": "Complete the already-locked 1000+1000-pair actor holdout without changing either actor or waiting for one eight-core host to execute both blocks serially.",
+  "efficacy_definition_unchanged": {
+    "candidate": "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:2:120:0:0:20:1:0:512:1:0:0:0:0:0:0:2:1:0:0:0:0:0:0:1",
+    "baseline": "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:2:20:0:0:20:1:0:512:1:0:0:0:0:0:0:2:1:0:0:0:0:0:0:1",
+    "candidate_first_seed": "202608171211",
+    "baseline_first_seed": "202608171212",
+    "pairs_per_orientation": 1000,
+    "rounds_per_game": 3,
+    "mirrored_deals": true,
+    "final_critical_z": 1.695,
+    "all_parent_plan_directional_and_zero_cap_gates_apply": true
+  },
+  "execution": {
+    "source_commit": "0b8c65f91fe1f844b8dbfcda5df8cc92806c839d",
+    "source_tree": "60a08f7af9a80278cd87740e2c1407572bf1ae31",
+    "local_content_equivalent_commit": "7c7ebc1a097a7a00da977db771663255c47adccd",
+    "compiler": "gcc on the pinned ubuntu-24.04 build runner",
+    "cflags": "-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11",
+    "single_build_artifact": "One arena binary and generated champion are built once, hashed, uploaded, then downloaded unchanged by every evaluation shard.",
+    "runner_image": "ubuntu-24.04",
+    "threads_per_shard": 4,
+    "shards_per_orientation": 10,
+    "pairs_per_shard": 100,
+    "pair_starts": [0, 100, 200, 300, 400, 500, 600, 700, 800, 900],
+    "required_provenance": [
+      "source commit",
+      "source tree",
+      "parent-plan hash",
+      "this addendum hash",
+      "arena SHA-256",
+      "model SHA-256",
+      "exact actor specifications",
+      "seed, pair range, rounds, and thread count"
+    ]
+  },
+  "isolation_and_validation": [
+    "The local 100+100-pair interim look remains an interim look only and is not pooled into the distributed final estimate.",
+    "All 1000+1000 final pairs are rerun from pair index zero with the single portable evaluator artifact.",
+    "Shards retain exact integer per-pair rows and a complete footer; merge rejects gaps, overlaps, metadata drift, provenance drift, malformed rows, and cap-terminated rounds.",
+    "Reciprocal blocks are merged separately, the baseline-first result is inverted, and the two block means are equal weighted with SE sqrt(SE1^2+SE2^2)/2.",
+    "The generic merger's displayed 1.645-SE field is descriptive only; the parent plan's final z>1.695 gate is authoritative.",
+    "No efficacy result may be inspected until all shards in both orientations complete and the merge succeeds.",
+    "Any runner-image, compiler, binary, model, source, actor, seed, range, or cap mismatch invalidates the final panel rather than being repaired post hoc."
+  ],
+  "results": null
+}

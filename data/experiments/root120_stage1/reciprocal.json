@@ -1,0 +1,130 @@
+{
+  "artifact_kind": "locked_reciprocal_arena_result",
+  "baseline": "policy:data/champion.bin:0:20",
+  "blocks": [
+    {
+      "artifact_kind": "merged_arena_pair_evidence",
+      "canonical_pair_rows_sha256": "8d5289e5342a50ef67eb63426b9faa790f0911834316e585ed5e970c48486917",
+      "inputs": [
+        {
+          "pair_count": 5000,
+          "pair_start": 0,
+          "path": "data/experiments/root120_stage1/candidate-first.jsonl",
+          "sha256": "462e71c301e07ea6087b0d2ad93c8642babe1692e7dbd1d0b295b949fda9acf8"
+        }
+      ],
+      "metadata": {
+        "agent_a": "policy:data/champion.bin:0:120",
+        "agent_b": "policy:data/champion.bin:0:20",
+        "provenance": "plan=166e66b23e6c7f0676b8dfda88a48425380ec562890118ee6700c2bc83c37458;arena=9fb6331e8c4f572ff651eca54fd5c601fb18ecd959d7daf6531fba243ecea6ab;model=af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417;eval=7c7ebc1a097a7a00da977db771663255c47adccd",
+        "rounds": 3,
+        "schema": 1,
+        "seed": "202608171201"
+      },
+      "pair_count": 5000,
+      "pair_start": "0",
+      "result": {
+        "capped_rounds": 0,
+        "draws": 54,
+        "games": 10000,
+        "losses": 4915,
+        "margin_pair_clustered_se": 0.41369939652619414,
+        "margin_per_game": 0.4376,
+        "match_score": 0.5058,
+        "match_score_pair_clustered_se": 0.0036049786648792866,
+        "pairs": 5000,
+        "plies_per_game": 139.0392,
+        "points_per_game_a": 104.4071,
+        "points_per_game_b": 103.9695,
+        "wins": 5031
+      },
+      "schema_version": 1,
+      "sufficient_statistics": {
+        "capped_rounds": 0,
+        "draws": 54,
+        "losses": 4915,
+        "margin_sum": 4376,
+        "margin_sumsq": 17115126,
+        "pairs": 5000,
+        "plies_sum": 1390392,
+        "points_a_sum": 1044071,
+        "points_b_sum": 1039695,
+        "score_quarters_sum": 10116,
+        "score_quarters_sumsq": 25664,
+        "wins": 5031
+      }
+    },
+    {
+      "artifact_kind": "merged_arena_pair_evidence",
+      "canonical_pair_rows_sha256": "9737f76e9ac07b642d3e619717974ff424a3ad1e447096e2d47e0201abd2beb5",
+      "inputs": [
+        {
+          "pair_count": 5000,
+          "pair_start": 0,
+          "path": "data/experiments/root120_stage1/baseline-first.jsonl",
+          "sha256": "0b15ddc6e050594e97dc79df63c40099e67e115968b40899e8d4cbd49830a3d1"
+        }
+      ],
+      "metadata": {
+        "agent_a": "policy:data/champion.bin:0:20",
+        "agent_b": "policy:data/champion.bin:0:120",
+        "provenance": "plan=166e66b23e6c7f0676b8dfda88a48425380ec562890118ee6700c2bc83c37458;arena=9fb6331e8c4f572ff651eca54fd5c601fb18ecd959d7daf6531fba243ecea6ab;model=af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417;eval=7c7ebc1a097a7a00da977db771663255c47adccd",
+        "rounds": 3,
+        "schema": 1,
+        "seed": "202608171202"
+      },
+      "pair_count": 5000,
+      "pair_start": "0",
+      "result": {
+        "capped_rounds": 0,
+        "draws": 66,
+        "games": 10000,
+        "losses": 5039,
+        "margin_pair_clustered_se": 0.40432195260741416,
+        "margin_per_game": -0.6788,
+        "match_score": 0.4928,
+        "match_score_pair_clustered_se": 0.00353229775436402,
+        "pairs": 5000,
+        "plies_per_game": 138.9924,
+        "points_per_game_a": 103.7763,
+        "points_per_game_b": 104.4551,
+        "wins": 4895
+      },
+      "schema_version": 1,
+      "sufficient_statistics": {
+        "capped_rounds": 0,
+        "draws": 66,
+        "losses": 5039,
+        "margin_sum": -6788,
+        "margin_sumsq": 16353570,
+        "pairs": 5000,
+        "plies_sum": 1389924,
+        "points_a_sum": 1037763,
+        "points_b_sum": 1044551,
+        "score_quarters_sum": 9856,
+        "score_quarters_sumsq": 24418,
+        "wins": 4895
+      }
+    }
+  ],
+  "candidate": "policy:data/champion.bin:0:120",
+  "candidate_result": {
+    "capped_rounds": 0,
+    "draws": 120,
+    "losses": 9810,
+    "margin_pair_clustered_se": 0.28923322425268216,
+    "margin_per_game": 0.5582,
+    "match_score": 0.5065,
+    "match_score_pair_clustered_se": 0.002523539112026993,
+    "one_sided_95_lower_bound": 0.5023487781607155,
+    "orientation_match_scores": [
+      0.5058,
+      0.5072
+    ],
+    "wins": 10070
+  },
+  "estimator": "equal-weight reciprocal blocks; second orientation inverted",
+  "promotion_gate_passed": true,
+  "provenance": "plan=166e66b23e6c7f0676b8dfda88a48425380ec562890118ee6700c2bc83c37458;arena=9fb6331e8c4f572ff651eca54fd5c601fb18ecd959d7daf6531fba243ecea6ab;model=af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417;eval=7c7ebc1a097a7a00da977db771663255c47adccd",
+  "schema_version": 1
+}

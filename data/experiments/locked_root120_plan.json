@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "precommitted_two_stage_strength_test_plan",
+  "status": "precommitted_before_execution",
+  "created_utc": "2026-08-17",
+  "hypothesis": "Averaging the champion over all 120 suit permutations at each real decision removes residual arbitrary suit-slot preferences, while retaining the validated 20-way sampled continuation model and all rollout compute, shortlist, gating, objective, and exact-tail settings.",
+  "source": {
+    "repository": "BEKINDTOEVERYKIND/LOSTCITIESCHATGPT",
+    "evaluation_code_commit": "7c7ebc1a097a7a00da977db771663255c47adccd",
+    "binary_affecting_worktree_changes_before_test": false,
+    "runtime_provenance_requirement": "Every raw shard must bind the SHA-256 of this plan file, bin/arena, and data/champion.bin in --provenance."
+  },
+  "model": {
+    "path": "data/champion.bin",
+    "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417"
+  },
+  "candidate_definition": {
+    "only_intended_change": "real-root suit symmetry averaging increases from 20 to 120; playout_symmetries remains 20",
+    "policy_candidate": "policy:data/champion.bin:0:120",
+    "policy_baseline": "policy:data/champion.bin:0:20",
+    "actor_candidate": "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:2:120:0:0:20:1:0:512:1:0:0:0:0:0:0:2:1:0:0:0:0:0:0:1",
+    "actor_baseline": "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:2:20:0:0:20:1:0:512:1:0:0:0:0:0:0:2:1:0:0:0:0:0:0:1"
+  },
+  "prior_evidence": {
+    "status": "exploratory_and_selection_biased; excluded from every gate and final estimate",
+    "historical_screen": {
+      "pairs": 500,
+      "margin_per_game": 0.70,
+      "margin_se": 1.34,
+      "match_score": 0.516,
+      "match_score_se": 0.012
+    },
+    "fresh_opportunity_screen": {
+      "seed": "20817003",
+      "pairs": 1000,
+      "margin_per_game": 0.34,
+      "margin_se": 0.89,
+      "match_score": 0.504,
+      "match_score_se": 0.008,
+      "wins": 1001,
+      "losses": 986,
+      "draws": 13
+    }
+  },
+  "stage_1_policy_compute_gate": {
+    "purpose": "Qualify whether to spend full rollout compute. This stage can reject or advance the fixed candidate but can never promote it.",
+    "rounds_per_game": 3,
+    "mirrored_deals": true,
+    "threads_per_block": 4,
+    "pairs_per_block": 5000,
+    "blocks": [
+      {
+        "seed": "202608171201",
+        "pair_start": "0",
+        "pairs": 5000,
+        "agent_a": "policy_candidate",
+        "agent_b": "policy_baseline"
+      },
+      {
+        "seed": "202608171202",
+        "pair_start": "0",
+        "pairs": 5000,
+        "agent_a": "policy_baseline",
+        "agent_b": "policy_candidate"
+      }
+    ],
+    "combination": "Invert block two to the candidate perspective, then equal-weight the two independent blocks. Combined SE is sqrt(SE1^2 + SE2^2) / 2.",
+    "advance_gate": [
+      "combined candidate match score minus 1.645 standard errors exceeds 0.5",
+      "candidate match-score point estimate exceeds 0.5 in each orientation",
+      "combined candidate point margin exceeds 0",
+      "no cap-terminated rounds, incomplete shards, provenance mismatch, gaps, overlaps, or operational errors"
+    ]
+  },
+  "stage_2_full_actor_gate": {
+    "purpose": "Independent deployment test; this stage alone can promote the candidate.",
+    "conditional_execution": "Run only if stage 1 passes every advance gate. Do not alter either actor specification after stage 1.",
+    "rounds_per_game": 3,
+    "mirrored_deals": true,
+    "threads_per_block": 4,
+    "total_pairs_per_block": 1000,
+    "blocks": [
+      {
+        "seed": "202608171211",
+        "pair_start": "0",
+        "pairs": 1000,
+        "agent_a": "actor_candidate",
+        "agent_b": "actor_baseline"
+      },
+      {
+        "seed": "202608171212",
+        "pair_start": "0",
+        "pairs": 1000,
+        "agent_a": "actor_baseline",
+        "agent_b": "actor_candidate"
+      }
+    ],
+    "planned_looks": [
+      {
+        "after_pairs_per_block": 100,
+        "one_sided_alpha": 0.005,
+        "critical_z": 2.576,
+        "action_if_promotion_gate_fails": "Continue unless a nonbinding operational or futility stop is taken; stopping cannot support promotion or a claim of inferiority."
+      },
+      {
+        "after_pairs_per_block": 1000,
+        "one_sided_alpha": 0.045,
+        "critical_z": 1.695,
+        "action_if_promotion_gate_fails": "Do not promote; report the fixed result as unvalidated or negative according to its interval."
+      }
+    ],
+    "promotion_gate_at_each_look": [
+      "combined candidate match score z statistic exceeds that look's predeclared critical value",
+      "candidate match-score point estimate exceeds 0.5 in each reciprocal orientation",
+      "combined candidate point margin exceeds 0",
+      "no cap-terminated rounds, incomplete shards, provenance mismatch, gaps, overlaps, or operational errors"
+    ],
+    "familywise_one_sided_alpha": 0.05,
+    "combination": "At each look, invert block two to the candidate perspective and equal-weight the independent reciprocal blocks. Do not pool the two block variances.",
+    "no_optional_stopping_or_variant_changes": true
+  },
+  "reporting": [
+    "Keep policy-stage and actor-stage estimates separate; never pool exploratory data or policy proxy games into deployment strength.",
+    "Report reciprocal orientation estimates, combined match score and pair-clustered SE, point margin and SE, W/L/D, cap count, elapsed time, model hash, arena hash, plan hash, compiler, and exact commands.",
+    "Report the inference/runtime cost of 120-way real-root averaging without reducing rollout worlds to equalize time."
+  ],
+  "results": null
+}
