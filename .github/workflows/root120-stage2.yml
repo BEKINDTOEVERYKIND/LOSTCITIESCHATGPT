@@ -145,8 +145,8 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: root120-stage2-final-evidence
-          path:
-            - downloads
-            - merged
+          path: |
+            downloads
+            merged
           if-no-files-found: error
           retention-days: 30
