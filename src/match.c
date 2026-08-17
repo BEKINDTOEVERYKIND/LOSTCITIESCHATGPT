@@ -2,16 +2,21 @@
 #include <math.h>
 #include <stdlib.h>
 #include <pthread.h>
+#include <sched.h>
+#include <stdatomic.h>
 
 typedef struct {
     const Agent *a, *b;
     int pairs, thread, nthread, rounds;
     uint64_t seed, pair_start;
     MatchPairResult *pair_out;
+    unsigned char *pair_complete;
     double sum, sumsq, win_sum, win_sumsq;
     double wins, losses, draws, points_a, points_b, plies;
     uint64_t capped_rounds;
     int done;
+    atomic_int finished;
+    unsigned char join_failed;
 } Job;
 
 static uint64_t mix64(uint64_t x)
@@ -124,9 +129,14 @@ static void *worker(void *arg)
             row->plies[1] = second_plies;
             row->capped_rounds[0] = first_caps;
             row->capped_rounds[1] = second_caps;
+            /* Publish completion only after every field in the row.  Each
+             * worker owns a disjoint set of g values and the joins below
+             * provide the synchronization before this array is inspected. */
+            j->pair_complete[g] = 1;
         }
         j->done++;
     }
+    atomic_store_explicit(&j->finished, 1, memory_order_release);
     return NULL;
 }
 
@@ -135,18 +145,19 @@ int match_run_range_r(const Agent *a, const Agent *b, uint64_t pair_start,
                       MatchPairResult *pair_out, MatchResult *out)
 {
     if (out) memset(out, 0, sizeof(*out));
-    if (!a || !b || !out || pairs < 0 ||
-        pair_start > UINT64_MAX - (uint64_t)pairs)
+    if (!a || !b || !out || pairs < 0 || pairs > MATCH_MAX_PAIRS ||
+        nthread < 1 || rounds < 1 || rounds > MATCH_ROUNDS ||
+        (pairs > 0 &&
+         pair_start > UINT64_MAX - ((uint64_t)pairs - UINT64_C(1))))
         return -1;
     if (pairs == 0) return 0;
-    if (nthread < 1) nthread = 1;
     if (nthread > pairs) nthread = pairs;
-    if (rounds < 1) rounds = 1;
-    if (rounds > MATCH_ROUNDS) rounds = MATCH_ROUNDS;
     Job *jobs = (Job *)calloc((size_t)nthread, sizeof(Job));
     pthread_t *th = (pthread_t *)calloc((size_t)nthread, sizeof(pthread_t));
-    if (!jobs || !th) {
-        free(jobs); free(th);
+    unsigned char *pair_complete = pair_out
+        ? (unsigned char *)calloc((size_t)pairs, 1) : NULL;
+    if (!jobs || !th || (pair_out && !pair_complete)) {
+        free(pair_complete); free(jobs); free(th);
         return -1;
     }
     for (int i = 0; i < nthread; i++) {
@@ -154,19 +165,38 @@ int match_run_range_r(const Agent *a, const Agent *b, uint64_t pair_start,
         jobs[i].thread = i; jobs[i].nthread = nthread; jobs[i].seed = seed;
         jobs[i].rounds = rounds; jobs[i].pair_start = pair_start;
         jobs[i].pair_out = pair_out;
+        jobs[i].pair_complete = pair_complete;
+        atomic_init(&jobs[i].finished, 0);
     }
-    int created = 0, thread_error = 0;
+    int created = 0, create_error = 0, join_error = 0;
     for (int i = 0; i < nthread; i++) {
         if (pthread_create(&th[i], NULL, worker, &jobs[i]) != 0) {
-            thread_error = 1;
+            create_error = 1;
             break;
         }
         created++;
     }
-    for (int i = 0; i < created; i++)
-        if (pthread_join(th[i], NULL) != 0) thread_error = 1;
-    if (thread_error || created != nthread) {
-        free(jobs); free(th);
+    for (int i = 0; i < created; i++) {
+        if (pthread_join(th[i], NULL) != 0) {
+            jobs[i].join_failed = 1;
+            join_error = 1;
+        }
+    }
+    if (join_error) {
+        /* A valid join of one of our joinable thread IDs should not fail.  If
+         * the platform nevertheless reports an error, do not free memory a
+         * worker could still access: wait for its final release-store and
+         * detach the unjoinable handle before failing closed. */
+        for (int i = 0; i < created; i++) {
+            if (!jobs[i].join_failed) continue;
+            while (!atomic_load_explicit(&jobs[i].finished,
+                                         memory_order_acquire))
+                sched_yield();
+            (void)pthread_detach(th[i]);
+        }
+    }
+    if (create_error || join_error || created != nthread) {
+        free(pair_complete); free(jobs); free(th);
         return -1;
     }
 
@@ -175,6 +205,11 @@ int match_run_range_r(const Agent *a, const Agent *b, uint64_t pair_start,
     uint64_t capped_rounds = 0;
     int done = 0;
     for (int i = 0; i < nthread; i++) {
+        int expected = i < pairs ? 1 + (pairs - 1 - i) / nthread : 0;
+        if (jobs[i].done != expected) {
+            free(pair_complete); free(jobs); free(th);
+            return -1;
+        }
         sum += jobs[i].sum; sumsq += jobs[i].sumsq;
         win_sum += jobs[i].win_sum; win_sumsq += jobs[i].win_sumsq;
         w += jobs[i].wins; l += jobs[i].losses; d += jobs[i].draws;
@@ -182,8 +217,19 @@ int match_run_range_r(const Agent *a, const Agent *b, uint64_t pair_start,
         capped_rounds += jobs[i].capped_rounds;
         done += jobs[i].done;
     }
-    free(jobs); free(th);
-    if (done != pairs) return -1;
+    if (done != pairs) {
+        free(pair_complete); free(jobs); free(th);
+        return -1;
+    }
+    if (pair_complete) {
+        for (int i = 0; i < pairs; i++) {
+            if (pair_complete[i] != 1) {
+                free(pair_complete); free(jobs); free(th);
+                return -1;
+            }
+        }
+    }
+    free(pair_complete); free(jobs); free(th);
     if (done == 0) { memset(out, 0, sizeof(*out)); return 0; }
     double ngames = 2.0 * done;
     double margin_var = 0.0, win_var = 0.0;
@@ -207,15 +253,15 @@ int match_run_range_r(const Agent *a, const Agent *b, uint64_t pair_start,
     return 0;
 }
 
-void match_run_r(const Agent *a, const Agent *b, int pairs, int nthread,
-                 uint64_t seed, int rounds, MatchResult *out)
+int match_run_r(const Agent *a, const Agent *b, int pairs, int nthread,
+                uint64_t seed, int rounds, MatchResult *out)
 {
-    (void)match_run_range_r(a, b, 0, pairs, nthread, seed, rounds,
-                            NULL, out);
+    return match_run_range_r(a, b, 0, pairs, nthread, seed, rounds,
+                             NULL, out);
 }
 
-void match_run(const Agent *a, const Agent *b, int pairs, int nthread,
-               uint64_t seed, MatchResult *out)
+int match_run(const Agent *a, const Agent *b, int pairs, int nthread,
+              uint64_t seed, MatchResult *out)
 {
-    match_run_r(a, b, pairs, nthread, seed, 1, out);
+    return match_run_r(a, b, pairs, nthread, seed, 1, out);
 }

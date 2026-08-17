@@ -3,6 +3,10 @@
 #define MATCH_H
 
 #include "agent.h"
+#include <limits.h>
+
+/* MatchResult.games is an int and every pair always produces two games. */
+#define MATCH_MAX_PAIRS (INT_MAX / 2)
 
 typedef struct {
     int pairs, games;
@@ -26,12 +30,14 @@ typedef struct {
 /* rounds = 1 gives single-deal games; rounds = MATCH_ROUNDS gives the full
  * competitive format, cumulative totals, alternating first player, margins
  * and winrate reported per match. */
-void match_run_r(const Agent *a, const Agent *b, int pairs, int nthread,
-                 uint64_t seed, int rounds, MatchResult *out);
+int match_run_r(const Agent *a, const Agent *b, int pairs, int nthread,
+                uint64_t seed, int rounds, MatchResult *out);
+/* The range API is strict and fail-closed: zero means all requested pairs and
+ * every pair_out row completed; -1 leaves out zeroed and pair_out unusable. */
 int match_run_range_r(const Agent *a, const Agent *b, uint64_t pair_start,
                       int pairs, int nthread, uint64_t seed, int rounds,
                       MatchPairResult *pair_out, MatchResult *out);
-void match_run(const Agent *a, const Agent *b, int pairs, int nthread,
-               uint64_t seed, MatchResult *out);
+int match_run(const Agent *a, const Agent *b, int pairs, int nthread,
+              uint64_t seed, MatchResult *out);
 
 #endif

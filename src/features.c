@@ -1,6 +1,7 @@
 #include "features.h"
 
-void feat_extract(const State *st, int p, Features *f)
+static void feat_extract_impl(const State *st, int p, Features *f,
+                              int include_pile_order)
 {
     const int o = p ^ 1;
     int n = 0;
@@ -126,6 +127,7 @@ void feat_extract(const State *st, int p, Features *f)
      * face-up card does not reveal information that was absent from the
      * network state.  Zero means "no card at this depth"; wagers are
      * distinguishable from absence through the second scalar. */
+    if (!include_pile_order) return;
     float *po = d + FEAT_LEGACY_DENSE;
     for (int s = 0; s < NSUIT; s++) {
         for (int depth = 2; depth <= NRANK; depth++) {
@@ -138,4 +140,14 @@ void feat_extract(const State *st, int p, Features *f)
             po[k + 1] = CARD_IS_WAGER(c) ? 1.0f : 0.0f;
         }
     }
+}
+
+void feat_extract(const State *st, int p, Features *f)
+{
+    feat_extract_impl(st, p, f, 1);
+}
+
+void feat_extract_legacy(const State *st, int p, Features *f)
+{
+    feat_extract_impl(st, p, f, 0);
 }

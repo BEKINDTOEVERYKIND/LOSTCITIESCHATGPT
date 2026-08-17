@@ -188,7 +188,8 @@ static int late_cycle_repeated(LateCycleHistory *history, const State *st)
 
 static int same_semantic_action(Move a, Move b);
 
-static int playout(const Net *net, State *s, int p, int prune, Rng *symrng,
+static int playout(const Net *net, const NetEvalPlan *eval_plan,
+                   State *s, int p, int prune, Rng *symrng,
                    const uint8_t fixed_perm[NSUIT],
                    const uint8_t other_perm[NSUIT], int other_player,
                    int sample_actions, int symmetries,
@@ -200,7 +201,8 @@ static int playout(const Net *net, State *s, int p, int prune, Rng *symrng,
                    PlayoutWork *work);
 
 static int late_replan_choice(
-    const Net *net, const State *st, const Move *mv, const float *score, int n,
+    const Net *net, const NetEvalPlan *eval_plan,
+    const State *st, const Move *mv, const float *score, int n,
     int prune, int random_sym,
     const uint8_t fixed_perm[NSUIT],
     const uint8_t other_perm[NSUIT], int other_player,
@@ -309,17 +311,20 @@ int rollout_policy_deck_choice(const State *st, const Move *mv,
 /* Rank the legal moves of s for the player to move.  With a network that is
  * the policy head; without one it is the hand-crafted evaluation, which gives
  * the classical "heuristic + perfect-information Monte Carlo" baseline. */
-static int rank_moves(const Net *net, const State *s, Move *mv, float *score,
+static int rank_moves(const Net *net, const NetEvalPlan *eval_plan,
+                      const State *s, Move *mv, float *score,
                       int symmetries, Rng *symrng,
                       const uint8_t fixed_perm[NSUIT])
 {
     if (net) {
         if (fixed_perm)
-            return policy_probs_perm(net, s, mv, score, NULL, fixed_perm);
+            return policy_probs_perm_plan(
+                net, s, mv, score, NULL, fixed_perm, eval_plan);
         if (symrng && symmetries > 1)
-            return policy_probs_random_sym(net, s, mv, score, symrng,
-                                           symmetries);
-        return policy_probs_sym(net, s, mv, score, NULL, symmetries);
+            return policy_probs_random_sym_plan(
+                net, s, mv, score, symrng, symmetries, eval_plan);
+        return policy_probs_sym_plan(
+            net, s, mv, score, NULL, symmetries, eval_plan);
     }
     int n = lc_moves(s, mv);
     for (int i = 0; i < n; i++) score[i] = heur_move_value_det(s, mv[i]);
@@ -327,13 +332,16 @@ static int rank_moves(const Net *net, const State *s, Move *mv, float *score,
 }
 
 static int rank_playout_moves(
-    const Net *net, const State *s, Move *mv, float *score,
+    const Net *net, const NetEvalPlan *eval_plan,
+    const State *s, Move *mv, float *score,
     int symmetries, Rng *symrng, const uint8_t fixed_perm[NSUIT],
     int exact_late_ensemble)
 {
     if (exact_late_ensemble)
-        return rank_moves(net, s, mv, score, symmetries, NULL, NULL);
-    return rank_moves(net, s, mv, score, symmetries, symrng, fixed_perm);
+        return rank_moves(
+            net, eval_plan, s, mv, score, symmetries, NULL, NULL);
+    return rank_moves(
+        net, eval_plan, s, mv, score, symmetries, symrng, fixed_perm);
 }
 
 static int late_exact_ensemble_enabled(
@@ -430,7 +438,8 @@ int rollout_near_greedy_pick(const Move *mv, const float *prob, int n,
  * member's full policy rather than taking its best move.  Conflating these
  * two sources of randomness made the old fast mode evaluate a much weaker,
  * high-entropy continuation policy instead of approximating the champion. */
-static int playout(const Net *net, State *s, int p, int prune, Rng *symrng,
+static int playout(const Net *net, const NetEvalPlan *eval_plan,
+                   State *s, int p, int prune, Rng *symrng,
                    const uint8_t fixed_perm[NSUIT],
                    const uint8_t other_perm[NSUIT], int other_player,
                    int sample_actions,
@@ -518,7 +527,7 @@ static int playout(const Net *net, State *s, int p, int prune, Rng *symrng,
         int exact_late_ensemble = late_exact_ensemble_enabled(
             late_replan_enabled, late);
         int n = rank_playout_moves(
-            net, s, mv, score, symmetries, rank_rng, turn_perm,
+            net, eval_plan, s, mv, score, symmetries, rank_rng, turn_perm,
             exact_late_ensemble);
         if (n <= 0) break;
         /* Replan every late information state, including states reached from
@@ -533,7 +542,7 @@ static int playout(const Net *net, State *s, int p, int prune, Rng *symrng,
         if (late_replan_enabled) {
             Move replanned;
             int replanned_status = late_replan_choice(
-                net, s, mv, score, n, prune, rank_rng != NULL,
+                net, eval_plan, s, mv, score, n, prune, rank_rng != NULL,
                 replan_fixed_perm, replan_other_perm, replan_other_player,
                 sample_actions, symmetries,
                 plan_deck_max, plan_block_gap, draw_deck_max,
@@ -949,7 +958,8 @@ static int late_cached_candidate(
  * can never grow as worlds^depth.  A truncated branch falls back to the
  * configured continuation policy and remains visible in diagnostics. */
 static int late_replan_choice(
-    const Net *net, const State *st, const Move *mv, const float *score, int n,
+    const Net *net, const NetEvalPlan *eval_plan,
+    const State *st, const Move *mv, const float *score, int n,
     int prune, int random_sym,
     const uint8_t fixed_perm[NSUIT],
     const uint8_t other_perm[NSUIT], int other_player,
@@ -1205,7 +1215,7 @@ static int late_replan_choice(
                 child_late.path_key[child_late.path_n++] = info_key;
             uint64_t child_before = child_late.eval_budget;
             (void)playout(
-                net, &child, p, prune,
+                net, eval_plan, &child, p, prune,
                 random_sym ? &continuation_rng : NULL,
                 fixed_perm, other_perm, other_player,
                 sample_actions, symmetries,
@@ -1275,7 +1285,7 @@ int rollout_test_late_cache_order(const Net *net, const State *st)
     Move forward_mv[MAX_MOVES], reverse_mv[MAX_MOVES];
     float forward_score[MAX_MOVES], reverse_score[MAX_MOVES];
     int n = rank_moves(
-        net, st, forward_mv, forward_score, 1, NULL, NULL);
+        net, NULL, st, forward_mv, forward_score, 1, NULL, NULL);
     if (n <= 1) return 0;
 
     /* Actual selected-path late nodes must ignore the cheap continuation's
@@ -1315,15 +1325,15 @@ int rollout_test_late_cache_order(const Net *net, const State *st)
     rng_seed(&actual_rng_a, UINT64_C(0x1111222233334444));
     rng_seed(&actual_rng_b, UINT64_C(0xAAAABBBBCCCCDDDD));
     int actual_an = rank_playout_moves(
-        oriented, st, actual_a, actual_a_score, 20,
+        oriented, NULL, st, actual_a, actual_a_score, 20,
         &actual_rng_a, perms[1], actual_exact);
     int actual_bn = rank_playout_moves(
-        oriented, st, actual_b, actual_b_score, 20,
+        oriented, NULL, st, actual_b, actual_b_score, 20,
         &actual_rng_b, perms[nperm - 1], actual_exact);
     int expected_exact_n = policy_probs_sym(
         oriented, st, expected_exact, expected_exact_score, NULL, 20);
     int hypothetical_n = rank_playout_moves(
-        oriented, st, hypothetical, hypothetical_score, 20,
+        oriented, NULL, st, hypothetical, hypothetical_score, 20,
         &actual_rng_a, perms[1], hypothetical_exact);
     int expected_hypothetical_n = policy_probs_perm(
         oriented, st, expected_hypothetical,
@@ -1353,10 +1363,10 @@ int rollout_test_late_cache_order(const Net *net, const State *st)
     rng_seed(&exact_rng_a, UINT64_C(0x1111222233334444));
     rng_seed(&exact_rng_b, UINT64_C(0xAAAABBBBCCCCDDDD));
     int exact_an = rank_playout_moves(
-        net, st, exact_a, exact_a_score, 20, &exact_rng_a, perms[1],
+        net, NULL, st, exact_a, exact_a_score, 20, &exact_rng_a, perms[1],
         actual_exact);
     int exact_bn = rank_playout_moves(
-        net, st, exact_b, exact_b_score, 20, &exact_rng_b,
+        net, NULL, st, exact_b, exact_b_score, 20, &exact_rng_b,
         perms[nperm - 1], actual_exact);
     if (exact_an != n || exact_bn != n ||
         memcmp(exact_a, exact_b, sizeof(Move) * (size_t)n) != 0 ||
@@ -1382,7 +1392,7 @@ int rollout_test_late_cache_order(const Net *net, const State *st)
     name.stall_chain = 1
 #define LATE_TEST_CALL(state, moves, scores, context, move_out, q_out, work_out) \
     late_replan_choice(                                                  \
-        net, state, moves, scores, n, 0, 0, NULL, NULL,                 \
+        net, NULL, state, moves, scores, n, 0, 0, NULL, NULL,           \
         (state)->turn ^ 1,                                               \
         0, 1, 0, 0, 0, 0.0f, 0, 1, 8, 2, context,                     \
         move_out, q_out, work_out)
@@ -1479,7 +1489,7 @@ int rollout_test_late_cache_order(const Net *net, const State *st)
     Move hidden_mv[MAX_MOVES];
     float hidden_score[MAX_MOVES];
     int hidden_n = rank_playout_moves(
-        net, &hidden, hidden_mv, hidden_score, 20, NULL, NULL,
+        net, NULL, &hidden, hidden_mv, hidden_score, 20, NULL, NULL,
         actual_exact);
     if (hidden_n != exact_an ||
         memcmp(exact_a, hidden_mv, sizeof(Move) * (size_t)hidden_n) != 0 ||
@@ -1493,7 +1503,8 @@ int rollout_test_late_cache_order(const Net *net, const State *st)
     Move visible_first_choice;
     double visible_first_q = 0.0;
     if (late_replan_choice(
-            net, st, exact_a, exact_a_score, exact_an, 0, 0, NULL, NULL,
+            net, NULL, st, exact_a, exact_a_score, exact_an,
+            0, 0, NULL, NULL,
             o, 0, 20, 0, 0, 0, 0.0f, 0, 1, 8, 2,
             &visible_first, &visible_first_choice, &visible_first_q,
             &visible_first_work) != LATE_REPLAN_SELECTED)
@@ -1503,7 +1514,7 @@ int rollout_test_late_cache_order(const Net *net, const State *st)
     Move hidden_second_choice;
     double hidden_second_q = 0.0;
     if (late_replan_choice(
-            net, &hidden, hidden_mv, hidden_score, hidden_n, 0, 0,
+            net, NULL, &hidden, hidden_mv, hidden_score, hidden_n, 0, 0,
             NULL, NULL, o, 0, 20, 0, 0, 0, 0.0f, 0, 1, 8, 2,
             &hidden_second, &hidden_second_choice, &hidden_second_q,
             &hidden_second_work) != LATE_REPLAN_SELECTED ||
@@ -1517,7 +1528,7 @@ int rollout_test_late_cache_order(const Net *net, const State *st)
     Move hidden_first_choice;
     double hidden_first_q = 0.0;
     if (late_replan_choice(
-            net, &hidden, hidden_mv, hidden_score, hidden_n, 0, 0,
+            net, NULL, &hidden, hidden_mv, hidden_score, hidden_n, 0, 0,
             NULL, NULL, o, 0, 20, 0, 0, 0, 0.0f, 0, 1, 8, 2,
             &hidden_first, &hidden_first_choice, &hidden_first_q,
             &hidden_first_work) != LATE_REPLAN_SELECTED)
@@ -1527,7 +1538,8 @@ int rollout_test_late_cache_order(const Net *net, const State *st)
     Move visible_second_choice;
     double visible_second_q = 0.0;
     if (late_replan_choice(
-            net, st, exact_a, exact_a_score, exact_an, 0, 0, NULL, NULL,
+            net, NULL, st, exact_a, exact_a_score, exact_an,
+            0, 0, NULL, NULL,
             o, 0, 20, 0, 0, 0, 0.0f, 0, 1, 8, 2,
             &visible_second, &visible_second_choice, &visible_second_q,
             &visible_second_work) != LATE_REPLAN_SELECTED ||
@@ -2122,7 +2134,8 @@ static int useful_pile_pickup(
  * objective floor against candidate zero; a statistically tied alternative
  * leader does not erase an independently verified improvement. */
 static int confirm_trusted_prefix(
-    const Agent *a, const State *st, int p,
+    const Agent *a, const NetEvalPlan *eval_plan,
+    const State *st, int p,
     const Move *mv, const int *order, int ntrusted, int proposed,
     int cont_prune, int cont_sym, const BeliefDist *belief, int have_belief,
     uint64_t seed, int cap, int *worlds_out,
@@ -2191,7 +2204,7 @@ static int confirm_trusted_prefix(
             LateReplanContext replan = late_replan_context_init(
                 replan_worlds, replan_cores,
                 LATE_PANEL_TRUSTED_CONFIRM, &replan_cache);
-            int m = playout(a->net, &s, p, cont_prune, NULL, perm,
+            int m = playout(a->net, eval_plan, &s, p, cont_prune, NULL, perm,
                             other_perm, p ^ 1, 0,
                             cont_sym, a->plan_deck_max,
                             a->plan_block_gap,
@@ -2252,9 +2265,16 @@ static int confirm_trusted_prefix(
     return *agreement_out ? proposed : 0;
 }
 
-Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
-                  float *out_value, SearchStats *stats)
+static Move rollout_move_impl(const struct Agent *a, const State *st,
+                              Rng *rng, float *out_value,
+                              SearchStats *stats, int use_eval_plan)
 {
+    NetEvalPlan eval_plan_storage;
+    const NetEvalPlan *eval_plan = NULL;
+    if (a->net && use_eval_plan) {
+        net_eval_plan_init(a->net, &eval_plan_storage);
+        eval_plan = &eval_plan_storage;
+    }
     if (stats) {
         memset(stats, 0, sizeof *stats);
         stats->policy_top = -1;
@@ -2267,8 +2287,8 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
     float value = 0.0f;
     int n;
     if (a->net) {
-        n = policy_probs_sym(a->net, st, mv, prob, &value,
-                             a->symmetries);
+        n = policy_probs_sym_plan(
+            a->net, st, mv, prob, &value, a->symmetries, eval_plan);
     } else if (a->exact_terminal && st->deck_left == 1 && !st->over) {
         /* The exact turn does not need sampled deck values.  In particular,
          * hrollout must not consume its gameplay RNG while reporting a
@@ -3057,7 +3077,7 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
             LateReplanContext replan = late_replan_context_init(
                 replan_worlds, replan_cores, LATE_PANEL_PRIMARY,
                 &primary_replan_cache);
-            int m = playout(a->net, &s, p, cont_prune,
+            int m = playout(a->net, eval_plan, &s, p, cont_prune,
                             random_cont_sym ? &pr : NULL,
                             fixed_perm, other_fixed_perm, p ^ 1,
                             sample_cont_actions, cont_sym,
@@ -3131,7 +3151,8 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
     int prefix_gate_passed = 0;
     if (a->policy_prefix_mode >= 2 && proposed_reference != 0) {
         reference = confirm_trusted_prefix(
-            a, st, p, mv, order, trusted_candidates, proposed_reference,
+            a, eval_plan, st, p, mv, order, trusted_candidates,
+            proposed_reference,
             cont_prune, cont_sym, &belief, have_belief,
             confirm_seed_base ^ UINT64_C(0xE7037ED1A0B428DB),
             cap, &prefix_confirm_worlds, prefix_q, prefix_se,
@@ -3248,7 +3269,7 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
                         confirm_other_perm = cont_perms[other_pk];
                     }
                 }
-                (void)playout(a->net, &baseline, p, cont_prune,
+                (void)playout(a->net, eval_plan, &baseline, p, cont_prune,
                               a->confirm_exact5 || confirm_perm ? NULL : &brng,
                               confirm_perm, confirm_other_perm, p ^ 1, 0,
                               a->confirm_exact5 ? 5 : cont_sym,
@@ -3274,18 +3295,17 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
                             replan_worlds, replan_cores,
                             LATE_PANEL_CHALLENGER_CONFIRM,
                             &confirm_replan_cache);
-                    (void)playout(a->net, &challenger, p, cont_prune,
-                                  a->confirm_exact5 || confirm_perm
-                                      ? NULL : &crng,
-                                  confirm_perm, confirm_other_perm, p ^ 1, 0,
-                                  a->confirm_exact5 ? 5 : cont_sym,
-                                  a->plan_deck_max, a->plan_block_gap,
-                                  a->draw_playout_deck_max, a->confirm_temp,
-                                  wseed, a->win_q, a->exact_terminal,
-                                  replan_worlds, replan_cores,
-                                  replan_worlds > 0
-                                      ? &challenger_replan : NULL,
-                                  NULL, &work);
+                    (void)playout(
+                        a->net, eval_plan, &challenger, p, cont_prune,
+                        a->confirm_exact5 || confirm_perm ? NULL : &crng,
+                        confirm_perm, confirm_other_perm, p ^ 1, 0,
+                        a->confirm_exact5 ? 5 : cont_sym,
+                        a->plan_deck_max, a->plan_block_gap,
+                        a->draw_playout_deck_max, a->confirm_temp,
+                        wseed, a->win_q, a->exact_terminal,
+                        replan_worlds, replan_cores,
+                        replan_worlds > 0 ? &challenger_replan : NULL,
+                        NULL, &work);
                     double x =
                         rollout_terminal_objective(&challenger, p, a->win_q)
                         - bobj;
@@ -3453,4 +3473,20 @@ Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
      * when enabled). SearchStats.value/q carry the rollout objective. */
     if (out_value) *out_value = value;
     return mv[order[best]];
+}
+
+Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
+                  float *out_value, SearchStats *stats)
+{
+    return rollout_move_impl(a, st, rng, out_value, stats, 1);
+}
+
+/* Runtime-regression oracle: run the identical actor through the ordinary
+ * inference path.  Kept out of the public header because gameplay should
+ * always use the checkpoint-proven plan above. */
+Move rollout_move_reference_for_test(
+    const struct Agent *a, const State *st, Rng *rng,
+    float *out_value, SearchStats *stats)
+{
+    return rollout_move_impl(a, st, rng, out_value, stats, 0);
 }

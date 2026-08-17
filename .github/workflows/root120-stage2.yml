@@ -1,12 +1,7 @@
 name: Locked root-120 stage 2
 
 on:
-  push:
-    branches:
-      - agent/correctness-and-policy-upgrade
-    paths:
-      - .github/workflows/root120-stage2.yml
-      - data/experiments/locked_root120_distributed_execution.json
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -138,6 +133,7 @@ jobs:
           python3 tools/merge_arena.py reciprocal \
             --first merged/candidate-first.json \
             --second merged/baseline-first.json \
+            --gate-z 1.695 --require-positive-margin \
             --output merged/reciprocal.json
           find downloads merged -type f -print0 | sort -z | \
             xargs -0 sha256sum > merged/SHA256SUMS.txt

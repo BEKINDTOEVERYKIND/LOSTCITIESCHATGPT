@@ -163,15 +163,76 @@ void net_tie_wager_gradients(Net *g)
     wager_row_groups(g, sum_three_rows);
 }
 
-void net_trunk(const Net *n, const Features *f, NetAct *act)
+static int positive_zero_region(const float *value, size_t count)
+{
+    for (size_t i = 0; i < count; i++) {
+        uint32_t bits;
+        memcpy(&bits, &value[i], sizeof bits);
+        if (bits != 0) return 0;
+    }
+    return 1;
+}
+
+static int finite_float(float value)
+{
+    uint32_t bits;
+    memcpy(&bits, &value, sizeof bits);
+    return (bits & UINT32_C(0x7f800000)) != UINT32_C(0x7f800000);
+}
+
+static int finite_region(const float *value, size_t count)
+{
+    for (size_t i = 0; i < count; i++)
+        if (!finite_float(value[i])) return 0;
+    return 1;
+}
+
+/* Keep one sparse feature-row addition behind a call boundary.  This
+ * preserves the original feature-row order while allowing the compiler to
+ * vectorize the independent hidden-unit additions; inlining the outer sparse
+ * loop caused current GCC to emit scalar additions for this hot path. */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noinline))
+#endif
+static void add_sparse_row(float *restrict accumulator,
+                           const float *restrict row)
+{
+    for (int h = 0; h < NET_H1; h++) accumulator[h] += row[h];
+}
+
+void net_eval_plan_init(const Net *n, NetEvalPlan *plan)
+{
+    if (!plan) return;
+    plan->owner = n;
+    plan->dense_count = FEAT_DENSE;
+    plan->zero_combination = 0;
+    if (!n) return;
+    int appended_zero = 1;
+    for (int i = FEAT_LEGACY_DIM; i < FEAT_DIM && appended_zero; i++)
+        appended_zero = positive_zero_region(n->w1[i], NET_H1);
+    if (appended_zero)
+        plan->dense_count = FEAT_LEGACY_DENSE;
+    int combination_zero = 1;
+    for (int i = 0; i < NET_NCOMB && combination_zero; i++)
+        combination_zero = positive_zero_region(n->wcomb[i], NET_H2);
+    if (combination_zero && positive_zero_region(n->bcomb, NET_NCOMB))
+        plan->zero_combination = 1;
+}
+
+static void net_trunk_planned_impl(const Net *n, const Features *f,
+                                   NetAct *act,
+                                   const NetEvalPlan *plan)
 {
     float h1[NET_H1];
     for (int h = 0; h < NET_H1; h++) h1[h] = n->b1[h];
     for (int k = 0; k < f->nidx; k++) {
         const float *w = n->w1[f->idx[k]];
-        for (int h = 0; h < NET_H1; h++) h1[h] += w[h];
+        add_sparse_row(h1, w);
     }
-    for (int j = 0; j < FEAT_DENSE; j++) {
+    int dense_count = plan && plan->owner == n &&
+        plan->dense_count == FEAT_LEGACY_DENSE
+        ? FEAT_LEGACY_DENSE : FEAT_DENSE;
+    for (int j = 0; j < dense_count; j++) {
         float x = f->dense[j];
         if (x == 0.0f) continue;
         const float *w = n->w1[FEAT_BIN + j];
@@ -190,6 +251,53 @@ void net_trunk(const Net *n, const Features *f, NetAct *act)
     for (int h = 0; h < NET_H2; h++) act->a2[h] = h2[h] > 0.0f ? h2[h] : 0.0f;
 }
 
+void net_trunk_plan(const Net *n, const Features *f, NetAct *act,
+                    const NetEvalPlan *plan)
+{
+    net_trunk_planned_impl(n, f, act, plan);
+}
+
+void net_trunk(const Net *n, const Features *f, NetAct *act)
+{
+    /* Keep this ordinary policy/training path structurally identical to the
+     * historical evaluator.  The call-boundary sparse-row kernel pays for
+     * itself in large rollout panels, but its fixed call overhead regresses
+     * measured 5- and 10-symmetry policy-only workloads. */
+    float h1[NET_H1];
+    for (int h = 0; h < NET_H1; h++) h1[h] = n->b1[h];
+    for (int k = 0; k < f->nidx; k++) {
+        const float *w = n->w1[f->idx[k]];
+        for (int h = 0; h < NET_H1; h++) h1[h] += w[h];
+    }
+    for (int j = 0; j < FEAT_DENSE; j++) {
+        float x = f->dense[j];
+        if (x == 0.0f) continue;
+        const float *w = n->w1[FEAT_BIN + j];
+        for (int h = 0; h < NET_H1; h++) h1[h] += x * w[h];
+    }
+    for (int h = 0; h < NET_H1; h++)
+        act->a1[h] = h1[h] > 0.0f ? h1[h] : 0.0f;
+
+    float h2[NET_H2];
+    for (int h = 0; h < NET_H2; h++) h2[h] = n->b2[h];
+    for (int i = 0; i < NET_H1; i++) {
+        float a = act->a1[i];
+        if (a == 0.0f) continue;
+        const float *w = n->w2[i];
+        for (int h = 0; h < NET_H2; h++) h2[h] += a * w[h];
+    }
+    for (int h = 0; h < NET_H2; h++)
+        act->a2[h] = h2[h] > 0.0f ? h2[h] : 0.0f;
+}
+
+/* Runtime-regression oracle for the pre-vectorization sparse accumulation.
+ * The outer feature order and all later arithmetic are otherwise identical. */
+void net_trunk_scalar_reference_for_test(
+    const Net *n, const Features *f, NetAct *act)
+{
+    net_trunk(n, f, act);
+}
+
 float net_value_act(const Net *n, const NetAct *act)
 {
     float o = n->b3;
@@ -204,19 +312,44 @@ static inline float dot_h2(const float *w, const float *a)
     return o;
 }
 
-void net_policy_act(const Net *n, const NetAct *act, const uint16_t *mv, int nmv, float *logits)
+void net_policy_act_plan(const Net *n, const NetAct *act,
+                         const uint16_t *mv, int nmv, float *logits,
+                         const NetEvalPlan *plan)
 {
     float pl[NET_NPLAY], dr[NET_NDRAW];
     uint8_t hp[NET_NPLAY] = { 0 }, hd[NET_NDRAW] = { 0 };
+    int skip_combination = plan && plan->owner == n &&
+        plan->zero_combination == 1 && finite_region(act->a2, NET_H2);
     for (int i = 0; i < nmv; i++) {
         int ip = MOVE_CARD(mv[i]) * 2 + MOVE_DISC(mv[i]);
         int id = MOVE_DRAW(mv[i]);
         int ic = ip * NET_NDRAW + id;
         if (!hp[ip]) { pl[ip] = n->bplay[ip] + dot_h2(n->wplay[ip], act->a2); hp[ip] = 1; }
         if (!hd[id]) { dr[id] = n->bdraw[id] + dot_h2(n->wdraw[id], act->a2); hd[id] = 1; }
-        logits[i] = pl[ip] + dr[id]
-                  + n->bcomb[ic] + dot_h2(n->wcomb[ic], act->a2);
+        if (skip_combination && finite_float(pl[ip]) && finite_float(dr[id])) {
+            float base = pl[ip] + dr[id];
+            /* The complete expression adds two proven +0 terms.  Preserve
+             * its canonical +0 result even if the two retained terms happen
+             * to sum to -0; do this by bits so -ffast-math cannot erase the
+             * signed-zero guard. */
+            uint32_t bits;
+            memcpy(&bits, &base, sizeof bits);
+            if (bits == UINT32_C(0x80000000)) {
+                bits = 0;
+                memcpy(&base, &bits, sizeof bits);
+            }
+            logits[i] = base;
+        } else {
+            logits[i] = pl[ip] + dr[id]
+                      + n->bcomb[ic] + dot_h2(n->wcomb[ic], act->a2);
+        }
     }
+}
+
+void net_policy_act(const Net *n, const NetAct *act, const uint16_t *mv,
+                    int nmv, float *logits)
+{
+    net_policy_act_plan(n, act, mv, nmv, logits, NULL);
 }
 
 void net_belief_act(const Net *n, const NetAct *act, const uint8_t *cards, int nc, float *logits)

@@ -208,6 +208,29 @@ zero-initializes only these additions and preserves its old outputs exactly.
 `data/c8.bin`; its expected SHA-256 is
 `af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417`.
 
+The inherited checkpoint has exact positive-zero parameters in all 110
+appended pile-order input rows and throughout the 720-way card/action × draw
+interaction head. At each rollout decision the runtime derives an evaluation
+plan from those actual parameter bits. It omits only work whose complete
+parameter region is proven to be `+0`; any learned value, negative zero, NaN,
+nonfinite activation, wrong network owner, or unrecognized flag value falls
+back to the complete v6 path. Plans are derived by the runtime and kept only
+for one decision while their network is immutable. The shortcut is not keyed
+to a filename or model version and does
+not change features, logits, probabilities, suit averaging, candidate
+selection, RNG use, diagnostics, or moves. Regression tests compare the
+ordinary and planned paths byte for byte, including full rollout panels. This
+is a runtime optimization, not a playing-strength result.
+
+On the fixed 120-way-versus-20-way maintained rollout workload, a balanced
+four-block same-machine crossover reduced wall time by a geometric mean of
+`1.439x` (block range `1.381x`-`1.495x`) while all 32 game rows and completion
+records remained byte-identical. The final small-policy dispatch refinement
+was then rechecked on two rollout blocks at `1.448x` geometric-mean speedup and
+on a 3,000-pair five-way policy workload with identical raw results. Exact
+commands, binary/model hashes, timings, and payload hashes are retained in
+[`data/experiments/evalplan_performance.json`](data/experiments/evalplan_performance.json).
+
 See [`IMPROVEMENTS.md`](IMPROVEMENTS.md) for implemented fixes, validation,
 and remaining research work.
 
@@ -895,10 +918,13 @@ cap count. Shards of one block must use the same seed and disjoint absolute
 `--pair-start` ranges; changing the seed creates a different block rather than
 continuing one. The merger rejects gaps, overlaps, incomplete files, metadata
 drift, cap-terminated rounds, summary tampering, and overlapping reciprocal
-RNG domains. It recomputes pair-clustered uncertainty from the raw rows instead
-of averaging rounded shard error bars. Completed files and merged artifacts
-are published with no-clobber writes so reruns cannot silently replace
-evidence.
+RNG domains. The reciprocal step reopens, hashes, and exactly remerges every
+recorded raw shard, so even an internally consistent edited summary cannot
+produce an authoritative promotion flag. It recomputes pair-clustered
+uncertainty from the raw rows instead of averaging rounded shard error bars;
+precommitted tests can also record a nondefault critical z and require positive
+point margin explicitly. Completed files and merged artifacts are published
+with no-clobber writes so reruns cannot silently replace evidence.
 
 The analysis console replays a match ply by ply: board, both hands (marked
 where publicly known), the policy distribution, actual playing-search

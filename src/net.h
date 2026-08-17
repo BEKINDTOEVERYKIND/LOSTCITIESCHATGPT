@@ -66,6 +66,18 @@ typedef struct {
     float a2[NET_H2];
 } NetAct;
 
+/* Per-decision proof of inference shortcuts.  It is derived from the actual
+ * parameter bits instead of a filename or checkpoint version, and is cheap to
+ * rebuild before a rollout panel.  A negative zero, NaN, or any trained value
+ * disables the corresponding shortcut.  The owner must remain immutable for
+ * the plan's lifetime; loading, projecting, or training it invalidates every
+ * prior plan. */
+typedef struct {
+    const Net *owner;
+    uint16_t dense_count;
+    uint8_t zero_combination;
+} NetEvalPlan;
+
 typedef struct {
     Net m, v;
     long t;
@@ -86,9 +98,15 @@ void  net_tie_wager_gradients(Net *g);
 
 /* trunk only; fills act */
 void  net_trunk(const Net *n, const Features *f, NetAct *act);
+void  net_eval_plan_init(const Net *n, NetEvalPlan *plan);
+void  net_trunk_plan(const Net *n, const Features *f, NetAct *act,
+                     const NetEvalPlan *plan);
 float net_value_act(const Net *n, const NetAct *act);
 /* logits for the given packed moves */
 void  net_policy_act(const Net *n, const NetAct *act, const uint16_t *mv, int nmv, float *logits);
+void  net_policy_act_plan(const Net *n, const NetAct *act,
+                          const uint16_t *mv, int nmv, float *logits,
+                          const NetEvalPlan *plan);
 /* belief logits (opponent holds card?) for the given card ids */
 void  net_belief_act(const Net *n, const NetAct *act, const uint8_t *cards, int nc, float *logits);
 

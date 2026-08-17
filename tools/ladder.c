@@ -36,7 +36,12 @@ int main(int argc, char **argv)
     for (int i = 0; i < na; i++)
         for (int j = i + 1; j < na; j++) {
             MatchResult r;
-            match_run_r(&ag[i], &ag[j], pairs, nthread, seed + (uint64_t)(i * 31 + j), rounds, &r);
+            if (match_run_r(&ag[i], &ag[j], pairs, nthread,
+                            seed + (uint64_t)(i * 31 + j), rounds, &r) != 0) {
+                fprintf(stderr, "match execution failed for %s vs %s\n",
+                        specs[i], specs[j]);
+                return 1;
+            }
             margin[i][j] = r.margin;   margin[j][i] = -r.margin;
             score[i][j] = r.winrate * r.games; score[j][i] = (1.0 - r.winrate) * r.games;
             games[i][j] = games[j][i] = r.games;

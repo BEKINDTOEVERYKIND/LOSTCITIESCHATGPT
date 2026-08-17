@@ -839,7 +839,11 @@ int main(int argc, char **argv)
             Agent cur;
             agent_default(&cur, AG_POLICY, net);
             MatchResult mr;
-            match_run_r(&cur, &ref, eval_pairs, nthread, eval_seed, rounds, &mr);
+            if (match_run_r(&cur, &ref, eval_pairs, nthread, eval_seed,
+                            rounds, &mr) != 0) {
+                fprintf(stderr, "checkpoint evaluation match failed\n");
+                return 1;
+            }
             printf("         vs %s: margin %+.2f +- %.2f, match wins %.1f%%, plies %.0f\n",
                    ref_spec, mr.margin, mr.margin_se, 100 * mr.winrate, mr.plies);
             fflush(stdout);

@@ -61,6 +61,7 @@ typedef struct {
 
 typedef struct {
     const Net *net;
+    const NetEvalPlan *eval_plan;
     int objective;
     int cores;
     int max_actions;
@@ -279,7 +280,8 @@ static int lr_build_actions(LRContext *ctx, const State *st, int deck_only,
 {
     Move mv[MAX_MOVES];
     float prob[MAX_MOVES];
-    int n = policy_probs_sym(ctx->net, st, mv, prob, NULL, ctx->symmetries);
+    int n = policy_probs_sym_plan(
+        ctx->net, st, mv, prob, NULL, ctx->symmetries, ctx->eval_plan);
     if (n <= 0) return 0;
     int global_baseline = -1;
     if (!deck_only) {
@@ -442,7 +444,10 @@ int late_resolver_policy_candidates(const Net *net, const State *st,
         return 0;
     LRContext ctx;
     memset(&ctx, 0, sizeof ctx);
+    NetEvalPlan eval_plan;
+    net_eval_plan_init(net, &eval_plan);
     ctx.net = net;
+    ctx.eval_plan = &eval_plan;
     ctx.cores = cores;
     ctx.max_actions = max_actions > LR_MAX_ACTIONS
         ? LR_MAX_ACTIONS : max_actions;
@@ -658,7 +663,8 @@ static uint64_t lr_root_path(void)
     return UINT64_C(0xBB67AE8584CAA73B);
 }
 
-static int lr_solve_horizon(const Net *net, const State *root,
+static int lr_solve_horizon(const Net *net, const NetEvalPlan *eval_plan,
+                            const State *root,
                             const LRAssignmentPlan *plan,
                             const LRAction *root_action,
                             const float *root_prior, int nroot,
@@ -671,6 +677,7 @@ static int lr_solve_horizon(const Net *net, const State *root,
     LRContext ctx;
     memset(&ctx, 0, sizeof ctx);
     ctx.net = net;
+    ctx.eval_plan = eval_plan;
     ctx.objective = objective;
     ctx.cores = cores;
     ctx.max_actions = max_actions;
@@ -747,6 +754,7 @@ static int lr_solve_horizon(const Net *net, const State *root,
     if (summary) {
         *summary = ctx;
         summary->table = NULL;
+        summary->eval_plan = NULL;
     }
     free(ctx.table);
     return !ctx.failed;
@@ -776,7 +784,10 @@ int late_resolver_choose(const Net *net, const State *st, int objective,
 
     LRContext root_ctx;
     memset(&root_ctx, 0, sizeof root_ctx);
+    NetEvalPlan eval_plan;
+    net_eval_plan_init(net, &eval_plan);
     root_ctx.net = net;
+    root_ctx.eval_plan = &eval_plan;
     root_ctx.cores = cores;
     root_ctx.max_actions = max_actions;
     /* Rank the root with the configured deployed ensemble.  Exact-20 at every
@@ -798,12 +809,12 @@ int late_resolver_choose(const Net *net, const State *st, int objective,
     memset(&s2, 0, sizeof s2);
     memset(&s4, 0, sizeof s4);
     int ok2 = lr_solve_horizon(
-        net, st, &plan, root_action, root_prior, nroot,
+        net, &eval_plan, st, &plan, root_action, root_prior, nroot,
         objective, cores, policy_symmetries > 1 ? 5 : 1, max_actions,
         2, &h2, &v2,
         q2, &best2, &s2);
     int ok4 = ok2 && lr_solve_horizon(
-        net, st, &plan, root_action, root_prior, nroot,
+        net, &eval_plan, st, &plan, root_action, root_prior, nroot,
         objective, cores, policy_symmetries > 1 ? 5 : 1, max_actions,
         4, &h4, &v4,
         q4, &best4, &s4);

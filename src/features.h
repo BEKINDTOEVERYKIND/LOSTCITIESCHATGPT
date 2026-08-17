@@ -47,5 +47,10 @@ typedef struct {
 
 /* Encode st from player p's point of view. */
 void feat_extract(const State *st, int p, Features *f);
+/* Legacy-prefix variant for a checkpoint whose appended input rows have been
+ * proven to be exact +0.  Only callers holding that per-network proof may use
+ * it.  The appended slots are zeroed but their ordered-pile construction is
+ * skipped, so the resulting Features remains safe for accidental full reads. */
+void feat_extract_legacy(const State *st, int p, Features *f);
 
 #endif

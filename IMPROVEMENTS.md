@@ -218,7 +218,12 @@ take Yellow.”
   rejects cap-terminated games and provenance drift, recomputes exact
   pair-clustered statistics from integer rows, and combines reciprocal blocks
   only after inverting the second orientation. Allocation/thread failures and
-  incomplete workers fail before an evidence footer can be published.
+  incomplete workers fail before an evidence footer can be published. The
+  final reciprocal command reopens, hashes, and exactly remerges every
+  recorded raw shard before it can label a promotion; self-consistent edited
+  summaries are therefore insufficient. Its critical z value, directional
+  margin requirement, and per-orientation requirement are explicit result
+  fields rather than an undocumented interpretation step.
 - Corrected qpair's displayed value head, which was scaled by 50 twice.
 - Analyzer belief dumps can now contain every uncertain card and the
   card-count prior. The evaluator reports within-state AUC, Brier score, log
@@ -312,6 +317,26 @@ pairs. Ten-way then beat five-way by +1.56 ± 0.80, and 20-way beat ten-way by
 +1.79 ± 0.75 in 2,000-pair screens. Full 120-way averaging was only
 +0.70 ± 1.34 / 51.6% ± 1.2% over 20-way in 500 pairs and costs roughly six
 times more, so 20-way is the default.
+
+The generated champion retains exact `+0` values in the 110 v6 pile-order
+input rows and the complete 720-way interaction head because its source is a
+legacy checkpoint. Rollout inference now proves those regions directly from
+the loaded parameter bits once per decision and skips only the corresponding
+zero multiply-adds. It fails closed for any nonzero bit pattern, negative
+zero, NaN, nonfinite activation, owner mismatch, or invalid plan, and a plan
+is valid only while its network remains immutable. The generic v6 path is
+unchanged and remains the oracle. Runtime regression tests require byte-exact
+agreement across 1/5/10/20/120-way policy evaluation, explicit and sampled
+suit permutations, full rollout results and diagnostics, confirmation panels,
+recursive late replanning, and post-call RNG state. This optimization is not
+counted as a strength improvement. A balanced same-machine four-block
+crossover on the maintained 120-way-versus-20-way rollout workload produced a
+`1.439x` geometric-mean wall-time speedup (`1.381x`-`1.495x`) with all 32 game
+rows and completion records byte-identical. Two blocks rebuilt from the final
+small-policy-dispatch revision retained byte-identical results at `1.448x`
+geometric-mean speedup. The dispatch threshold also removes the proof-scan
+overhead from five- and ten-way policy-only actors. Exact provenance is in
+[`data/experiments/evalplan_performance.json`](data/experiments/evalplan_performance.json).
 
 Three policy-only attempts to distil a 141,500-position 20-way teacher dataset
 back into one network were all weaker over 2,000-pair holdouts:

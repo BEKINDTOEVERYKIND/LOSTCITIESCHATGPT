@@ -404,20 +404,31 @@ float move_value_heur(const State *st, Move m, const DrawSamples *ds)
     return sum / (float)ds->n;
 }
 
-static int policy_probs_raw(const Net *net, const State *st, Move *mv,
-                            float *prob, float *value)
+static int policy_probs_raw_plan(const Net *net, const State *st, Move *mv,
+                                 float *prob, float *value,
+                                 const NetEvalPlan *plan)
 {
     int n = lc_moves(st, mv);
     if (n == 0) return 0;
     uint16_t pk[MAX_MOVES];
     for (int i = 0; i < n; i++) pk[i] = MOVE_PACK(mv[i]);
     Features f;
-    feat_extract(st, st->turn, &f);
+    if (plan && plan->owner == net &&
+        plan->dense_count == FEAT_LEGACY_DENSE)
+        feat_extract_legacy(st, st->turn, &f);
+    else
+        feat_extract(st, st->turn, &f);
     NetAct act;
-    net_trunk(net, &f, &act);
+    if (plan)
+        net_trunk_plan(net, &f, &act, plan);
+    else
+        net_trunk(net, &f, &act);
     if (value) *value = net_value_act(net, &act) * VAL_SCALE;
     float lg[MAX_MOVES];
-    net_policy_act(net, &act, pk, n, lg);
+    if (plan)
+        net_policy_act_plan(net, &act, pk, n, lg, plan);
+    else
+        net_policy_act(net, &act, pk, n, lg);
     float mx = lg[0];
     for (int i = 1; i < n; i++) if (lg[i] > mx) mx = lg[i];
     float sum = 0.0f;
@@ -425,6 +436,12 @@ static int policy_probs_raw(const Net *net, const State *st, Move *mv,
     float inv = 1.0f / sum;
     for (int i = 0; i < n; i++) prob[i] *= inv;
     return n;
+}
+
+static int policy_probs_raw(const Net *net, const State *st, Move *mv,
+                            float *prob, float *value)
+{
+    return policy_probs_raw_plan(net, st, mv, prob, value, NULL);
 }
 
 /* Return an exact subgroup of the 120 suit permutations.  The 20-element
@@ -529,11 +546,12 @@ int trajectory_policy_probs(const Net *net, const State *engine_state,
     return n;
 }
 
-int policy_probs_sym(const Net *net, const State *st, Move *mv, float *prob,
-                     float *value, int symmetries)
+int policy_probs_sym_plan(const Net *net, const State *st, Move *mv,
+                          float *prob, float *value, int symmetries,
+                          const NetEvalPlan *plan)
 {
     if (symmetries <= 1)
-        return policy_probs_raw(net, st, mv, prob, value);
+        return policy_probs_raw_plan(net, st, mv, prob, value, plan);
 
     int n = lc_moves(st, mv);
     if (n == 0) return 0;
@@ -547,7 +565,8 @@ int policy_probs_sym(const Net *net, const State *st, Move *mv, float *prob,
         lc_permute_suits(st, &ps, perms[k]);
         Move pmv[MAX_MOVES];
         float pp[MAX_MOVES], pv = 0.0f;
-        int pn = policy_probs_raw(net, &ps, pmv, pp, value ? &pv : NULL);
+        int pn = policy_probs_raw_plan(
+            net, &ps, pmv, pp, value ? &pv : NULL, plan);
 
         int by_pack[MOVE_NPACK];
         for (int i = 0; i < MOVE_NPACK; i++) by_pack[i] = -1;
@@ -566,15 +585,25 @@ int policy_probs_sym(const Net *net, const State *st, Move *mv, float *prob,
     return n;
 }
 
-int policy_probs_perm(const Net *net, const State *st, Move *mv, float *prob,
-                      float *value, const uint8_t perm[NSUIT])
+int policy_probs_sym(const Net *net, const State *st, Move *mv, float *prob,
+                     float *value, int symmetries)
+{
+    return policy_probs_sym_plan(
+        net, st, mv, prob, value, symmetries, NULL);
+}
+
+int policy_probs_perm_plan(const Net *net, const State *st, Move *mv,
+                           float *prob, float *value,
+                           const uint8_t perm[NSUIT],
+                           const NetEvalPlan *plan)
 {
     State ps;
     lc_permute_suits(st, &ps, perm);
     Move pmv[MAX_MOVES];
     float pp[MAX_MOVES];
     float pv = 0.0f;
-    int pn = policy_probs_raw(net, &ps, pmv, pp, value ? &pv : NULL);
+    int pn = policy_probs_raw_plan(
+        net, &ps, pmv, pp, value ? &pv : NULL, plan);
 
     int n = lc_moves(st, mv);
     int by_pack[MOVE_NPACK];
@@ -589,15 +618,30 @@ int policy_probs_perm(const Net *net, const State *st, Move *mv, float *prob,
     return n;
 }
 
-int policy_probs_random_sym(const Net *net, const State *st, Move *mv,
-                            float *prob, Rng *rng, int symmetries)
+int policy_probs_perm(const Net *net, const State *st, Move *mv, float *prob,
+                      float *value, const uint8_t perm[NSUIT])
+{
+    return policy_probs_perm_plan(net, st, mv, prob, value, perm, NULL);
+}
+
+int policy_probs_random_sym_plan(const Net *net, const State *st, Move *mv,
+                                 float *prob, Rng *rng, int symmetries,
+                                 const NetEvalPlan *plan)
 {
     uint8_t perms[120][NSUIT];
     int nsym = suit_permutations(symmetries, perms);
     if (nsym <= 1)
-        return policy_probs_raw(net, st, mv, prob, NULL);
+        return policy_probs_raw_plan(net, st, mv, prob, NULL, plan);
     int k = (int)rng_below(rng, (uint32_t)nsym);
-    return policy_probs_perm(net, st, mv, prob, NULL, perms[k]);
+    return policy_probs_perm_plan(
+        net, st, mv, prob, NULL, perms[k], plan);
+}
+
+int policy_probs_random_sym(const Net *net, const State *st, Move *mv,
+                            float *prob, Rng *rng, int symmetries)
+{
+    return policy_probs_random_sym_plan(
+        net, st, mv, prob, rng, symmetries, NULL);
 }
 
 int policy_probs(const Net *net, const State *st, Move *mv, float *prob,
@@ -695,8 +739,17 @@ Move agent_move(const Agent *a, const State *st, Rng *rng)
     if (a->kind == AG_ROLLOUT) return rollout_move(a, st, rng, NULL, NULL);
     if (a->kind == AG_POLICY) {
         float prob[MAX_MOVES];
-        int n = policy_probs_sym(a->net, st, mv, prob, NULL,
-                                 a->symmetries);
+        NetEvalPlan eval_plan_storage;
+        const NetEvalPlan *eval_plan = NULL;
+        /* The proof scan amortizes at the maintained 20/120-way ensembles.
+         * Measured 5/10-way policy-only actors are faster on the ordinary
+         * path because their smaller panels do not repay the scan. */
+        if (a->net && a->symmetries >= 20) {
+            net_eval_plan_init(a->net, &eval_plan_storage);
+            eval_plan = &eval_plan_storage;
+        }
+        int n = policy_probs_sym_plan(
+            a->net, st, mv, prob, NULL, a->symmetries, eval_plan);
         if (a->eps > 0.0f && rng_float(rng) < a->eps) return mv[rng_below(rng, (uint32_t)n)];
         if (a->temp > 0.0f) {
             if (a->temp != 1.0f)

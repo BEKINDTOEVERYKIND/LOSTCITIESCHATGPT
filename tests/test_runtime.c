@@ -16,6 +16,11 @@
 extern int rollout_test_late_cache_order(const Net *net, const State *st);
 extern int rollout_test_unique_late_assignments(
     const State *st, int requested, int *support_out);
+extern Move rollout_move_reference_for_test(
+    const Agent *a, const State *st, Rng *rng,
+    float *out_value, SearchStats *stats);
+extern void net_trunk_scalar_reference_for_test(
+    const Net *n, const Features *f, NetAct *act);
 
 static int failures = 0;
 #define CHECK(cond, ...) do { if (!(cond)) { \
@@ -832,6 +837,15 @@ static void test_deck2_continuation_replan(void)
           "deck-two continuation replan was absent, recursive, or miscounted");
     CHECK(as.unfinished_cap_leaves == 0,
           "deck-two replan scored an unfinished ply-cap state as a leaf");
+    Rng replan_reference_rng;
+    rng_seed(&replan_reference_rng, UINT64_C(0x1F05AFE));
+    SearchStats replan_reference_stats;
+    Move replan_reference_move = rollout_move_reference_for_test(
+        &a, &st, &replan_reference_rng, NULL, &replan_reference_stats);
+    CHECK(MOVE_PACK(am) == MOVE_PACK(replan_reference_move) &&
+          memcmp(&as, &replan_reference_stats, sizeof as) == 0 &&
+          memcmp(&arng, &replan_reference_rng, sizeof arng) == 0,
+          "planned recursive replan changed move, diagnostics, or RNG");
 
     Agent exhaustive = a;
     exhaustive.dets = 1;
@@ -1562,6 +1576,18 @@ static void test_rollout_policy_shortlist(void)
     rng_seed(&rng, 9008);
     Move checked_move =
         rollout_move(&consensus, &p8, &rng, NULL, &checked);
+    Rng checked_rng = rng;
+    Rng prefix_reference_rng;
+    rng_seed(&prefix_reference_rng, 9008);
+    SearchStats prefix_reference_stats;
+    Move prefix_reference_move = rollout_move_reference_for_test(
+        &consensus, &p8, &prefix_reference_rng,
+        NULL, &prefix_reference_stats);
+    CHECK(MOVE_PACK(checked_move) == MOVE_PACK(prefix_reference_move) &&
+          memcmp(&checked, &prefix_reference_stats, sizeof checked) == 0 &&
+          memcmp(&checked_rng, &prefix_reference_rng,
+                 sizeof checked_rng) == 0,
+          "planned prefix confirmation changed move, diagnostics, or RNG");
     CHECK(checked.prefix_confirm_worlds == 4 &&
           (checked.selection_reference == 0 ||
            checked.selection_reference == proposed) &&
@@ -2465,8 +2491,12 @@ static void test_match_thread_determinism(void)
     agent_default(&a, AG_RANDOM, NULL);
     agent_default(&b, AG_RANDOM, NULL);
     MatchResult one, four;
-    match_run_r(&a, &b, 100, 1, 424242, MATCH_ROUNDS, &one);
-    match_run_r(&a, &b, 100, 4, 424242, MATCH_ROUNDS, &four);
+    CHECK(match_run_r(&a, &b, 100, 1, 424242,
+                      MATCH_ROUNDS, &one) == 0,
+          "single-thread match failed");
+    CHECK(match_run_r(&a, &b, 100, 4, 424242,
+                      MATCH_ROUNDS, &four) == 0,
+          "multi-thread match failed");
     CHECK(one.pairs == four.pairs && one.games == four.games,
           "thread count changed match count");
     CHECK(one.margin == four.margin && one.margin_se == four.margin_se &&
@@ -2508,6 +2538,21 @@ static void test_match_range_sharding(void)
     CHECK(match_run_range_r(&a, &b, UINT64_MAX, 2, 1, 1, 1,
                             NULL, &ignored) != 0,
           "overflowing absolute match range was accepted");
+
+    MatchResult invalid, zero = {0};
+    memset(&invalid, 0xA5, sizeof invalid);
+    CHECK(match_run_r(&a, &b, 1, 0, 1, 1, &invalid) != 0 &&
+          memcmp(&invalid, &zero, sizeof invalid) == 0,
+          "invalid thread count did not fail explicitly with zero output");
+    memset(&invalid, 0xA5, sizeof invalid);
+    CHECK(match_run_r(&a, &b, 1, 1, 1, MATCH_ROUNDS + 1,
+                      &invalid) != 0 &&
+          memcmp(&invalid, &zero, sizeof invalid) == 0,
+          "invalid round count did not fail explicitly with zero output");
+    memset(&invalid, 0xA5, sizeof invalid);
+    CHECK(match_run(&a, &b, -1, 1, 1, &invalid) != 0 &&
+          memcmp(&invalid, &zero, sizeof invalid) == 0,
+          "invalid pair count did not propagate through match_run");
 }
 
 static void test_rollout_match_thread_determinism(void)
@@ -2549,10 +2594,14 @@ static void test_rollout_match_thread_determinism(void)
         }
         search.confirm_dets = 16;
         MatchResult one, four;
-        match_run_r(&search, &policy, 2, 1,
-                    830083 + (uint64_t)mode, MATCH_ROUNDS, &one);
-        match_run_r(&search, &policy, 2, 4,
-                    830083 + (uint64_t)mode, MATCH_ROUNDS, &four);
+        CHECK(match_run_r(&search, &policy, 2, 1,
+                          830083 + (uint64_t)mode,
+                          MATCH_ROUNDS, &one) == 0,
+              "single-thread rollout match mode %d failed", mode);
+        CHECK(match_run_r(&search, &policy, 2, 4,
+                          830083 + (uint64_t)mode,
+                          MATCH_ROUNDS, &four) == 0,
+              "multi-thread rollout match mode %d failed", mode);
         CHECK(one.pairs == four.pairs && one.games == four.games &&
               one.margin == four.margin && one.margin_se == four.margin_se &&
               one.winrate == four.winrate &&
@@ -2753,6 +2802,296 @@ static void test_trajectory_suit_augmentation(void)
     free(net);
 }
 
+static void check_eval_plan_policy(const Net *net, const NetEvalPlan *plan,
+                                   const State *st, const char *label)
+{
+    static const int groups[] = { 1, 5, 10, 20, 120 };
+    for (size_t g = 0; g < sizeof groups / sizeof groups[0]; g++) {
+        Move full_mv[MAX_MOVES], fast_mv[MAX_MOVES];
+        float full_prob[MAX_MOVES], fast_prob[MAX_MOVES];
+        float full_value = 0.0f, fast_value = 0.0f;
+        int full_n = policy_probs_sym(
+            net, st, full_mv, full_prob, &full_value, groups[g]);
+        int fast_n = policy_probs_sym_plan(
+            net, st, fast_mv, fast_prob, &fast_value, groups[g], plan);
+        CHECK(full_n == fast_n,
+              "%s plan changed legal count at symmetry %d",
+              label, groups[g]);
+        if (full_n != fast_n) continue;
+        CHECK(memcmp(full_mv, fast_mv,
+                     sizeof(Move) * (size_t)full_n) == 0,
+              "%s plan changed move order at symmetry %d",
+              label, groups[g]);
+        CHECK(memcmp(full_prob, fast_prob,
+                     sizeof(float) * (size_t)full_n) == 0,
+              "%s plan changed probabilities at symmetry %d",
+              label, groups[g]);
+        CHECK(memcmp(&full_value, &fast_value, sizeof full_value) == 0,
+              "%s plan changed value at symmetry %d", label, groups[g]);
+    }
+
+    uint8_t perms[120][NSUIT];
+    int nperm = suit_permutations(120, perms);
+    CHECK(nperm == 120, "%s could not build full suit group", label);
+    if (nperm == 120) {
+        Move full_mv[MAX_MOVES], fast_mv[MAX_MOVES];
+        float full_prob[MAX_MOVES], fast_prob[MAX_MOVES];
+        float full_value = 0.0f, fast_value = 0.0f;
+        int full_n = policy_probs_perm(
+            net, st, full_mv, full_prob, &full_value, perms[73]);
+        int fast_n = policy_probs_perm_plan(
+            net, st, fast_mv, fast_prob, &fast_value, perms[73], plan);
+        CHECK(full_n == fast_n &&
+              memcmp(full_mv, fast_mv,
+                     sizeof(Move) * (size_t)full_n) == 0 &&
+              memcmp(full_prob, fast_prob,
+                     sizeof(float) * (size_t)full_n) == 0 &&
+              memcmp(&full_value, &fast_value, sizeof full_value) == 0,
+              "%s plan changed explicit-permutation inference", label);
+    }
+
+    Rng full_rng, fast_rng;
+    rng_seed(&full_rng, UINT64_C(0xA4093822299F31D0));
+    fast_rng = full_rng;
+    Move full_mv[MAX_MOVES], fast_mv[MAX_MOVES];
+    float full_prob[MAX_MOVES], fast_prob[MAX_MOVES];
+    int full_n = policy_probs_random_sym(
+        net, st, full_mv, full_prob, &full_rng, 120);
+    int fast_n = policy_probs_random_sym_plan(
+        net, st, fast_mv, fast_prob, &fast_rng, 120, plan);
+    CHECK(full_n == fast_n &&
+          memcmp(full_mv, fast_mv, sizeof(Move) * (size_t)full_n) == 0 &&
+          memcmp(full_prob, fast_prob,
+                 sizeof(float) * (size_t)full_n) == 0 &&
+          memcmp(&full_rng, &fast_rng, sizeof full_rng) == 0,
+          "%s plan changed sampled-symmetry inference or RNG", label);
+}
+
+static void test_network_eval_plan(void)
+{
+    Net *net = malloc(sizeof *net);
+    CHECK(net != NULL, "network allocation for inference plan");
+    if (!net) return;
+    if (net_load(net, "data/champion.bin") != 0) {
+        CHECK(0, "load champion for inference plan");
+        free(net);
+        return;
+    }
+
+    NetEvalPlan plan;
+    net_eval_plan_init(net, &plan);
+    CHECK(plan.owner == net && plan.dense_count == FEAT_LEGACY_DENSE &&
+          plan.zero_combination == 1,
+          "champion zero-parameter inference proof was not detected");
+    const int targets[] = { 1, 13, 31 };
+    for (size_t i = 0; i < sizeof targets / sizeof targets[0]; i++) {
+        State st = reviewed_state(net, targets[i]);
+        char label[48];
+        snprintf(label, sizeof label, "champion-ply-%d", targets[i]);
+        check_eval_plan_policy(net, &plan, &st, label);
+    }
+
+    State pile_state = reviewed_state(net, 31);
+    Features pile_features, legacy_features;
+    feat_extract(&pile_state, pile_state.turn, &pile_features);
+    memset(&legacy_features, 0xA5, sizeof legacy_features);
+    feat_extract_legacy(&pile_state, pile_state.turn, &legacy_features);
+    CHECK(pile_features.nidx == legacy_features.nidx &&
+          memcmp(pile_features.idx, legacy_features.idx,
+                 sizeof(uint16_t) * (size_t)pile_features.nidx) == 0 &&
+          memcmp(pile_features.dense, legacy_features.dense,
+                 sizeof(float) * FEAT_LEGACY_DENSE) == 0,
+          "legacy feature extraction changed the consumed feature prefix");
+    int active_pile_feature = -1;
+    for (int j = FEAT_LEGACY_DENSE; j < FEAT_DENSE; j++)
+        if (pile_features.dense[j] != 0.0f) {
+            active_pile_feature = j;
+            break;
+        }
+    CHECK(active_pile_feature >= 0,
+          "inference-plan fixture did not exercise appended pile features");
+
+    NetAct baseline_act;
+    net_trunk(net, &pile_features, &baseline_act);
+    NetAct scalar_act;
+    net_trunk_scalar_reference_for_test(net, &pile_features, &scalar_act);
+    CHECK(memcmp(&baseline_act, &scalar_act, sizeof baseline_act) == 0,
+          "vector sparse accumulation changed the original trunk output");
+    int active_hidden = -1;
+    for (int h = 0; h < NET_H2; h++)
+        if (baseline_act.a2[h] != 0.0f) {
+            active_hidden = h;
+            break;
+        }
+    CHECK(active_hidden >= 0,
+          "inference-plan fixture has no active second-layer unit");
+    Move pile_legal[MAX_MOVES];
+    int pile_nlegal = lc_moves(&pile_state, pile_legal);
+    CHECK(pile_nlegal > 0, "inference-plan fixture has no legal move");
+    uint16_t active_packed = pile_nlegal > 0 ? MOVE_PACK(pile_legal[0]) : 0;
+    int active_combination =
+        (MOVE_CARD(active_packed) * 2 + MOVE_DISC(active_packed)) * NET_NDRAW
+        + MOVE_DRAW(active_packed);
+
+    NetAct nonfinite_act = baseline_act;
+    uint32_t positive_infinity_bits = UINT32_C(0x7f800000);
+    memcpy(&nonfinite_act.a2[0], &positive_infinity_bits,
+           sizeof positive_infinity_bits);
+    float nonfinite_full = 0.0f, nonfinite_planned = 0.0f;
+    net_policy_act(
+        net, &nonfinite_act, &active_packed, 1, &nonfinite_full);
+    net_policy_act_plan(
+        net, &nonfinite_act, &active_packed, 1, &nonfinite_planned, &plan);
+    CHECK(memcmp(&nonfinite_full, &nonfinite_planned,
+                 sizeof nonfinite_full) == 0,
+          "nonfinite activation did not fall back to the complete head");
+
+    Agent actor;
+    agent_default(&actor, AG_ROLLOUT, net);
+    actor.no_belief = 1;
+    actor.dets = 4;
+    actor.root_width = 2;
+    actor.min_cand = 2;
+    actor.cand_floor = 0.0f;
+    actor.symmetries = 5;
+    actor.playout_symmetries = 5;
+    actor.playout_prune = 0;
+    Rng planned_rng, reference_rng;
+    rng_seed(&planned_rng, UINT64_C(0x452821E638D01377));
+    reference_rng = planned_rng;
+    SearchStats planned_stats, reference_stats;
+    float planned_value = 0.0f, reference_value = 0.0f;
+    Move planned_move = rollout_move(
+        &actor, &pile_state, &planned_rng, &planned_value, &planned_stats);
+    Move reference_move = rollout_move_reference_for_test(
+        &actor, &pile_state, &reference_rng,
+        &reference_value, &reference_stats);
+    CHECK(MOVE_PACK(planned_move) == MOVE_PACK(reference_move) &&
+          memcmp(&planned_value, &reference_value,
+                 sizeof planned_value) == 0 &&
+          memcmp(&planned_stats, &reference_stats,
+                 sizeof planned_stats) == 0 &&
+          memcmp(&planned_rng, &reference_rng, sizeof planned_rng) == 0,
+          "planned rollout changed move, diagnostics, value, or RNG state");
+
+    State st = pile_state;
+    int active_input_row = FEAT_BIN + active_pile_feature;
+    net->w1[active_input_row][0] = 0.25f;
+    net_eval_plan_init(net, &plan);
+    CHECK(plan.dense_count == FEAT_DENSE && plan.zero_combination == 1,
+          "trained appended row did not disable only the trunk shortcut");
+    NetAct trained_pile_act;
+    net_trunk(net, &pile_features, &trained_pile_act);
+    CHECK(memcmp(&baseline_act, &trained_pile_act,
+                 sizeof baseline_act) != 0,
+          "active appended-row sentinel did not affect full inference");
+    check_eval_plan_policy(net, &plan, &st, "trained-appended-row");
+    net->w1[active_input_row][0] = 0.0f;
+
+    uint32_t negative_zero_bits = UINT32_C(0x80000000);
+    memcpy(&net->w1[active_input_row][0], &negative_zero_bits,
+           sizeof negative_zero_bits);
+    net_eval_plan_init(net, &plan);
+    CHECK(plan.dense_count == FEAT_DENSE,
+          "negative-zero appended row incorrectly enabled shortcut");
+    check_eval_plan_policy(net, &plan, &st, "negative-zero-appended-row");
+    net->w1[active_input_row][0] = 0.0f;
+
+    float baseline_logit = 0.0f, trained_logit = 0.0f;
+    net_policy_act(net, &baseline_act, &active_packed, 1, &baseline_logit);
+    if (active_hidden >= 0)
+        net->wcomb[active_combination][active_hidden] = 0.25f;
+    net_eval_plan_init(net, &plan);
+    CHECK(plan.dense_count == FEAT_LEGACY_DENSE &&
+          plan.zero_combination == 0,
+          "trained combination row did not disable only head shortcut");
+    net_policy_act(net, &baseline_act, &active_packed, 1, &trained_logit);
+    CHECK(memcmp(&baseline_logit, &trained_logit,
+                 sizeof baseline_logit) != 0,
+          "active combination-row sentinel did not affect full inference");
+    check_eval_plan_policy(net, &plan, &st, "trained-combination-row");
+    if (active_hidden >= 0)
+        net->wcomb[active_combination][active_hidden] = 0.0f;
+
+    net->bcomb[active_combination] = 0.25f;
+    net_eval_plan_init(net, &plan);
+    CHECK(plan.zero_combination == 0,
+          "trained combination bias did not disable head shortcut");
+    net_policy_act(net, &baseline_act, &active_packed, 1, &trained_logit);
+    CHECK(trained_logit == baseline_logit + 0.25f,
+          "active combination-bias sentinel did not affect target logit");
+    check_eval_plan_policy(net, &plan, &st, "trained-combination-bias");
+    net->bcomb[active_combination] = 0.0f;
+
+    uint32_t quiet_nan_bits = UINT32_C(0x7fc00000);
+    memcpy(&net->wcomb[active_combination][0],
+           &quiet_nan_bits, sizeof quiet_nan_bits);
+    net_eval_plan_init(net, &plan);
+    CHECK(plan.zero_combination == 0,
+          "NaN combination weight incorrectly enabled shortcut");
+    net->wcomb[active_combination][0] = 0.0f;
+
+    memcpy(&net->bcomb[active_combination], &negative_zero_bits,
+           sizeof negative_zero_bits);
+    net_eval_plan_init(net, &plan);
+    CHECK(plan.zero_combination == 0,
+          "negative-zero combination bias incorrectly enabled shortcut");
+    net->bcomb[active_combination] = 0.0f;
+
+    NetEvalPlan null_plan;
+    memset(&null_plan, 0xA5, sizeof null_plan);
+    net_eval_plan_init(NULL, &null_plan);
+    CHECK(null_plan.owner == NULL && null_plan.dense_count == FEAT_DENSE &&
+          null_plan.zero_combination == 0,
+          "null-network plan did not fail closed");
+
+    Net *other = malloc(sizeof *other);
+    CHECK(other != NULL, "second network allocation for plan ownership");
+    if (other) {
+        net_zero(other);
+        NetEvalPlan wrong_owner;
+        int active_play = MOVE_CARD(active_packed) * 2
+                        + MOVE_DISC(active_packed);
+        int active_draw = MOVE_DRAW(active_packed);
+        memcpy(&other->bplay[active_play], &negative_zero_bits,
+               sizeof negative_zero_bits);
+        memcpy(&other->bdraw[active_draw], &negative_zero_bits,
+               sizeof negative_zero_bits);
+        net_eval_plan_init(other, &wrong_owner);
+        NetAct zero_act;
+        memset(&zero_act, 0, sizeof zero_act);
+        float zero_full = 1.0f, zero_planned = 1.0f;
+        net_policy_act(
+            other, &zero_act, &active_packed, 1, &zero_full);
+        net_policy_act_plan(
+            other, &zero_act, &active_packed, 1,
+            &zero_planned, &wrong_owner);
+        uint32_t zero_full_bits, zero_planned_bits;
+        memcpy(&zero_full_bits, &zero_full, sizeof zero_full_bits);
+        memcpy(&zero_planned_bits, &zero_planned, sizeof zero_planned_bits);
+        CHECK(zero_full_bits == 0 && zero_planned_bits == zero_full_bits,
+              "zero-head shortcut changed the sign of an exact zero logit");
+        other->bplay[active_play] = 0.0f;
+        other->bdraw[active_draw] = 0.0f;
+        net->w1[active_input_row][0] = 0.125f;
+        if (active_hidden >= 0)
+            net->wcomb[active_combination][active_hidden] = 0.125f;
+        check_eval_plan_policy(net, &wrong_owner, &st, "wrong-owner-plan");
+        net->w1[active_input_row][0] = 0.0f;
+        if (active_hidden >= 0)
+            net->wcomb[active_combination][active_hidden] = 0.0f;
+        free(other);
+    }
+
+    net_init(net, UINT64_C(0x082EFA98EC4E6C89));
+    net_eval_plan_init(net, &plan);
+    CHECK(plan.owner == net && plan.dense_count == FEAT_DENSE &&
+          plan.zero_combination == 1,
+          "current random network inference proof is incorrect");
+    check_eval_plan_policy(net, &plan, &st, "current-random-network");
+    free(net);
+}
+
 int main(void)
 {
     test_sampler();
@@ -2781,6 +3120,7 @@ int main(void)
     test_rollout_match_thread_determinism();
     test_suit_symmetry_ensemble();
     test_trajectory_suit_augmentation();
+    test_network_eval_plan();
     if (failures == 0) {
         printf("all runtime regression tests passed\n");
         return 0;

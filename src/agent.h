@@ -228,16 +228,26 @@ void agent_information_view(const State *complete, int p, State *view);
 int  policy_probs(const Net *net, const State *st, Move *mv, float *prob, float *value);
 int  policy_probs_sym(const Net *net, const State *st, Move *mv, float *prob,
                       float *value, int symmetries);
+int  policy_probs_sym_plan(const Net *net, const State *st, Move *mv,
+                           float *prob, float *value, int symmetries,
+                           const NetEvalPlan *plan);
 /* Draw one member of a suit-permutation group and map its policy back to st.
  * Averaging repeated calls equals policy_probs_sym(), but each costs one
  * forward pass. */
 int  policy_probs_random_sym(const Net *net, const State *st, Move *mv,
                              float *prob, Rng *rng, int symmetries);
+int  policy_probs_random_sym_plan(const Net *net, const State *st, Move *mv,
+                                  float *prob, Rng *rng, int symmetries,
+                                  const NetEvalPlan *plan);
 /* Evaluate one explicitly supplied suit relabelling and map its legal-move
  * probabilities back to st.  This is the one-forward building block for a
  * temporally consistent sampled-symmetry rollout actor. */
 int  policy_probs_perm(const Net *net, const State *st, Move *mv, float *prob,
                        float *value, const uint8_t perm[NSUIT]);
+int  policy_probs_perm_plan(const Net *net, const State *st, Move *mv,
+                            float *prob, float *value,
+                            const uint8_t perm[NSUIT],
+                            const NetEvalPlan *plan);
 /* Fill an exact subgroup of suit relabellings.  Invalid sizes return only the
  * identity.  The returned maps send original suit -> permuted suit. */
 int  suit_permutations(int requested, uint8_t out[120][NSUIT]);

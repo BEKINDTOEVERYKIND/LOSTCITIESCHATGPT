@@ -14,30 +14,60 @@
 #include <time.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <limits.h>
 #include <unistd.h>
 
 static int parse_u64(const char *s, uint64_t *out)
 {
-    if (!s || !*s || *s == '-') return 0;
-    errno = 0;
-    char *end = NULL;
-    unsigned long long value = strtoull(s, &end, 10);
-    if (errno || end == s || *end != '\0') return 0;
-    *out = (uint64_t)value;
+    if (!s || !*s || !out) return 0;
+    uint64_t value = 0;
+    for (const unsigned char *p = (const unsigned char *)s; *p; p++) {
+        if (*p < '0' || *p > '9') return 0;
+        uint64_t digit = (uint64_t)(*p - '0');
+        if (value > (UINT64_MAX - digit) / UINT64_C(10)) return 0;
+        value = value * UINT64_C(10) + digit;
+    }
+    *out = value;
     return 1;
 }
 
 static int parse_int_range(const char *s, int low, int high, int *out)
 {
-    if (!s || !*s) return 0;
-    errno = 0;
-    char *end = NULL;
-    long value = strtol(s, &end, 10);
-    if (errno || end == s || *end != '\0' || value < low || value > high)
+    uint64_t value;
+    if (low < 0 || high < low || !parse_u64(s, &value) ||
+        value < (uint64_t)low || value > (uint64_t)high)
         return 0;
     *out = (int)value;
     return 1;
+}
+
+static int raw_rows_complete(const MatchPairResult *row, int pairs,
+                             uint64_t pair_start, int rounds,
+                             const MatchResult *result)
+{
+    if (!row || !result || pairs < 1 || pairs > MATCH_MAX_PAIRS ||
+        rounds < 1 || rounds > MATCH_ROUNDS || result->pairs != pairs ||
+        result->games != 2 * pairs)
+        return 0;
+    uint64_t caps = 0, wins = 0, losses = 0, draws = 0;
+    for (int i = 0; i < pairs; i++) {
+        uint64_t expected = pair_start + (uint64_t)i;
+        if (row[i].index != expected) return 0;
+        for (int leg = 0; leg < 2; leg++) {
+            if (row[i].plies[leg] < rounds ||
+                row[i].plies[leg] > rounds * LC_MAX_PLIES ||
+                row[i].capped_rounds[leg] < 0 ||
+                row[i].capped_rounds[leg] > rounds)
+                return 0;
+            caps += (uint64_t)row[i].capped_rounds[leg];
+            if (row[i].score_a[leg] > row[i].score_b[leg]) wins++;
+            else if (row[i].score_a[leg] < row[i].score_b[leg]) losses++;
+            else draws++;
+        }
+    }
+    return caps == result->capped_rounds &&
+        (double)wins == result->wins &&
+        (double)losses == result->losses &&
+        (double)draws == result->draws;
 }
 
 static void json_string(FILE *f, const char *s)
@@ -65,7 +95,16 @@ static int write_raw_pairs(const char *path, const MatchPairResult *row,
                            int rounds, const char *spec0, const char *spec1,
                            const char *provenance)
 {
+    if (!path || !*path || !row || pairs < 1 || pairs > MATCH_MAX_PAIRS ||
+        rounds < 1 ||
+        rounds > MATCH_ROUNDS || !spec0 || !spec1 || !provenance ||
+        !*provenance ||
+        pair_start > UINT64_MAX - ((uint64_t)pairs - UINT64_C(1))) {
+        fprintf(stderr, "refusing to write incomplete raw results\n");
+        return -1;
+    }
     size_t npath = strlen(path);
+    if (npath > SIZE_MAX - 64) return -1;
     char *tmp = malloc(npath + 64);
     if (!tmp) return -1;
     snprintf(tmp, npath + 64, "%s.tmp.%ld", path, (long)getpid());
@@ -141,7 +180,7 @@ int main(int argc, char **argv)
         if (!strcmp(argv[i], "-a") && i + 1 < argc) spec0 = argv[++i];
         else if (!strcmp(argv[i], "-b") && i + 1 < argc) spec1 = argv[++i];
         else if (!strcmp(argv[i], "-n") && i + 1 < argc) {
-            if (!parse_int_range(argv[++i], 1, INT_MAX, &pairs)) {
+            if (!parse_int_range(argv[++i], 1, MATCH_MAX_PAIRS, &pairs)) {
                 fprintf(stderr, "invalid pair count\n");
                 return 1;
             }
@@ -185,13 +224,18 @@ int main(int argc, char **argv)
             return 1;
         }
     }
-    if (pairs < 1 || nthread < 1 || rounds < 1 || rounds > MATCH_ROUNDS ||
-        pair_start > UINT64_MAX - (uint64_t)pairs) {
+    if (pairs < 1 || pairs > MATCH_MAX_PAIRS || nthread < 1 ||
+        rounds < 1 || rounds > MATCH_ROUNDS ||
+        pair_start > UINT64_MAX - ((uint64_t)pairs - UINT64_C(1))) {
         fprintf(stderr, "invalid pair/thread/round range\n");
         return 1;
     }
     if (raw_only && !raw_path) {
         fprintf(stderr, "--raw-only requires --raw-pairs\n");
+        return 1;
+    }
+    if (raw_path && (!*raw_path || !provenance || !*provenance)) {
+        fprintf(stderr, "--raw-pairs requires a nonempty path and provenance\n");
         return 1;
     }
 
@@ -206,20 +250,37 @@ int main(int argc, char **argv)
         return 1;
     }
     struct timespec t0, t1;
-    clock_gettime(CLOCK_MONOTONIC, &t0);
-    if (match_run_range_r(&a, &b, pair_start, pairs, nthread, seed,
-                          rounds, rows, &r) != 0) {
-        fprintf(stderr, "invalid match range\n");
+    if (clock_gettime(CLOCK_MONOTONIC, &t0) != 0) {
+        fprintf(stderr, "cannot start arena timer: %s\n", strerror(errno));
         free(rows);
         return 1;
     }
-    clock_gettime(CLOCK_MONOTONIC, &t1);
-    double secs = (t1.tv_sec - t0.tv_sec) + 1e-9 * (t1.tv_nsec - t0.tv_nsec);
-
-    if (raw_path && write_raw_pairs(raw_path, rows, pairs, pair_start, seed,
-                                    rounds, spec0, spec1, provenance) != 0) {
+    if (match_run_range_r(&a, &b, pair_start, pairs, nthread, seed,
+                          rounds, rows, &r) != 0) {
+        fprintf(stderr, "match execution failed; no results were published\n");
         free(rows);
         return 1;
+    }
+    if (clock_gettime(CLOCK_MONOTONIC, &t1) != 0) {
+        fprintf(stderr, "cannot stop arena timer; no results were published: "
+                        "%s\n", strerror(errno));
+        free(rows);
+        return 1;
+    }
+    double secs = (t1.tv_sec - t0.tv_sec) + 1e-9 * (t1.tv_nsec - t0.tv_nsec);
+
+    if (raw_path) {
+        if (!raw_rows_complete(rows, pairs, pair_start, rounds, &r)) {
+            fprintf(stderr, "match returned incomplete raw rows; no results "
+                            "were published\n");
+            free(rows);
+            return 1;
+        }
+        if (write_raw_pairs(raw_path, rows, pairs, pair_start, seed,
+                            rounds, spec0, spec1, provenance) != 0) {
+            free(rows);
+            return 1;
+        }
     }
     free(rows);
 
