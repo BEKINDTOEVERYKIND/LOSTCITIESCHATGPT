@@ -14,18 +14,29 @@ unchanged.
 The maintained playing agent uses the exact 20-way champion policy for the
 first 14 actions of each round. Beginning at zero-based `round_ply=14` (the
 15th displayed action), it evaluates at most five policy-ranked moves with at
-least 2% prior on 512 shared uniform hidden worlds. If that primary panel
-prefers a move other than the raw policy leader, a fresh 512-world panel uses
-balanced suit mappings that remain fixed for each complete trajectory. The
-move changes only when both panels select the same leader; disagreement falls
-back to the policy. This is the exact deployed specification:
+least 2% prior on 512 shared uniform hidden worlds. In every world, each player
+gets an independently stratified suit mapping that remains fixed for the whole
+trajectory. If that primary panel prefers a move other than the raw policy
+leader, a fresh role-coherent 512-world panel must independently select the
+same leader; disagreement falls back to the policy. This is the exact deployed
+specification:
 
 ```text
-rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:2:20:0:0:20:1:0:512:1:0:0:0:0:0:0:2:1:0:0:0:0:0:0:1
+rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1
 ```
 
-Two locked tests supported the promotion (each mirrored pair is two complete
-three-round matches with seats swapped):
+This role-coherent actor passed a locked reciprocal promotion against the
+previous maintained actor (each mirrored pair is two complete three-round
+matches with seats swapped):
+
+| comparison | mirrored pairs | margin/match | match score | W/L/D |
+| --- | ---: | ---: | ---: | ---: |
+| role-coherent actor vs previous actor | 2,000 | **+2.744 ± 0.753 SE** | **51.8375% ± 0.6173% SE** | 2064/1917/19 |
+
+Its one-sided 95% match-score lower bound was 50.8221%, and both reciprocal
+orientations were positive. The exact locked result is recorded in
+[`data/experiments/role_coherent_result.json`](data/experiments/role_coherent_result.json).
+The previous actor had itself been supported by these earlier tests:
 
 | comparison | seed | mirrored pairs | margin/match | match score | W/L/D |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -159,11 +170,10 @@ live self-play.
 
 The tracked [interactive match viewer](web/viewer.html) embeds the precommitted
 random seed's self-play match under the maintained actor, with no result
-screening or seed replacement: seed `209430960825253`, 145 plies, final score
-P1 190–P2 175. The same seed was replayed only while repairing a
-continuation-validity defect exposed by its diagnostics. The actor, deals, and
-independent post-game audit use separate deterministic RNG streams. The viewer
-keeps the move that was actually played
+screening or seed replacement: seed `181292076812167`, 143 plies, final score
+P1 191–P2 172. The seed was drawn once before generation and the match was not
+retried or filtered. The actor, deals, and independent post-game audit use
+separate deterministic RNG streams. The viewer keeps the move that was actually played
 separate from the higher-compute review and shows the focused shortlist,
 paired uncertainty, coherent-panel result, exact-terminal leaf count,
 recursive late-search work, budget/cycle fallbacks, search depth, and the
@@ -814,10 +824,12 @@ The old `playout_sample=1` mode sampled full policy actions and random suit
 symmetries together. That is retained only as a robustness ablation. Mode `2`
 separates the useful cheap symmetry approximation from action sampling: each
 downstream decision draws one requested symmetry and takes its greedy move.
-Mode `3` instead fixes a balanced symmetry mapping for the complete sampled
-trajectory. The maintained method uses mode 2 for discovery and independent
-mode 3 for consensus, without changing the evaluated player into a much weaker
-high-entropy policy. When the optional recursive late evaluator is enabled,
+Mode `3` fixes one balanced symmetry mapping for a complete sampled trajectory;
+mode `4` independently stratifies and fixes one mapping for each player. The
+maintained primary panel uses mode 4, and its trusted-prefix confirmation uses
+the matching role-coherent mode 3. This avoids changing either evaluated player
+into a much weaker high-entropy policy. When the optional recursive late
+evaluator is enabled,
 its first and actually selected-path deck-two/deck-three shortlists use the
 full requested ensemble. Hypothetical top-one descendants use their
 information-state-keyed single group member; the surrounding ordinary
@@ -834,7 +846,10 @@ round index 2. The measured production actor uses objective mode `0`;
 changing the objective would require another locked strength test. The
 last-round-only win objective is intentionally preserved. The maintained
 high-compute post-hoc audit spec is printed into every analysis artifact by
-`tools/analyze`.
+`tools/analyze`. Its 2,048-world primary and confirmation panels now use the
+same independently stratified, trajectory-coherent player roles as live play;
+the audit no longer evaluates challengers against the superseded fictitious
+policy that changed suit orientation at every downstream decision.
 
 The production-setting objective-mode comparison is precommitted in
 [`data/experiments/locked_objective_mode2_plan.json`](data/experiments/locked_objective_mode2_plan.json).

@@ -140,9 +140,10 @@
  * for the first 14 actions of each round.  Beginning at zero-based round ply
  * 14 (the 15th action), a 512-world primary panel compares at most five policy
  * moves with at least 2% prior.  If it proposes a different
- * leader, a fresh balanced 512-world panel keeps one suit mapping fixed for
- * each complete trajectory; both panels must select the same move.  The exact
- * one-card-deck solver is intrinsic to rollout and is also used at the
+ * leader, both the primary worlds and a fresh balanced 512-world panel give
+ * the two players independently stratified suit mappings that remain fixed
+ * for each complete trajectory; both panels must select the same move.  The
+ * exact one-card-deck solver is intrinsic to rollout and is also used at the
  * end of every simulated continuation, so earlier search values inherit the
  * optimal final action rather than a policy-network mistake.
  *
@@ -152,12 +153,14 @@
  * user-facing C defaults on this measured configuration.
  */
 #define LC_CHAMPION_AGENT_SPEC \
-    "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:2:20:" \
-    "0:0:20:1:0:512:1:0:0:0:0:0:0:2:1:0:0:0:0:0:0:1"
+    "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:" \
+    "0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
 
 /* Higher-compute post-game review.  It retains the match-tested ply-14 phase
  * boundary, then spends its ordinary rollout worlds on at most three distinct
  * top-policy card/action cores plus two policy-supported draw alternatives.
+ * Its primary and trusted-prefix continuations use the same player-specific,
+ * trajectory-coherent suit roles as the promoted live actor.
  * At a real deck depth of two or three, the separate bounded late resolver
  * enumerates the complete ordered 90/990 information-state support, solves
  * two stall horizons and accepts only horizon-consistent practical gains.
@@ -167,8 +170,8 @@
  * spec here prevents the UI, analyzer and documentation from silently
  * drifting. */
 #define LC_AUDIT_AGENT_SPEC \
-    "rolloutu:data/champion.bin:2048:5:0.01:0:1:14:0:0:0:0:3.5:2:2:20:" \
-    "0:0:20:1:0:2048:1:0:0:0:0:0:0:2:1:0:0:2:1:0:3:1:0:0:1"
+    "rolloutu:data/champion.bin:2048:5:0.01:0:1:14:0:0:0:0:3.5:2:4:20:" \
+    "0:0:20:1:0:2048:1:0:0:0:0:0:0:3:1:0:0:2:1:0:3:1:0:0:1"
 
 /* Parses spec into *a, loading a network if needed.  Exits on error.  Call
  * spec_release() when the parsed actor's process lifetime does not own it. */

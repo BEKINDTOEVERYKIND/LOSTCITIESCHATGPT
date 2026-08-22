@@ -1,0 +1,900 @@
+name: Locked continuation-v2 factorial campaign
+
+# This file, its plan, and its exact transported executables do not launch the
+# campaign.  One future addendum-only commit must bind all of them.  Runners
+# compile nothing and no screen is promotion evidence.
+on:
+  push:
+    branches:
+      - agent/correctness-and-policy-upgrade
+    paths:
+      - data/experiments/locked_continuation_v2_execution.json
+
+permissions:
+  contents: read
+
+env:
+  PLAN_PATH: data/experiments/locked_continuation_v2_plan.json
+  PLAN_SHA: 5b5ffe0dee8eb637415c2efbdf7b42c5537efeb2fa4df6d8764df99b5296e06a
+  EXECUTION_PATH: data/experiments/locked_continuation_v2_execution.json
+  SOURCE_COMMIT: 65c510234d5995a8d60b8a5cbecd84709e79b272
+  SOURCE_TREE: 8f9d8d6d3b6683fb6691fc208e671f459d08d957
+  SOUP_RESULT_SHA: 6c122813969f22bd38976d955699bbf14e4470328c44a4a92b54da33c681cd3a
+  RL_SHA: 7467211579df59b4796815420011a45f2b2158a484e7cba9efbeefa0ed1b3661
+  RL_SIZE: '428504'
+  CONTINUATION_ARENA_SHA: 16c39d9d0f81853885c78c35442c70114538fe8545025b9fa33995dddf4884e0
+  CONTINUATION_ARENA_SIZE: '379072'
+  NET_AVERAGE_SHA: 56172ab722aca829d06e2b97e10c101f5ba39d517d5954bcf619a32528fcfacd
+  NET_AVERAGE_SIZE: '72944'
+  SELECTOR_SHA: b7f8a7b30eccec6b81f3d76e77b3276b78aa73a828c2640e25ff0c2adba3ac56
+  SELECTOR_TEST_SHA: d46c7f1cf7b73279b1d4a8ec4772f90a49db9bdcc93db8dcfbe7018495c043c8
+  MAKEFILE_SHA: 1ecf0974c393b59215bc6289d4bb7ef3dd4c886816a7e72d2f1e6278d5bf280e
+  ROOT_SHA: af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417
+  ROOT_SIZE: '2823748'
+  MODEL_SIZE: '2823748'
+  SCREEN_A_SEED: '202608260201'
+  SCREEN_B_SEED: '202608260202'
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      execution_sha: ${{ steps.guard.outputs.execution_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          path: campaign
+
+      - name: Fail closed unless this is the one addendum-only launch
+        id: guard
+        working-directory: campaign
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/agent/correctness-and-policy-upgrade
+          test "$GITHUB_EVENT_NAME" = push
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test -f "$EXECUTION_PATH"
+          test "$(git diff-tree --no-commit-id --name-only -r HEAD)" = "$EXECUTION_PATH"
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          import subprocess
+          from pathlib import Path
+
+          def reject_constant(token):
+              raise ValueError(f"non-standard JSON constant {token}")
+
+          def unique(items):
+              out = {}
+              for key, value in items:
+                  if key in out:
+                      raise ValueError(f"duplicate JSON key {key}")
+                  out[key] = value
+              return out
+
+          execution_path = Path(os.environ["EXECUTION_PATH"])
+          workflow_path = Path(".github/workflows/continuation-v2.yml")
+          parent = subprocess.check_output(
+              ["git", "rev-parse", "HEAD^"], text=True).strip()
+          workflow_sha = hashlib.sha256(workflow_path.read_bytes()).hexdigest()
+          value = json.loads(execution_path.read_text(encoding="utf-8"),
+                             object_pairs_hook=unique,
+                             parse_constant=reject_constant)
+          expected = {
+              "schema_version": 1,
+              "artifact_kind": "locked_continuation_v2_execution",
+              "status": "launch_bound_before_candidate_generation_or_efficacy_inspection",
+              "source_parent_commit": parent,
+              "workflow": {
+                  "path": str(workflow_path),
+                  "sha256": workflow_sha,
+              },
+              "plan": {
+                  "path": os.environ["PLAN_PATH"],
+                  "sha256": os.environ["PLAN_SHA"],
+              },
+              "build_source": {
+                  "remote_commit": os.environ["SOURCE_COMMIT"],
+                  "tree": os.environ["SOURCE_TREE"],
+              },
+              "base": {
+                  "path": "data/champion.bin",
+                  "sha256": os.environ["ROOT_SHA"],
+                  "rejected_soup_result_sha256": os.environ["SOUP_RESULT_SHA"],
+              },
+              "transport": {
+                  "binding": "transport exact prebuilt artifacts; compile nothing on runners",
+                  "rl": {
+                      "path": "data/evaluators/continuation-v2/rl",
+                      "sha256": os.environ["RL_SHA"],
+                      "size_bytes": int(os.environ["RL_SIZE"]),
+                  },
+                  "continuation_arena": {
+                      "path": "data/evaluators/continuation-v2/continuation_arena",
+                      "sha256": os.environ["CONTINUATION_ARENA_SHA"],
+                      "size_bytes": int(os.environ["CONTINUATION_ARENA_SIZE"]),
+                  },
+                  "net_average": {
+                      "path": "data/evaluators/continuation-v2/net_average",
+                      "sha256": os.environ["NET_AVERAGE_SHA"],
+                      "size_bytes": int(os.environ["NET_AVERAGE_SIZE"]),
+                  },
+                  "champion": {
+                      "path": "data/champion.bin",
+                      "sha256": os.environ["ROOT_SHA"],
+                      "size_bytes": int(os.environ["ROOT_SIZE"]),
+                  },
+              },
+              "evidence_tool": {
+                  "path": "tools/select_continuation_v2.py",
+                  "sha256": os.environ["SELECTOR_SHA"],
+                  "test_path": "tests/test_select_continuation_v2.py",
+                  "test_sha256": os.environ["SELECTOR_TEST_SHA"],
+                  "makefile_sha256": os.environ["MAKEFILE_SHA"],
+              },
+              "factorial_cells": [
+                  {"id": "o0-shared", "objective": 0, "roles": "shared"},
+                  {"id": "o0-independent", "objective": 0, "roles": "independent"},
+                  {"id": "o2-shared", "objective": 2, "roles": "shared"},
+                  {"id": "o2-independent", "objective": 2, "roles": "independent"},
+              ],
+              "training_seeds": {
+                  "warm": ["202608260101", "202608260102", "202608260103"],
+                  "full": ["202608261101", "202608261102", "202608261103"],
+              },
+              "screens": {
+                  "screen_a_seed": os.environ["SCREEN_A_SEED"],
+                  "screen_a_pairs_per_checkpoint": 1500,
+                  "screen_a_candidates": 84,
+                  "screen_a_evaluation_jobs": 1,
+                  "screen_a_prevalidation_artifacts": 0,
+                  "screen_a_selection_jobs": 0,
+                  "screen_a_final_artifacts": 1,
+                  "screen_b_seed": os.environ["SCREEN_B_SEED"],
+                  "screen_b_pairs_per_candidate": 6000,
+                  "screen_b_candidates": 16,
+                  "screen_b_evaluation_jobs": 1,
+                  "screen_b_prevalidation_artifacts": 0,
+                  "screen_b_selection_jobs": 0,
+                  "screen_b_final_artifacts": 1,
+              },
+              "excluded_development_seeds": [
+                  {"seed": "202608250101", "use": "development warm-training runtime smoke"},
+                  {"seed": "202608250201", "use": "development Screen-A/runtime/validator smoke"},
+                  {"seed": "202608250202", "use": "development Screen-B/validator smoke"},
+                  {"seed": "202608259901", "use": "exact-transport zero-epoch smoke"},
+              ],
+              "seed_firewall": "entire 20260825 namespace burned; locked campaign uses only 20260826",
+              "actor_stages": "not_consumed_by_this_workflow",
+              "inspection_rule": "No efficacy row is exposed or parsed until the single screen job has assembled the complete manifest, the locked selector has schema-validated every expected raw file, model, hash, and schedule, and the locked selection is complete; only one final screen artifact is then uploaded.",
+              "results": None,
+          }
+          if value != expected:
+              raise SystemExit("execution addendum does not exactly match the locked campaign")
+          if not re.fullmatch(r"[0-9a-f]{40}", parent):
+              raise SystemExit("noncanonical parent commit")
+          PY
+          test "$(sha256sum "$PLAN_PATH" | cut -d' ' -f1)" = "$PLAN_SHA"
+          test "$(sha256sum data/experiments/continuation_soup_v1_actor_result.json | cut -d' ' -f1)" = "$SOUP_RESULT_SHA"
+          test "$(git rev-parse "$SOURCE_COMMIT^{tree}")" = "$SOURCE_TREE"
+          test "$(sha256sum tools/rl.c | cut -d' ' -f1)" = b0bad51ba6858e71b4def7cb990153c12511433604b5f845cd34541269222e17
+          test "$(sha256sum tools/continuation_arena.c | cut -d' ' -f1)" = 107d81465efc0c0c85b189cee0642688572499c5856f95fe74b2962f0ce376d8
+          test "$(sha256sum tools/net_average.c | cut -d' ' -f1)" = 04752af40e4e240da96dea05a4df45c97ef0776f989aaa5aacbfb7313086094c
+          test "$(sha256sum tools/select_continuation_v2.py | cut -d' ' -f1)" = "$SELECTOR_SHA"
+          test "$(sha256sum tests/test_select_continuation_v2.py | cut -d' ' -f1)" = "$SELECTOR_TEST_SHA"
+          test "$(sha256sum Makefile | cut -d' ' -f1)" = "$MAKEFILE_SHA"
+          EXECUTION_SHA="$(sha256sum "$EXECUTION_PATH" | cut -d' ' -f1)"
+          echo "execution_sha=$EXECUTION_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Bind exact transported executables and champion
+        run: |
+          set -euo pipefail
+          check() {
+            test -f "$1"
+            test "$(stat -c %s "$1")" = "$2"
+            test "$(sha256sum "$1" | cut -d' ' -f1)" = "$3"
+          }
+          check campaign/data/evaluators/continuation-v2/rl "$RL_SIZE" "$RL_SHA"
+          check campaign/data/evaluators/continuation-v2/continuation_arena "$CONTINUATION_ARENA_SIZE" "$CONTINUATION_ARENA_SHA"
+          check campaign/data/evaluators/continuation-v2/net_average "$NET_AVERAGE_SIZE" "$NET_AVERAGE_SHA"
+          check campaign/data/champion.bin "$ROOT_SIZE" "$ROOT_SHA"
+          test -x campaign/data/evaluators/continuation-v2/rl
+          test -x campaign/data/evaluators/continuation-v2/continuation_arena
+          test -x campaign/data/evaluators/continuation-v2/net_average
+          mkdir transport
+          cp campaign/data/evaluators/continuation-v2/rl transport/rl
+          cp campaign/data/evaluators/continuation-v2/continuation_arena transport/continuation_arena
+          cp campaign/data/evaluators/continuation-v2/net_average transport/net_average
+          cp campaign/data/champion.bin transport/champion.bin
+          {
+            echo "launch_commit=$GITHUB_SHA"
+            echo "launch_parent=$(git -C campaign rev-parse HEAD^)"
+            echo "execution_sha=${{ steps.guard.outputs.execution_sha }}"
+            echo "plan_sha=$PLAN_SHA"
+            echo "build_source_commit=$SOURCE_COMMIT"
+            echo "build_source_tree=$SOURCE_TREE"
+            uname -a
+            sha256sum transport/*
+          } > transport/BUILD_INFO.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: continuation-v2-transport
+          path: transport
+          if-no-files-found: error
+          retention-days: 30
+
+  train:
+    needs: preflight
+    if: ${{ github.run_attempt == 1 }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix:
+        cell: [o0-shared, o0-independent, o2-shared, o2-independent]
+        replicate: [1, 2, 3]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: continuation-v2-transport
+          path: transport
+
+      - name: Train one immutable cell replicate
+        env:
+          CELL: ${{ matrix.cell }}
+          REPLICATE: ${{ matrix.replicate }}
+          EXECUTION_SHA: ${{ needs.preflight.outputs.execution_sha }}
+        run: |
+          set -euo pipefail
+          case "$CELL" in
+            o0-shared) OBJECTIVE=0; ROLES=shared ;;
+            o0-independent) OBJECTIVE=0; ROLES=independent ;;
+            o2-shared) OBJECTIVE=2; ROLES=shared ;;
+            o2-independent) OBJECTIVE=2; ROLES=independent ;;
+            *) exit 2 ;;
+          esac
+          case "$REPLICATE" in
+            1) WARM_SEED=202608260101; FULL_SEED=202608261101 ;;
+            2) WARM_SEED=202608260102; FULL_SEED=202608261102 ;;
+            3) WARM_SEED=202608260103; FULL_SEED=202608261103 ;;
+            *) exit 2 ;;
+          esac
+          mkdir -p bin data run artifact/models artifact/logs
+          cp transport/rl bin/rl
+          cp transport/net_average bin/net_average
+          cp transport/champion.bin data/champion.bin
+          chmod +x bin/rl bin/net_average
+          test "$(stat -c %s bin/rl)" = "$RL_SIZE"
+          test "$(sha256sum bin/rl | cut -d' ' -f1)" = "$RL_SHA"
+          test "$(sha256sum bin/net_average | cut -d' ' -f1)" = "$NET_AVERAGE_SHA"
+          test "$(sha256sum data/champion.bin | cut -d' ' -f1)" = "$ROOT_SHA"
+          /usr/bin/time -f 'wall_s=%e user_s=%U sys_s=%S max_rss_kb=%M exit=%x' \
+            -o artifact/logs/warm.time \
+            ./bin/rl --init data/champion.bin \
+              --continuation-start 14 --continuation-root data/champion.bin \
+              --continuation-objective "$OBJECTIVE" \
+              --continuation-role-mappings "$ROLES" \
+              --anchor data/champion.bin --kl 0.50 --lambda 1 --bw 0 --eval 0 \
+              --rounds 3 --games 1366 --threads 4 --iters 2 --batch 512 \
+              --epochs 1 --lr 1e-4 --clip 0.1 --vcoef 1 --ent 0.001 \
+              --temp 0.7 --wd 1e-7 --trajectory-symmetries 20 --v6-only \
+              --seed "$WARM_SEED" --out run/warm.bin \
+              > artifact/logs/warm.log 2>&1
+          test "$(sha256sum data/champion.bin | cut -d' ' -f1)" = "$ROOT_SHA"
+          /usr/bin/time -f 'wall_s=%e user_s=%U sys_s=%S max_rss_kb=%M exit=%x' \
+            -o artifact/logs/full.time \
+            ./bin/rl --init run/warm.bin \
+              --continuation-start 14 --continuation-root data/champion.bin \
+              --continuation-objective "$OBJECTIVE" \
+              --continuation-role-mappings "$ROLES" \
+              --anchor data/champion.bin --kl 0.25 --lambda 1 --bw 0 --eval 0 \
+              --rounds 3 --games 1366 --threads 4 --iters 10 --batch 512 \
+              --epochs 1 --lr 5e-5 --clip 0.1 --vcoef 1 --ent 0.001 \
+              --temp 0.7 --wd 1e-7 --trajectory-symmetries 20 \
+              --seed "$FULL_SEED" --out run/full.bin \
+              > artifact/logs/full.log 2>&1
+          test "$(sha256sum data/champion.bin | cut -d' ' -f1)" = "$ROOT_SHA"
+          cp run/warm.bin.it2 artifact/models/warm2.bin
+          for iteration in 2 4 6 8 10; do
+            cp "run/full.bin.it${iteration}" "artifact/models/full${iteration}.bin"
+          done
+          python3 - "$ROLES" artifact/logs/warm.log artifact/logs/full.log <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          roles = sys.argv[1]
+          expected = (2, 10)
+          for path, iterations in zip(map(Path, sys.argv[2:]), expected):
+              text = path.read_text(encoding="utf-8")
+              if len(re.findall(r"^iter\s+\d+:", text, re.M)) != iterations:
+                  raise SystemExit(f"iteration count mismatch in {path}")
+              roots = re.findall(
+                  r"continuation roots (\d+): baseline (\d+), challenger (\d+); "
+                  r"first actor round ply (\d+); root actor rows (\d+); exact "
+                  r"deck-one moves (\d+)", text)
+              if len(roots) != iterations:
+                  raise SystemExit(f"continuation diagnostics missing in {path}")
+              for total, baseline, challenger, first, root_rows, exact in roots:
+                  if (int(total) != 4098 or int(baseline) + int(challenger) != 4098
+                          or int(first) != 15 or int(root_rows) != 0
+                          or int(exact) != 4098):
+                      raise SystemExit(f"invalid continuation diagnostics in {path}")
+              if text.count("immutable champion verified") != iterations:
+                  raise SystemExit(f"immutable-root verification missing in {path}")
+              updates = [int(value) for value in re.findall(r"^\s*(\d+) updates in ", text, re.M)]
+              if len(updates) != iterations or any(value <= 0 for value in updates):
+                  raise SystemExit(f"optimizer update diagnostics invalid in {path}")
+              if re.search(r"(?i)(?<![A-Za-z])(nan|[+-]?inf)(?![A-Za-z])", text):
+                  raise SystemExit(f"non-finite diagnostic in {path}")
+              role_rows = re.findall(
+                  r"continuation role product group (\d+): tails (\d+); "
+                  r"pair-count (\d+)\.\.(\d+); root/opponent marginals "
+                  r"(\d+)\.\.(\d+)/(\d+)\.\.(\d+)", text)
+              if roles == "independent":
+                  if len(role_rows) != iterations:
+                      raise SystemExit(f"role-product diagnostics missing in {path}")
+                  for row in role_rows:
+                      group, tails, pmin, pmax, rmin, rmax, omin, omax = map(int, row)
+                      if (group != 20 or tails != 4098 or pmax - pmin > 1
+                              or rmax - rmin > 1 or omax - omin > 1):
+                          raise SystemExit(f"unbalanced role product in {path}")
+              elif role_rows:
+                  raise SystemExit(f"unexpected independent-role diagnostics in {path}")
+          PY
+          for model in artifact/models/*.bin; do
+            test "$(stat -c %s "$model")" = "$MODEL_SIZE"
+            rm -f run/verify.bin
+            ./bin/net_average run/verify.bin "$model" "$model" > /dev/null
+            cmp "$model" run/verify.bin
+          done
+          {
+            echo "cell=$CELL"
+            echo "replicate=$REPLICATE"
+            echo "objective=$OBJECTIVE"
+            echo "roles=$ROLES"
+            echo "warm_seed=$WARM_SEED"
+            echo "full_seed=$FULL_SEED"
+            echo "execution_sha=$EXECUTION_SHA"
+            echo "plan_sha=$PLAN_SHA"
+            echo "source_commit=$SOURCE_COMMIT"
+            echo "source_tree=$SOURCE_TREE"
+            echo "rl_sha=$RL_SHA"
+            echo "root_sha=$ROOT_SHA"
+            sha256sum artifact/models/*
+          } > artifact/TRAINING_PROVENANCE.txt
+          (cd artifact && find . -type f ! -name SHA256SUMS.txt -print0 | sort -z | \
+            xargs -0 sha256sum > SHA256SUMS.txt && sha256sum -c SHA256SUMS.txt)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: continuation-v2-train-${{ matrix.cell }}-r${{ matrix.replicate }}
+          path: artifact
+          if-no-files-found: error
+          retention-days: 30
+
+  screen_a_evaluate:
+    needs: [preflight, train]
+    if: ${{ github.run_attempt == 1 }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: campaign
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: continuation-v2-transport
+          path: transport
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: continuation-v2-train-*
+          path: training-downloads
+
+      - name: Complete all 84 Screen-A candidates before exposing any efficacy
+        env:
+          EXECUTION_SHA: ${{ needs.preflight.outputs.execution_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p bin data models evidence/screen-a
+          cp transport/continuation_arena bin/continuation_arena
+          cp transport/champion.bin data/champion.bin
+          chmod +x bin/continuation_arena
+          test "$(stat -c %s bin/continuation_arena)" = "$CONTINUATION_ARENA_SIZE"
+          test "$(sha256sum bin/continuation_arena | cut -d' ' -f1)" = "$CONTINUATION_ARENA_SHA"
+          test "$(sha256sum data/champion.bin | cut -d' ' -f1)" = "$ROOT_SHA"
+          for CELL in o0-shared o0-independent o2-shared o2-independent; do
+            for REPLICATE in 1 2 3; do
+              SOURCE="training-downloads/continuation-v2-train-$CELL-r$REPLICATE"
+              (cd "$SOURCE" && sha256sum -c SHA256SUMS.txt)
+              mkdir -p "models/$CELL/r$REPLICATE"
+              for CHECKPOINT in base warm2 full2 full4 full6 full8 full10; do
+                if [ "$CHECKPOINT" = base ]; then
+                  CANDIDATE=data/champion.bin
+                  PROVENANCE_CELL=all
+                  PROVENANCE_REPLICATE=all
+                else
+                  cp "$SOURCE/models/$CHECKPOINT.bin" \
+                    "models/$CELL/r$REPLICATE/$CHECKPOINT.bin"
+                  CANDIDATE="models/$CELL/r$REPLICATE/$CHECKPOINT.bin"
+                  PROVENANCE_CELL="$CELL"
+                  PROVENANCE_REPLICATE="r$REPLICATE"
+                fi
+                test "$(stat -c %s "$CANDIDATE")" = "$MODEL_SIZE"
+                CANDIDATE_SHA="$(sha256sum "$CANDIDATE" | cut -d' ' -f1)"
+                PROVENANCE="continuation-v2|stage=screen-a|plan=$PLAN_SHA|arena=$CONTINUATION_ARENA_SHA|root=$ROOT_SHA|candidate=$CANDIDATE_SHA|baseline=$ROOT_SHA|cell=$PROVENANCE_CELL|replicate=$PROVENANCE_REPLICATE|checkpoint=$CHECKPOINT"
+                OUT="evidence/screen-a/$CELL/r$REPLICATE/$CHECKPOINT/result"
+                mkdir -p "$(dirname "$OUT")"
+                /usr/bin/time \
+                  -f 'wall_s=%e user_s=%U sys_s=%S max_rss_kb=%M exit=%x' \
+                  -o "$OUT.time" \
+                  ./bin/continuation_arena -a "$CANDIDATE" \
+                    -r data/champion.bin -b data/champion.bin \
+                    -n 1500 -t 4 -s "$SCREEN_A_SEED" --pair-start 0 \
+                    --continuation-objective 2 \
+                    --continuation-role-mappings independent \
+                    --raw-pairs "$OUT.jsonl" \
+                    --provenance "$PROVENANCE" --raw-only
+                test "$(sha256sum data/champion.bin | cut -d' ' -f1)" = "$ROOT_SHA"
+                sha256sum "$OUT.jsonl" > "$OUT.sha256"
+                {
+                  echo "candidate_checkpoint=$CANDIDATE"
+                  echo "candidate_model_id=$CANDIDATE_SHA"
+                  echo "provenance=$PROVENANCE"
+                  echo "execution_sha=$EXECUTION_SHA"
+                } > "$OUT.identity"
+              done
+            done
+          done
+          test "$(find evidence/screen-a -type f -name result.jsonl | wc -l)" = 84
+          while IFS= read -r -d '' RAW; do
+            SIDECAR="$(dirname "$RAW")/result.sha256"
+            test -f "$SIDECAR"
+            test "$(sha256sum "$RAW" | cut -d' ' -f1)" = \
+              "$(cut -d' ' -f1 "$SIDECAR")"
+          done < <(find evidence/screen-a -type f -name result.jsonl -print0)
+          find evidence/screen-a -type f -name result.jsonl -print0 | sort -z | \
+            xargs -0 sha256sum > evidence/SCREEN_A_RAW_SHA256SUMS.txt
+          sha256sum -c evidence/SCREEN_A_RAW_SHA256SUMS.txt
+
+      - name: Build the strict manifest without reading efficacy
+        env:
+          EXECUTION_SHA: ${{ needs.preflight.outputs.execution_sha }}
+        run: |
+          set -euo pipefail
+          test "$(sha256sum campaign/tools/select_continuation_v2.py | cut -d' ' -f1)" = "$SELECTOR_SHA"
+          test "$(sha256sum campaign/$PLAN_PATH | cut -d' ' -f1)" = "$PLAN_SHA"
+          mkdir -p selected
+          test "$(sha256sum bin/continuation_arena | cut -d' ' -f1)" = "$CONTINUATION_ARENA_SHA"
+          test "$(sha256sum data/champion.bin | cut -d' ' -f1)" = "$ROOT_SHA"
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          cells = [
+              {"cell":"o0-shared","cell_order":0,"objective":0,"role_mapping":"shared"},
+              {"cell":"o0-independent","cell_order":1,"objective":0,"role_mapping":"independent"},
+              {"cell":"o2-shared","cell_order":2,"objective":2,"role_mapping":"shared"},
+              {"cell":"o2-independent","cell_order":3,"objective":2,"role_mapping":"independent"},
+          ]
+          checkpoints = ["base","warm2","full2","full4","full6","full8","full10"]
+
+          def digest(path):
+              return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+          evidence = []
+          for cell in cells:
+              name = cell["cell"]
+              for rep in ("r1", "r2", "r3"):
+                  for checkpoint in checkpoints:
+                      raw = f"evidence/screen-a/{name}/{rep}/{checkpoint}/result.jsonl"
+                      sidecar = Path(raw).with_suffix(".sha256")
+                      if not Path(raw).is_file() or not sidecar.is_file():
+                          raise SystemExit(f"missing raw or sidecar: {raw}")
+                      raw_id = digest(raw)
+                      tokens = sidecar.read_text(encoding="utf-8").split()
+                      if len(tokens) != 2 or tokens[0] != raw_id:
+                          raise SystemExit(f"sidecar mismatch: {raw}")
+                      if checkpoint == "base":
+                          candidate = "data/champion.bin"
+                      else:
+                          candidate = f"models/{name}/{rep}/{checkpoint}.bin"
+                      evidence.append({
+                          "raw": raw,
+                          "raw_id": raw_id,
+                          "cell": name,
+                          "replicate": rep,
+                          "checkpoint": checkpoint,
+                          "candidate_checkpoint": candidate,
+                          "candidate_artifact": candidate,
+                          "candidate_model_id": digest(candidate),
+                      })
+          manifest = {
+              "schema": 1,
+              "stage": "screen-a",
+              "plan_path": "campaign/" + os.environ["PLAN_PATH"],
+              "plan_id": os.environ["PLAN_SHA"],
+              "arena_path": "bin/continuation_arena",
+              "arena_id": os.environ["CONTINUATION_ARENA_SHA"],
+              "root_model_id": os.environ["ROOT_SHA"],
+              "baseline_model_id": os.environ["ROOT_SHA"],
+              "root_checkpoint": "data/champion.bin",
+              "baseline_checkpoint": "data/champion.bin",
+              "seed": os.environ["SCREEN_A_SEED"],
+              "pair_start": "0",
+              "pair_count": 1500,
+              "target_round": "cycle_0_1_2",
+              "cells": cells,
+              "replicates": ["r1","r2","r3"],
+              "checkpoints": checkpoints,
+              "evidence": evidence,
+          }
+          Path("screen-a-manifest.json").write_text(
+              json.dumps(manifest, sort_keys=True, indent=2) + "\n",
+              encoding="utf-8")
+          PY
+
+      - name: Validate all bytes, then make the sole locked Screen-A selection
+        run: |
+          set -euo pipefail
+          python3 campaign/tools/select_continuation_v2.py validate \
+            --manifest screen-a-manifest.json --artifact-root . \
+            --output screen-a-validation.json
+          python3 campaign/tools/select_continuation_v2.py screen-a \
+            --manifest screen-a-manifest.json --artifact-root . \
+            --output screen-a-result.json
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import shutil
+          from pathlib import Path
+
+          result = json.loads(Path("screen-a-result.json").read_text(encoding="utf-8"))
+          if result.get("status") != "complete" or len(result.get("selections", [])) != 12:
+              raise SystemExit("selector did not produce twelve winners")
+          for winner in result["selections"]:
+              cell, replicate = winner["cell"], winner["replicate"]
+              source = Path(winner["candidate_artifact"])
+              destination = Path("selected") / cell / replicate / "winner.bin"
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copyfile(source, destination)
+              actual = hashlib.sha256(destination.read_bytes()).hexdigest()
+              if actual != winner["candidate_model_id"]:
+                  raise SystemExit("selected-model copy mismatch")
+          PY
+          (find evidence selected -type f -print0; \
+             printf '%s\0' screen-a-manifest.json screen-a-validation.json screen-a-result.json) | \
+            sort -z | xargs -0 sha256sum > SCREEN_A_SHA256SUMS.txt
+          sha256sum -c SCREEN_A_SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: continuation-v2-screen-a-final-evidence
+          path: |
+            evidence
+            selected
+            screen-a-manifest.json
+            screen-a-validation.json
+            screen-a-result.json
+            SCREEN_A_SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+
+  build_soups:
+    needs: screen_a_evaluate
+    if: ${{ github.run_attempt == 1 }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        cell: [o0-shared, o0-independent, o2-shared, o2-independent]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: continuation-v2-screen-a-final-evidence
+          path: screen-a
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: continuation-v2-transport
+          path: transport
+
+      - name: Construct one locked equal-weight three-replicate soup
+        env:
+          CELL: ${{ matrix.cell }}
+        run: |
+          set -euo pipefail
+          case "$CELL" in
+            o0-shared|o0-independent|o2-shared|o2-independent) ;;
+            *) exit 2 ;;
+          esac
+          (cd screen-a && sha256sum -c SCREEN_A_SHA256SUMS.txt)
+          mkdir -p bin "soups/$CELL"
+          cp transport/net_average bin/net_average
+          chmod +x bin/net_average
+          test "$(stat -c %s bin/net_average)" = "$NET_AVERAGE_SIZE"
+          test "$(sha256sum bin/net_average | cut -d' ' -f1)" = "$NET_AVERAGE_SHA"
+          python3 - "$CELL" <<'PY'
+          import hashlib
+          import json
+          import sys
+          from pathlib import Path
+
+          cell = sys.argv[1]
+          result = json.loads(Path("screen-a/screen-a-result.json").read_text(encoding="utf-8"))
+          selected = {row["replicate"]: row for row in result["selections"] if row["cell"] == cell}
+          if set(selected) != {"r1", "r2", "r3"}:
+              raise SystemExit("incomplete Screen-A winners")
+          for replicate in ("r1", "r2", "r3"):
+              path = Path("screen-a/selected") / cell / replicate / "winner.bin"
+              actual = hashlib.sha256(path.read_bytes()).hexdigest()
+              if actual != selected[replicate]["candidate_model_id"]:
+                  raise SystemExit("winner/model identity mismatch")
+          Path(f"soups/{cell}/components.json").write_text(
+              json.dumps({
+                  "cell": cell,
+                  "components": [selected[r]["candidate_model_id"] for r in ("r1","r2","r3")],
+                  "screen_a_result_sha256": hashlib.sha256(
+                      Path("screen-a/screen-a-result.json").read_bytes()).hexdigest(),
+              }, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+          PY
+          /usr/bin/time -f 'wall_s=%e user_s=%U sys_s=%S max_rss_kb=%M exit=%x' \
+            -o "soups/$CELL/net-average.time" \
+            ./bin/net_average "soups/$CELL/soup.bin" \
+              "screen-a/selected/$CELL/r1/winner.bin" \
+              "screen-a/selected/$CELL/r2/winner.bin" \
+              "screen-a/selected/$CELL/r3/winner.bin" \
+              > "soups/$CELL/net-average.log"
+          test "$(stat -c %s "soups/$CELL/soup.bin")" = "$MODEL_SIZE"
+          ./bin/net_average "soups/$CELL/verify.bin" \
+            "soups/$CELL/soup.bin" "soups/$CELL/soup.bin" > /dev/null
+          cmp "soups/$CELL/soup.bin" "soups/$CELL/verify.bin"
+          rm "soups/$CELL/verify.bin"
+          sha256sum "soups/$CELL/soup.bin" > "soups/$CELL/soup.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: continuation-v2-soup-${{ matrix.cell }}
+          path: soups
+          if-no-files-found: error
+          retention-days: 30
+
+  screen_b_evaluate:
+    needs: [preflight, screen_a_evaluate, build_soups]
+    if: ${{ github.run_attempt == 1 }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: campaign
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: continuation-v2-screen-a-final-evidence
+          path: screen-a
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: continuation-v2-soup-*
+          path: soup-downloads
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: continuation-v2-transport
+          path: transport
+
+      - name: Complete all 16 Screen-B candidates before exposing any efficacy
+        env:
+          EXECUTION_SHA: ${{ needs.preflight.outputs.execution_sha }}
+        run: |
+          set -euo pipefail
+          (cd screen-a && sha256sum -c SCREEN_A_SHA256SUMS.txt)
+          mkdir -p bin data models evidence/screen-b
+          cp transport/continuation_arena bin/continuation_arena
+          cp transport/champion.bin data/champion.bin
+          chmod +x bin/continuation_arena
+          test "$(stat -c %s bin/continuation_arena)" = "$CONTINUATION_ARENA_SIZE"
+          test "$(sha256sum bin/continuation_arena | cut -d' ' -f1)" = "$CONTINUATION_ARENA_SHA"
+          test "$(sha256sum data/champion.bin | cut -d' ' -f1)" = "$ROOT_SHA"
+          for CELL in o0-shared o0-independent o2-shared o2-independent; do
+            mkdir -p "models/$CELL"
+            for REPLICATE in r1 r2 r3; do
+              cp "screen-a/selected/$CELL/$REPLICATE/winner.bin" \
+                "models/$CELL/$REPLICATE.bin"
+            done
+            SOUP_SOURCE="soup-downloads/continuation-v2-soup-$CELL/$CELL"
+            test "$(sha256sum "$SOUP_SOURCE/soup.bin" | cut -d' ' -f1)" = \
+              "$(cut -d' ' -f1 "$SOUP_SOURCE/soup.sha256")"
+            cp "$SOUP_SOURCE/soup.bin" "models/$CELL/soup.bin"
+            COMPONENTS="$(python3 - "$CELL" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          value = json.loads(Path(
+              f"soup-downloads/continuation-v2-soup-{sys.argv[1]}/"
+              f"{sys.argv[1]}/components.json").read_text(encoding="utf-8"))
+          print(",".join(value["components"]))
+          PY
+          )"
+            for VARIANT in r1 r2 r3 soup; do
+              CANDIDATE="models/$CELL/$VARIANT.bin"
+              test "$(stat -c %s "$CANDIDATE")" = "$MODEL_SIZE"
+              CANDIDATE_SHA="$(sha256sum "$CANDIDATE" | cut -d' ' -f1)"
+              COMPONENT_FIELD=""
+              if [ "$VARIANT" = soup ]; then
+                COMPONENT_FIELD="|components=$COMPONENTS"
+              fi
+              PROVENANCE="continuation-v2|stage=screen-b|plan=$PLAN_SHA|arena=$CONTINUATION_ARENA_SHA|root=$ROOT_SHA|candidate=$CANDIDATE_SHA|baseline=$ROOT_SHA|cell=$CELL|variant=$VARIANT$COMPONENT_FIELD"
+              OUT="evidence/screen-b/$CELL/$VARIANT/result"
+              mkdir -p "$(dirname "$OUT")"
+              /usr/bin/time \
+                -f 'wall_s=%e user_s=%U sys_s=%S max_rss_kb=%M exit=%x' \
+                -o "$OUT.time" \
+                ./bin/continuation_arena -a "$CANDIDATE" \
+                  -r data/champion.bin -b data/champion.bin \
+                  -n 6000 -t 4 -s "$SCREEN_B_SEED" --pair-start 0 \
+                  --continuation-objective 2 \
+                  --continuation-role-mappings independent \
+                  --raw-pairs "$OUT.jsonl" \
+                  --provenance "$PROVENANCE" --raw-only
+              test "$(sha256sum data/champion.bin | cut -d' ' -f1)" = "$ROOT_SHA"
+              sha256sum "$OUT.jsonl" > "$OUT.sha256"
+              {
+                echo "candidate_checkpoint=$CANDIDATE"
+                echo "candidate_model_id=$CANDIDATE_SHA"
+                echo "provenance=$PROVENANCE"
+                echo "execution_sha=$EXECUTION_SHA"
+              } > "$OUT.identity"
+            done
+          done
+          test "$(find evidence/screen-b -type f -name result.jsonl | wc -l)" = 16
+          while IFS= read -r -d '' RAW; do
+            SIDECAR="$(dirname "$RAW")/result.sha256"
+            test -f "$SIDECAR"
+            test "$(sha256sum "$RAW" | cut -d' ' -f1)" = \
+              "$(cut -d' ' -f1 "$SIDECAR")"
+          done < <(find evidence/screen-b -type f -name result.jsonl -print0)
+          find evidence/screen-b -type f -name result.jsonl -print0 | sort -z | \
+            xargs -0 sha256sum > evidence/SCREEN_B_RAW_SHA256SUMS.txt
+          sha256sum -c evidence/SCREEN_B_RAW_SHA256SUMS.txt
+
+      - name: Build the strict Screen-B manifest without reading efficacy
+        run: |
+          set -euo pipefail
+          test "$(sha256sum campaign/tools/select_continuation_v2.py | cut -d' ' -f1)" = "$SELECTOR_SHA"
+          (cd screen-a && sha256sum -c SCREEN_A_SHA256SUMS.txt)
+          test "$(sha256sum bin/continuation_arena | cut -d' ' -f1)" = "$CONTINUATION_ARENA_SHA"
+          test "$(sha256sum data/champion.bin | cut -d' ' -f1)" = "$ROOT_SHA"
+          cp screen-a/screen-a-result.json screen-a-result.json
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          cells = [
+              {"cell":"o0-shared","cell_order":0,"objective":0,"role_mapping":"shared"},
+              {"cell":"o0-independent","cell_order":1,"objective":0,"role_mapping":"independent"},
+              {"cell":"o2-shared","cell_order":2,"objective":2,"role_mapping":"shared"},
+              {"cell":"o2-independent","cell_order":3,"objective":2,"role_mapping":"independent"},
+          ]
+
+          def digest(path):
+              return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+          screen_a = json.loads(Path("screen-a-result.json").read_text(encoding="utf-8"))
+          winners = {(row["cell"], row["replicate"]): row["candidate_model_id"]
+                     for row in screen_a["selections"]}
+          evidence = []
+          for cell in cells:
+              name = cell["cell"]
+              components = [winners[(name, rep)] for rep in ("r1","r2","r3")]
+              for variant in ("r1","r2","r3","soup"):
+                  raw = f"evidence/screen-b/{name}/{variant}/result.jsonl"
+                  sidecar = Path(raw).with_suffix(".sha256")
+                  if not Path(raw).is_file() or not sidecar.is_file():
+                      raise SystemExit(f"missing raw or sidecar: {raw}")
+                  raw_id = digest(raw)
+                  tokens = sidecar.read_text(encoding="utf-8").split()
+                  if len(tokens) != 2 or tokens[0] != raw_id:
+                      raise SystemExit(f"sidecar mismatch: {raw}")
+                  candidate = f"models/{name}/{variant}.bin"
+                  entry = {
+                      "raw": raw,
+                      "raw_id": raw_id,
+                      "cell": name,
+                      "variant": variant,
+                      "candidate_checkpoint": candidate,
+                      "candidate_artifact": candidate,
+                      "candidate_model_id": digest(candidate),
+                  }
+                  if variant == "soup":
+                      entry["components"] = components
+                  evidence.append(entry)
+          manifest = {
+              "schema": 1,
+              "stage": "screen-b",
+              "plan_path": "campaign/" + os.environ["PLAN_PATH"],
+              "plan_id": os.environ["PLAN_SHA"],
+              "arena_path": "bin/continuation_arena",
+              "arena_id": os.environ["CONTINUATION_ARENA_SHA"],
+              "root_model_id": os.environ["ROOT_SHA"],
+              "baseline_model_id": os.environ["ROOT_SHA"],
+              "root_checkpoint": "data/champion.bin",
+              "baseline_checkpoint": "data/champion.bin",
+              "seed": os.environ["SCREEN_B_SEED"],
+              "pair_start": "0",
+              "pair_count": 6000,
+              "target_round": "cycle_0_1_2",
+              "cells": cells,
+              "replicates": ["r1","r2","r3"],
+              "confidence_z": 1.645,
+              "screen_a_result": "screen-a-result.json",
+              "screen_a_result_id": digest("screen-a-result.json"),
+              "evidence": evidence,
+          }
+          Path("screen-b-manifest.json").write_text(
+              json.dumps(manifest, sort_keys=True, indent=2) + "\n",
+              encoding="utf-8")
+          PY
+
+      - name: Validate all bytes, then make the sole locked Screen-B selection
+        run: |
+          set -euo pipefail
+          python3 campaign/tools/select_continuation_v2.py validate \
+            --manifest screen-b-manifest.json --artifact-root . \
+            --output screen-b-validation.json
+          python3 campaign/tools/select_continuation_v2.py screen-b \
+            --manifest screen-b-manifest.json --artifact-root . \
+            --output screen-b-result.json
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import shutil
+          from pathlib import Path
+
+          result = json.loads(Path("screen-b-result.json").read_text(encoding="utf-8"))
+          selected = result.get("selected")
+          if selected is not None:
+              source = Path(selected["candidate_artifact"])
+              destination = Path("selected-candidate.bin")
+              shutil.copyfile(source, destination)
+              actual = hashlib.sha256(destination.read_bytes()).hexdigest()
+              if actual != selected["candidate_model_id"]:
+                  raise SystemExit("selected soup copy mismatch")
+          PY
+          (find evidence soup-downloads -type f -print0; \
+             printf '%s\0' screen-a-result.json screen-b-manifest.json \
+               screen-b-validation.json screen-b-result.json) | \
+            sort -z | xargs -0 sha256sum > SCREEN_B_SHA256SUMS.txt
+          if [ -f selected-candidate.bin ]; then
+            sha256sum selected-candidate.bin >> SCREEN_B_SHA256SUMS.txt
+          fi
+          sha256sum -c SCREEN_B_SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: continuation-v2-screen-b-final-evidence
+          path: |
+            evidence
+            soup-downloads
+            screen-a-result.json
+            screen-b-manifest.json
+            screen-b-validation.json
+            screen-b-result.json
+            selected-candidate.bin
+            SCREEN_B_SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30

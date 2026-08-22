@@ -741,7 +741,7 @@ hidden-world trajectory and stratifies worlds across the requested symmetry
 group. It repaired several reviewed orderings, but regressed others, so it is
 not treated as an automatic replacement for every primary comparison.
 
-The safer playing method uses the cheap mode-2 panel for discovery, then
+The first safer playing method used the cheap mode-2 panel for discovery, then
 rechecks any nonbaseline leader from the ordinary top-policy prefix on fresh
 worlds whose suit mappings are balanced and fixed for each trajectory. The
 move changes only when both panels select the same leader. Purposefully added
@@ -760,6 +760,18 @@ Both direct-test intervals include parity, so this is positive but not
 independently conclusive evidence; the promotion rests on the consistent
 direction across both tests plus the reproduced continuation-method repair,
 not on a claim that the direct 100-pair margin alone is significant.
+
+A later locked reciprocal test removed the remaining role incoherence from the
+primary panel too: mode `4` gives the two players independently stratified suit
+mappings, each fixed for the complete trajectory, while trusted-prefix mode
+`3` applies the same rule in fresh confirmation. Against the exact preceding
+actor over 2,000 mirrored pairs (4,000 matches), it scored **51.8375% ±
+0.6173% SE** (`2064/1917/19`) and **+2.744 ± 0.753** points per match. Its
+one-sided 95% match-score lower bound was 50.8221%, and both reciprocal
+orientations were positive. That exact locked actor is now the live default;
+the advisory 2,048-world audit also uses coherent player roles so it no longer
+rates moves through a fictitious policy that changes suit orientation at each
+downstream decision.
 
 The reviewed ply-29 Green start illustrates why panel agreement is still not
 a proof of optimality. The raw mode-2 continuation preferred play G5 over

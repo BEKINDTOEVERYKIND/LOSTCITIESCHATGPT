@@ -90,12 +90,22 @@ def challenger_late_stub(gate_passed: bool) -> dict:
 class ShowcaseProvenanceTests(unittest.TestCase):
     ACTOR = "policy:data/c8.bin:0:20"
     TRACKED_AUDIT = (
-        "rolloutu:data/champion.bin:2048:5:0.01:0:1:14:0:0:0:0:3.5:2:2:"
-        "20:0:0:20:1:0:2048:1:0:0:0:0:0:0:2:1:0:0:2:1:0:3:1:0:0:1"
+        "rolloutu:data/champion.bin:2048:5:0.01:0:1:14:0:0:0:0:3.5:2:4:"
+        "20:0:0:20:1:0:2048:1:0:0:0:0:0:0:3:1:0:0:2:1:0:3:1:0:0:1"
     )
     CHAMPION_SHA256 = (
         "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417"
     )
+
+    def test_default_actor_matches_locked_role_coherent_promotion(self) -> None:
+        result = json.loads(
+            (ROOT / "data/experiments/role_coherent_result.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(result["status"], "complete_valid_gate_passed")
+        self.assertTrue(result["decision"]["promotion_gate_passed"])
+        self.assertEqual(showcase.DEFAULT_ACTOR, result["candidate"]["spec"])
 
     @classmethod
     def analyzer_result(cls):
@@ -718,11 +728,11 @@ class ShowcaseProvenanceTests(unittest.TestCase):
         meta = tracked["meta"]
         self.assertEqual(meta["actor"], showcase.DEFAULT_ACTOR)
         self.assertEqual(meta["evaluator"], self.TRACKED_AUDIT)
-        self.assertEqual(meta["seed"], 209430960825253)
-        self.assertEqual(meta["match_id"], "209430960825253-af2b2c237d21")
-        self.assertEqual(meta["plies"], 145)
+        self.assertEqual(meta["seed"], 181292076812167)
+        self.assertEqual(meta["match_id"], "181292076812167-af2b2c237d21")
+        self.assertEqual(meta["plies"], 143)
         self.assertEqual(len(tracked["plies"]), meta["plies"])
-        self.assertEqual(meta["final"], [190, 175])
+        self.assertEqual(meta["final"], [191, 172])
         self.assertTrue(meta["actor_exact_terminal"])
         self.assertTrue(meta["actor_exact_terminal_continuations"])
         self.assertEqual(meta["actor_terminal_mode"], 1)

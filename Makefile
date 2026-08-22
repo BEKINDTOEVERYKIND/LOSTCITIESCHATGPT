@@ -90,6 +90,7 @@ test: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_role_coherence \
 	python3 -m unittest tests/test_merge_arena.py
 	python3 -m unittest tests/test_actor_panel.py
 	python3 -m unittest tests/test_continuation_arena.py
+	python3 -m unittest tests/test_select_continuation_v2.py
 	python3 -m unittest tests/test_net_average.py
 
 audit-test: $(BIN)/qpair $(DATA)/champion.bin

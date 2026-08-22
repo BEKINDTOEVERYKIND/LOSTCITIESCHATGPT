@@ -2052,7 +2052,7 @@ static void test_rollout_spec_tail(void)
           champion.prune_dom == 0 &&
           fabsf(champion.override_k - 3.5f) < 1e-6f &&
           fabsf(champion.override_min - 2.0f) < 1e-6f &&
-          champion.playout_sample == 2 && champion.symmetries == 20 &&
+          champion.playout_sample == 4 && champion.symmetries == 20 &&
           champion.cand_mass == 0.0f && champion.batch_dets == 0 &&
           champion.playout_symmetries == 20 &&
           champion.discard_guard == 1 && champion.deck_max == 0 &&
@@ -2061,7 +2061,7 @@ static void test_rollout_spec_tail(void)
           champion.semantic_cand == 0 && champion.confirm_exact5 == 0 &&
           champion.draw_variant_cores == 0 &&
           champion.draw_variant_deck_max == 0 &&
-          champion.policy_prefix_mode == 2 &&
+          champion.policy_prefix_mode == 3 &&
           fabsf(champion.belief_alpha - 1.0f) < 1e-6f &&
           champion.draw_root_deck_max == 0 &&
           champion.draw_playout_deck_max == 0 &&
@@ -2084,7 +2084,7 @@ static void test_rollout_spec_tail(void)
           audit.dets == 2048 && audit.root_width == 5 &&
           fabsf(audit.cand_floor - 0.01f) < 1e-6f &&
           audit.ply_lo == 14 && audit.confirm_dets == 2048 &&
-          audit.policy_prefix_mode == 2 &&
+          audit.playout_sample == 4 && audit.policy_prefix_mode == 3 &&
           fabsf(audit.prefix_confirm_k - 2.0f) < 1e-6f &&
           fabsf(audit.prefix_confirm_min - 1.0f) < 1e-6f &&
           audit.action_core_count == 3 && audit.exact_terminal == 1 &&
