@@ -1,0 +1,185 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "locked_continuation_checkpoint_soup_campaign",
+  "status": "precommitted_after_continuation_v1_failure_before_soup_generation_or_fresh_efficacy",
+  "created_utc": "2026-08-22",
+  "hypothesis": "The three continuation-v1 family winners contain an aligned common post-root policy improvement plus independent optimizer noise. An exact equal-weight parameter mean may preserve the common improvement while reducing seed-specific error.",
+  "claim_boundary": "This is one post-hoc continuation-only candidate inspired by the completed continuation-v1 result. It is not a continuation-v1 rescue, a root checkpoint, or a general champion. No old continuation-v1 row is promotion evidence.",
+  "source": {
+    "repository": "BEKINDTOEVERYKIND/LOSTCITIESCHATGPT",
+    "branch": "agent/correctness-and-policy-upgrade",
+    "remote_commit": "bd485857eda329b8df7fc2281f1aea83aac195d4",
+    "tree": "28d9f0603dfc7d3df9c2f69deb8dede65f014d45",
+    "compiler": "gcc (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0",
+    "cflags": "-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11",
+    "net_average_strict_suffix": "-fno-fast-math -ffp-contract=off",
+    "ldflags": "-lm -pthread",
+    "platform": "Linux 6.18.35 x86_64, AMD EPYC 9V74, 9 visible CPUs",
+    "fixed_threads": 4
+  },
+  "parent_result": {
+    "path": "data/experiments/continuation_v1_result.json",
+    "remote_commit": "aa5b62f4e5353b57b3243a138faf92f73a53f62e",
+    "status": "complete_stopped_at_seed_robustness_gate",
+    "interpretation": "Only one of three independently trained family winners cleared both Screen-B lower bounds. continuation-v1 therefore remains failed and no family checkpoint is promoted.",
+    "development_only_observation": "All three family-winner point estimates were positive on the completed fresh component screen, and their anchor-relative parameter-delta cosine similarities were 0.704, 0.733, and 0.736. This observation motivates exactly one fixed soup and is not pooled with any new test."
+  },
+  "artifacts": {
+    "root": {
+      "path": "data/champion.bin",
+      "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+      "size_bytes": 2823748,
+      "role": "Immutable root policy, value, belief, shortlist, and baseline continuation"
+    },
+    "net_average_binary": {
+      "path": "bin/net_average",
+      "sha256": "56172ab722aca829d06e2b97e10c101f5ba39d517d5954bcf619a32528fcfacd",
+      "size_bytes": 72944
+    },
+    "continuation_arena_binary": {
+      "path": "bin/continuation_arena",
+      "sha256": "3c3f5d3b905a46de53c915234a3474d1b0e15c52e4447ceb6ba2269f90f982c9",
+      "size_bytes": 370880
+    },
+    "full_arena_binary": {
+      "path": "bin/arena",
+      "sha256": "a65f73871e04ed0e21f2bc9920a235cbb5d29950b35bb91df37ae9dcc8801efa",
+      "size_bytes": 362592
+    }
+  },
+  "construction": {
+    "method": "One equal-weight arithmetic mean of every loaded v6 Net float. Inputs are ordered by model FNV, full loaded bytes, then canonical path; shared bit patterns are copied exactly; other coordinates are summed sequentially in binary64, divided by 3, and cast once to binary32.",
+    "mathematical_identity": "theta_soup = theta_root + ((theta_A-theta_root) + (theta_B-theta_root) + (theta_C-theta_root))/3 = (theta_A+theta_B+theta_C)/3",
+    "inputs": [
+      {
+        "family": "A",
+        "checkpoint": "full8",
+        "path": "results/continuation-v1/a/full.bin.it8",
+        "sha256": "edf16605520d328cf5e9987907cb420f037e1ac034391d8c51eed34df95734f7",
+        "size_bytes": 2823748,
+        "weight": "1/3"
+      },
+      {
+        "family": "B",
+        "checkpoint": "full10",
+        "path": "results/continuation-v1/b/full.bin.it10",
+        "sha256": "2bf28139a9a15d826daa3ebdf4a7c8deb2e0ed9581c62105d7a1a48637efce79",
+        "size_bytes": 2823748,
+        "weight": "1/3"
+      },
+      {
+        "family": "C",
+        "checkpoint": "full10",
+        "path": "results/continuation-v1/c/full.bin.it10",
+        "sha256": "418e2dfbcf590589ee0a9228e9de9590283579093b20cbee14162a31f5c7a966",
+        "size_bytes": 2823748,
+        "weight": "1/3"
+      }
+    ],
+    "output": "results/continuation-soup-v1/soup.bin",
+    "command": "./bin/net_average results/continuation-soup-v1/soup.bin results/continuation-v1/a/full.bin.it8 results/continuation-v1/b/full.bin.it10 results/continuation-v1/c/full.bin.it10",
+    "required_pre_efficacy_checks": [
+      "all three source SHA-256 values and sizes match",
+      "root SHA-256 is unchanged before and after construction",
+      "constructor provenance names exactly three sources with equal weight",
+      "output is a finite current v6 checkpoint with no trailing bytes",
+      "save-load-save is byte exact",
+      "exact three-copy wager symmetry holds in every wager-linked parameter family",
+      "the output SHA-256 and constructor stdout are bound in a committed execution addendum before fresh efficacy"
+    ]
+  },
+  "forbidden_variants": [
+    "two-model subsets",
+    "greedy or fitted weights",
+    "delta-norm normalization",
+    "head-only or layer-only averages",
+    "selecting family B alone",
+    "any new candidate on a seed consumed by this plan"
+  ],
+  "selection": {
+    "operational_self_control": {
+      "seed": "202608249901",
+      "pairs": 200,
+      "command_template": "./bin/continuation_arena -a SOUP -r data/champion.bin -b SOUP -n 200 -t 4 -s 202608249901 --pair-start 0 --raw-pairs CONTROL.jsonl --provenance LOCKED_HASH_BUNDLE -q",
+      "required": "Exactly zero margin, 0.5 score, zero SE, byte-equal reciprocal aggregate, complete footer, and zero caps or provenance errors. This is operational only."
+    },
+    "fresh_continuation_screen": {
+      "seed": "202608240201",
+      "pair_start": 0,
+      "pairs": 6000,
+      "round_assignment": "pair index modulo 3",
+      "threads": 4,
+      "command_template": "./bin/continuation_arena -a SOUP -r data/champion.bin -b data/champion.bin -n 6000 -t 4 -s 202608240201 --pair-start 0 --raw-pairs SCREEN.jsonl --provenance LOCKED_HASH_BUNDLE -q",
+      "aggregate_gate": [
+        "round score - 1.645 * pair-clustered score SE > 0.5",
+        "round margin - 1.645 * pair-clustered margin SE > 0",
+        "complete footer, exact provenance, and zero caps or unfinished tails"
+      ],
+      "round_safety": "For each round separately, score + 1.645*SE >= 0.5 and margin + 1.645*SE >= 0.",
+      "stop_rule": "If any validity, aggregate, or round-safety requirement fails, stop. Burn this seed and do not evaluate another soup or source checkpoint on it."
+    },
+    "fresh_full_actor_safety_screen": {
+      "dependency": "Run only after the continuation screen passes and the authoritative role-coherent workflow completes validly. Mechanically bind the same authoritative rollout tail for candidate and baseline.",
+      "pairs_per_orientation": 200,
+      "candidate_first_seed": "202608240301",
+      "baseline_first_seed": "202608240302",
+      "inspection_rule": "Complete both reciprocal orientations and validate raw files before inspecting efficacy.",
+      "gate": [
+        "equal-weight reciprocal combined candidate match score >= 0.5",
+        "equal-weight reciprocal combined candidate point margin > 0",
+        "candidate score in each orientation >= 0.475 after inversion",
+        "zero caps, missing pairs, malformed rows, provenance drift, or operational errors"
+      ],
+      "stop_rule": "If this screen fails, stop and burn both seeds. It is safety selection only and is never pooled with final data."
+    }
+  },
+  "actor_family_dependency": {
+    "role_test_plan": "data/experiments/locked_role_coherent_plan.json",
+    "role_test_execution": "data/experiments/locked_role_coherent_execution.json",
+    "role_test_run": "https://github.com/BEKINDTOEVERYKIND/LOSTCITIESCHATGPT/actions/runs/32571592557",
+    "if_role_test_passes_tail": "512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+    "if_role_test_fails_tail": "512:5:0.02:0:1:14:0:0:0:0:3.5:2:2:20:0:0:20:1:0:512:1:0:0:0:0:0:0:2:1:0:0:0:0:0:0:1",
+    "invalid_role_result_rule": "If the role test or reciprocal merge is invalid or incomplete, do not run either full-actor stage.",
+    "world_800_exclusion": "Both actors remain at 512 worlds. The conditional 800-world plan is separate and cannot be combined without a new fresh test."
+  },
+  "final_promotion": {
+    "status": "Locked now; execute only after both screens pass and a separately committed addendum binds the soup hash and authoritative actor tail.",
+    "candidate_actor": "rolloutu2:data/champion.bin:SOUP:MECHANICALLY_SELECTED_TAIL",
+    "baseline_actor": "rolloutu2:data/champion.bin:data/champion.bin:MECHANICALLY_SELECTED_TAIL",
+    "rounds": 3,
+    "threads_per_shard": 4,
+    "pairs_per_orientation": 2500,
+    "shards_per_orientation": 25,
+    "pairs_per_shard": 100,
+    "pair_starts": [0,100,200,300,400,500,600,700,800,900,1000,1100,1200,1300,1400,1500,1600,1700,1800,1900,2000,2100,2200,2300,2400],
+    "candidate_first_seed": "202608240401",
+    "baseline_first_seed": "202608240402",
+    "efficacy_looks": 1,
+    "inspection_rule": "Inspect no efficacy until all 50 immutable shards, sidecar hashes, completeness checks, and the reciprocal merge finish.",
+    "promotion_gate": [
+      "combined candidate match score - 1.645 * orientation-stratified pair SE > 0.5",
+      "combined candidate point margin - 1.645 * orientation-stratified pair SE > 0",
+      "candidate match-score point estimate > 0.5 in each reciprocal orientation after inversion",
+      "zero caps, gaps, overlaps, incomplete shards, malformed rows, provenance mismatches, or operational errors"
+    ],
+    "failed_panel_rule": "A failed final panel burns both seeds and cannot select any alternate checkpoint, soup, weight, or actor setting. Only this final data may support promotion."
+  },
+  "provenance": {
+    "retain": [
+      "source, plan, execution-addendum, constructor, root, input, soup, evaluator, and role-result hashes",
+      "exact constructor and evaluator commands plus complete stdout/stderr",
+      "compiler, flags, CPU, kernel, thread count, start/end UTC, wall and user time",
+      "all raw pair rows, complete footers, sidecar hashes, canonical merges, and validity reports"
+    ],
+    "native_checkpoint_warning": "Checkpoint serialization is a native C struct and actor evaluators use fast-math; compiler and platform provenance are material."
+  },
+  "multiplicity": {
+    "candidate_soups": 1,
+    "weights": ["1/3","1/3","1/3"],
+    "fresh_continuation_looks": 1,
+    "fresh_full_actor_safety_looks": 1,
+    "fresh_final_looks": 1,
+    "no_optional_stopping_or_unplanned_retry": true
+  },
+  "results": null
+}
