@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "locked_continuation_v2_execution",
+  "status": "launch_bound_before_candidate_generation_or_efficacy_inspection",
+  "source_parent_commit": "dfc485f15ef78298308a73ce1c7fbc614ec22447",
+  "workflow": {
+    "path": ".github/workflows/continuation-v2.yml",
+    "sha256": "2128fb25ad39942b64a7e5c7c8aed771f01cfef3d3e6ae659eed0e9b4e5d323c"
+  },
+  "plan": {
+    "path": "data/experiments/locked_continuation_v2_plan.json",
+    "sha256": "5b5ffe0dee8eb637415c2efbdf7b42c5537efeb2fa4df6d8764df99b5296e06a"
+  },
+  "build_source": {
+    "remote_commit": "65c510234d5995a8d60b8a5cbecd84709e79b272",
+    "tree": "8f9d8d6d3b6683fb6691fc208e671f459d08d957"
+  },
+  "base": {
+    "path": "data/champion.bin",
+    "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+    "rejected_soup_result_sha256": "6c122813969f22bd38976d955699bbf14e4470328c44a4a92b54da33c681cd3a"
+  },
+  "transport": {
+    "binding": "transport exact prebuilt artifacts; compile nothing on runners",
+    "rl": {
+      "path": "data/evaluators/continuation-v2/rl",
+      "sha256": "7467211579df59b4796815420011a45f2b2158a484e7cba9efbeefa0ed1b3661",
+      "size_bytes": 428504
+    },
+    "continuation_arena": {
+      "path": "data/evaluators/continuation-v2/continuation_arena",
+      "sha256": "16c39d9d0f81853885c78c35442c70114538fe8545025b9fa33995dddf4884e0",
+      "size_bytes": 379072
+    },
+    "net_average": {
+      "path": "data/evaluators/continuation-v2/net_average",
+      "sha256": "56172ab722aca829d06e2b97e10c101f5ba39d517d5954bcf619a32528fcfacd",
+      "size_bytes": 72944
+    },
+    "champion": {
+      "path": "data/champion.bin",
+      "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+      "size_bytes": 2823748
+    }
+  },
+  "evidence_tool": {
+    "path": "tools/select_continuation_v2.py",
+    "sha256": "b7f8a7b30eccec6b81f3d76e77b3276b78aa73a828c2640e25ff0c2adba3ac56",
+    "test_path": "tests/test_select_continuation_v2.py",
+    "test_sha256": "d46c7f1cf7b73279b1d4a8ec4772f90a49db9bdcc93db8dcfbe7018495c043c8",
+    "makefile_sha256": "1ecf0974c393b59215bc6289d4bb7ef3dd4c886816a7e72d2f1e6278d5bf280e"
+  },
+  "factorial_cells": [
+    {
+      "id": "o0-shared",
+      "objective": 0,
+      "roles": "shared"
+    },
+    {
+      "id": "o0-independent",
+      "objective": 0,
+      "roles": "independent"
+    },
+    {
+      "id": "o2-shared",
+      "objective": 2,
+      "roles": "shared"
+    },
+    {
+      "id": "o2-independent",
+      "objective": 2,
+      "roles": "independent"
+    }
+  ],
+  "training_seeds": {
+    "warm": [
+      "202608260101",
+      "202608260102",
+      "202608260103"
+    ],
+    "full": [
+      "202608261101",
+      "202608261102",
+      "202608261103"
+    ]
+  },
+  "screens": {
+    "screen_a_seed": "202608260201",
+    "screen_a_pairs_per_checkpoint": 1500,
+    "screen_a_candidates": 84,
+    "screen_a_evaluation_jobs": 1,
+    "screen_a_prevalidation_artifacts": 0,
+    "screen_a_selection_jobs": 0,
+    "screen_a_final_artifacts": 1,
+    "screen_b_seed": "202608260202",
+    "screen_b_pairs_per_candidate": 6000,
+    "screen_b_candidates": 16,
+    "screen_b_evaluation_jobs": 1,
+    "screen_b_prevalidation_artifacts": 0,
+    "screen_b_selection_jobs": 0,
+    "screen_b_final_artifacts": 1
+  },
+  "excluded_development_seeds": [
+    {
+      "seed": "202608250101",
+      "use": "development warm-training runtime smoke"
+    },
+    {
+      "seed": "202608250201",
+      "use": "development Screen-A/runtime/validator smoke"
+    },
+    {
+      "seed": "202608250202",
+      "use": "development Screen-B/validator smoke"
+    },
+    {
+      "seed": "202608259901",
+      "use": "exact-transport zero-epoch smoke"
+    }
+  ],
+  "seed_firewall": "entire 20260825 namespace burned; locked campaign uses only 20260826",
+  "actor_stages": "not_consumed_by_this_workflow",
+  "inspection_rule": "No efficacy row is exposed or parsed until the single screen job has assembled the complete manifest, the locked selector has schema-validated every expected raw file, model, hash, and schedule, and the locked selection is complete; only one final screen artifact is then uploaded.",
+  "results": null
+}
