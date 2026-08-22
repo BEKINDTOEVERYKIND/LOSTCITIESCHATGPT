@@ -760,10 +760,11 @@ static int lr_solve_horizon(const Net *net, const NetEvalPlan *eval_plan,
     return !ctx.failed;
 }
 
-int late_resolver_choose(const Net *net, const State *st, int objective,
-                         int cores, int policy_symmetries, int max_actions,
-                         double practical_min, Move *out,
-                         LateResolverStats *stats)
+int late_resolver_choose_plan(const Net *net, const State *st, int objective,
+                              int cores, int policy_symmetries,
+                              int max_actions, double practical_min,
+                              Move *out, LateResolverStats *stats,
+                              const NetEvalPlan *eval_plan)
 {
     if (stats) {
         memset(stats, 0, sizeof *stats);
@@ -784,10 +785,18 @@ int late_resolver_choose(const Net *net, const State *st, int objective,
 
     LRContext root_ctx;
     memset(&root_ctx, 0, sizeof root_ctx);
-    NetEvalPlan eval_plan;
-    net_eval_plan_init(net, &eval_plan);
+    /* Do not let a stale/foreign or malformed proof select a shortcut.  A
+     * null plan deliberately takes the complete feature/head path without
+     * rescanning the checkpoint; the owner is responsible for constructing a
+     * fresh plan after every model mutation. */
+    const NetEvalPlan *safe_eval_plan = eval_plan;
+    if (!safe_eval_plan || safe_eval_plan->owner != net ||
+        (safe_eval_plan->dense_count != FEAT_LEGACY_DENSE &&
+         safe_eval_plan->dense_count != FEAT_DENSE) ||
+        safe_eval_plan->zero_combination > 1)
+        safe_eval_plan = NULL;
     root_ctx.net = net;
-    root_ctx.eval_plan = &eval_plan;
+    root_ctx.eval_plan = safe_eval_plan;
     root_ctx.cores = cores;
     root_ctx.max_actions = max_actions;
     /* Rank the root with the configured deployed ensemble.  Exact-20 at every
@@ -809,12 +818,12 @@ int late_resolver_choose(const Net *net, const State *st, int objective,
     memset(&s2, 0, sizeof s2);
     memset(&s4, 0, sizeof s4);
     int ok2 = lr_solve_horizon(
-        net, &eval_plan, st, &plan, root_action, root_prior, nroot,
+        net, safe_eval_plan, st, &plan, root_action, root_prior, nroot,
         objective, cores, policy_symmetries > 1 ? 5 : 1, max_actions,
         2, &h2, &v2,
         q2, &best2, &s2);
     int ok4 = ok2 && lr_solve_horizon(
-        net, &eval_plan, st, &plan, root_action, root_prior, nroot,
+        net, safe_eval_plan, st, &plan, root_action, root_prior, nroot,
         objective, cores, policy_symmetries > 1 ? 5 : 1, max_actions,
         4, &h4, &v4,
         q4, &best4, &s4);
@@ -865,4 +874,27 @@ int late_resolver_choose(const Net *net, const State *st, int objective,
     }
     if (!passed || !lr_resolve_action(st, h4, out)) return 0;
     return 1;
+}
+
+int late_resolver_choose(const Net *net, const State *st, int objective,
+                         int cores, int policy_symmetries, int max_actions,
+                         double practical_min, Move *out,
+                         LateResolverStats *stats)
+{
+    NetEvalPlan eval_plan;
+    const NetEvalPlan *use_plan = NULL;
+    /* Keep malformed/unavailable calls cheap just as the historical public
+     * entry point was: the implementation below owns authoritative argument
+     * validation and diagnostics, while a scan is useful only once that
+     * coarse gate can possibly pass. */
+    if (net && st && out && !st->over && st->deck_left >= 2 &&
+        st->deck_left <= LR_MAX_DECK && cores == LR_MAX_CORES &&
+        max_actions >= 1 && practical_min >= 0.0 &&
+        lc_double_isfinite(practical_min)) {
+        net_eval_plan_init(net, &eval_plan);
+        use_plan = &eval_plan;
+    }
+    return late_resolver_choose_plan(
+        net, st, objective, cores, policy_symmetries, max_actions,
+        practical_min, out, stats, use_plan);
 }

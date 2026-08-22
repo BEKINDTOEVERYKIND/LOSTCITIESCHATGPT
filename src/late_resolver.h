@@ -59,6 +59,17 @@ int late_resolver_choose(const Net *net, const State *st, int objective,
                          double practical_min, Move *out,
                          LateResolverStats *stats);
 
+/* Planned form for callers which already proved inference shortcuts for this
+ * immutable checkpoint.  A null, foreign-owner, or structurally invalid plan
+ * fails closed to the complete evaluator; it never triggers a fresh parameter
+ * scan.  The ordinary entry point above remains the self-contained fallback
+ * and builds its own proof before delegating here. */
+int late_resolver_choose_plan(const Net *net, const State *st, int objective,
+                              int cores, int policy_symmetries,
+                              int max_actions, double practical_min,
+                              Move *out, LateResolverStats *stats,
+                              const NetEvalPlan *eval_plan);
+
 /* Small public invariant hook used by focused runtime tests. */
 int late_resolver_assignment_count(const State *st, int p);
 

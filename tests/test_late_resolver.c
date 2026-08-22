@@ -7,6 +7,10 @@
 #include <string.h>
 #include <strings.h>
 
+extern Move rollout_move_reference_for_test(
+    const Agent *a, const State *st, Rng *rng,
+    float *out_value, SearchStats *stats);
+
 static int failures;
 
 #define CHECK(cond, ...) do {                                             \
@@ -379,6 +383,59 @@ static void test_bounded_resolver_information_invariance(void)
           "a horizon result is not legal at the root");
     if (ok_a) CHECK(semantic_move_equal(first, a.horizon4_move),
                     "returned move differs from stable H=4 move");
+
+    /* Reusing a caller-owned proof must be exactly the self-contained public
+     * entry point, while a foreign proof must fail closed to complete
+     * inference rather than selecting another checkpoint's shortcuts. */
+    NetEvalPlan eval_plan;
+    net_eval_plan_init(net, &eval_plan);
+    Move planned = { 0 }, foreign = { 0 };
+    LateResolverStats planned_stats, foreign_stats;
+    int ok_planned = late_resolver_choose_plan(
+        net, &st, 0, 3, 1, 6, 0.0,
+        &planned, &planned_stats, &eval_plan);
+    NetEvalPlan foreign_plan = eval_plan;
+    foreign_plan.owner = NULL;
+    int ok_foreign = late_resolver_choose_plan(
+        net, &st, 0, 3, 1, 6, 0.0,
+        &foreign, &foreign_stats, &foreign_plan);
+    CHECK(ok_planned == ok_a && ok_foreign == ok_a &&
+          MOVE_PACK(planned) == MOVE_PACK(first) &&
+          MOVE_PACK(foreign) == MOVE_PACK(first) &&
+          memcmp(&planned_stats, &a, sizeof a) == 0 &&
+          memcmp(&foreign_stats, &a, sizeof a) == 0,
+          "planned, fallback, and fail-closed resolver outputs differ");
+
+    /* The production rollout owns one proof for its whole decision.  Compare
+     * that path with the full-inference oracle at a real resolver entry,
+     * including every diagnostic byte and the gameplay RNG state. */
+    Agent actor;
+    agent_default(&actor, AG_ROLLOUT, net);
+    actor.symmetries = 1;
+    actor.root_width = 6;
+    actor.no_belief = 1;
+    actor.exact_terminal = 1;
+    actor.bounded_late_root = 1;
+    actor.bounded_late_min = 0.0f;
+    Rng planned_rng, reference_rng;
+    rng_seed(&planned_rng, UINT64_C(0x4556414C504C414E));
+    reference_rng = planned_rng;
+    SearchStats rollout_stats, reference_stats;
+    float rollout_value = 0.0f, reference_value = 0.0f;
+    Move rollout_selected = rollout_move(
+        &actor, &st, &planned_rng, &rollout_value, &rollout_stats);
+    Move reference_selected = rollout_move_reference_for_test(
+        &actor, &st, &reference_rng, &reference_value, &reference_stats);
+    CHECK(rollout_stats.late_resolver_attempted &&
+          rollout_stats.late_resolver_completed &&
+          MOVE_PACK(rollout_selected) == MOVE_PACK(reference_selected) &&
+          memcmp(&rollout_value, &reference_value,
+                 sizeof rollout_value) == 0 &&
+          memcmp(&rollout_stats, &reference_stats,
+                 sizeof rollout_stats) == 0 &&
+          memcmp(&planned_rng, &reference_rng,
+                 sizeof planned_rng) == 0,
+          "reused-plan late rollout changed move, value, diagnostics, or RNG");
 
     /* Swap the only hidden opponent card with a hidden deck card.  The mover
      * observation is unchanged, so results and deterministic work must match. */

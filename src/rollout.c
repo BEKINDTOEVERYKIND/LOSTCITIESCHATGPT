@@ -2399,10 +2399,10 @@ static Move rollout_move_impl(const struct Agent *a, const State *st,
         st->deck_left <= LATE_REPLAN_MAX_DECK) {
         Move resolved = { 0 };
         LateResolverStats late_stats;
-        int late_passed = late_resolver_choose(
+        int late_passed = late_resolver_choose_plan(
             a->net, st, a->win_q, 3, a->symmetries,
             a->root_width, a->bounded_late_min,
-            &resolved, &late_stats);
+            &resolved, &late_stats, eval_plan);
         if (stats) {
             stats->late_resolver_attempted = 1;
             stats->late_resolver_stable = late_stats.stable;
