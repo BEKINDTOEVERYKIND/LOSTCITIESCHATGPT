@@ -9,6 +9,7 @@ void agent_default(Agent *a, AgentKind k, const Net *net)
     memset(a, 0, sizeof(*a));
     a->kind = k;
     a->net = net;
+    a->continuation_net = net;
     a->draw_samples = 6;
     a->temp = 0.0f;
     a->eps = 0.0f;

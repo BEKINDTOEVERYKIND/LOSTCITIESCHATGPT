@@ -145,6 +145,23 @@ class ShowcaseProvenanceTests(unittest.TestCase):
             (ROOT / "data/champion.bin").resolve(),
         )
 
+    def test_dual_actor_paths_and_tail_boundary_are_unambiguous(self) -> None:
+        root, continuation = showcase.actor_model_paths(
+            "rolloutu2:data/champion.bin:data/c8.bin:512:5"
+        )
+        self.assertEqual(root.resolve(), (ROOT / "data/champion.bin").resolve())
+        self.assertIsNotNone(continuation)
+        assert continuation is not None
+        self.assertEqual(continuation.resolve(), (ROOT / "data/c8.bin").resolve())
+        self.assertEqual(
+            showcase.rollout_tail_start(
+                "rolloutu2:data/champion.bin:data/c8.bin:512:5".split(":")
+            ),
+            3,
+        )
+        with self.assertRaisesRegex(RuntimeError, "continuation checkpoint"):
+            showcase.actor_model_paths("rollout2:data/champion.bin")
+
     def test_non_network_actor_cannot_claim_model_provenance(self) -> None:
         for spec in ("heur", "random", "policy:"):
             with self.subTest(spec=spec), self.assertRaises(RuntimeError):
@@ -173,6 +190,126 @@ class ShowcaseProvenanceTests(unittest.TestCase):
             ), self.assertRaisesRegex(RuntimeError, "checkpoint changed"):
                 showcase.main()
             self.assertEqual(output.read_text(encoding="utf-8"), "keep\n")
+
+    def test_dual_actor_hashes_protect_both_roles_and_identify_match(self) -> None:
+        tail = showcase.DEFAULT_ACTOR.split(":", 2)[2]
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            root = parent / "root.bin"
+            continuation = parent / "continuation.bin"
+            output = parent / "showcase.json"
+            root.write_bytes(b"root checkpoint")
+            continuation.write_bytes(b"continuation checkpoint A")
+            actor = f"rolloutu2:{root}:{continuation}:{tail}"
+            game = json.loads(self.analyzer_result().stdout)
+            game["meta"]["actor"] = actor
+            result = type("Result", (), {"stdout": json.dumps(game)})()
+            argv = [
+                "make_showcase.py", "--seed", "1", "--output", str(output),
+                "--actor", actor,
+            ]
+            with patch.object(sys, "argv", argv), patch.object(
+                showcase.subprocess, "run", return_value=result,
+            ) as run:
+                showcase.main()
+
+            saved = json.loads(output.read_text(encoding="utf-8"))
+            meta = saved["meta"]
+            root_hash = hashlib.sha256(root.read_bytes()).hexdigest()
+            continuation_hash = hashlib.sha256(
+                continuation.read_bytes()
+            ).hexdigest()
+            self.assertEqual(meta["model_path"], str(root))
+            self.assertEqual(meta["model_sha256"], root_hash)
+            self.assertEqual(meta["root_model_path"], str(root))
+            self.assertEqual(meta["root_model_sha256"], root_hash)
+            self.assertEqual(meta["continuation_model_path"], str(continuation))
+            self.assertEqual(
+                meta["continuation_model_sha256"], continuation_hash
+            )
+            self.assertEqual(
+                meta["match_id"], f"1-{root_hash}-{continuation_hash}"
+            )
+            self.assertIn("Root root.bin", meta["actor_label"])
+            self.assertIn(
+                "continuation continuation.bin", meta["actor_label"]
+            )
+            self.assertIn("root shortlist", meta["root_model_role"])
+            self.assertIn("after", meta["continuation_model_role"])
+            self.assertEqual(meta["actor_worlds"], 512)
+            self.assertEqual(meta["actor_confirmation_worlds"], 512)
+            self.assertEqual(meta["actor_root_width"], 5)
+            self.assertEqual(meta["actor_search_from_round_ply"], 14)
+            run.assert_called_once()
+            self.assertEqual(
+                run.call_args.args[0][-2:],
+                ["-e", showcase.DEFAULT_EVALUATOR],
+            )
+
+            first_identity = meta["match_id"]
+            continuation.write_bytes(b"continuation checkpoint B")
+            second_hash = hashlib.sha256(continuation.read_bytes()).hexdigest()
+            game["meta"]["actor"] = actor
+            result = type("Result", (), {"stdout": json.dumps(game)})()
+            with patch.object(sys, "argv", argv), patch.object(
+                showcase.subprocess, "run", return_value=result,
+            ):
+                showcase.main()
+            second_identity = json.loads(output.read_text())["meta"]["match_id"]
+            self.assertEqual(second_identity, f"1-{root_hash}-{second_hash}")
+            self.assertNotEqual(first_identity, second_identity)
+
+    def test_dual_actor_continuation_change_during_analysis_is_rejected(self) -> None:
+        tail = showcase.DEFAULT_ACTOR.split(":", 2)[2]
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            root = parent / "root.bin"
+            continuation = parent / "continuation.bin"
+            output = parent / "showcase.json"
+            root.write_bytes(b"root")
+            continuation.write_bytes(b"before")
+            output.write_text("keep\n", encoding="utf-8")
+            actor = f"rollout2:{root}:{continuation}:{tail}"
+            game = json.loads(self.analyzer_result().stdout)
+            game["meta"]["actor"] = actor
+            result = type("Result", (), {"stdout": json.dumps(game)})()
+
+            def analyzer_finished(*_args, **_kwargs):
+                continuation.write_bytes(b"after")
+                return result
+
+            argv = [
+                "make_showcase.py", "--seed", "1", "--output", str(output),
+                "--actor", actor,
+            ]
+            with patch.object(sys, "argv", argv), patch.object(
+                showcase.subprocess, "run", side_effect=analyzer_finished,
+            ), self.assertRaisesRegex(
+                RuntimeError, "continuation checkpoint changed"
+            ):
+                showcase.main()
+            self.assertEqual(output.read_text(encoding="utf-8"), "keep\n")
+
+    def test_dual_actor_cannot_overwrite_continuation_checkpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            root = parent / "root.bin"
+            continuation = parent / "continuation.bin"
+            root.write_bytes(b"root")
+            continuation.write_bytes(b"continuation")
+            actor = f"rolloutu2:{root}:{continuation}:512:5"
+            argv = [
+                "make_showcase.py", "--seed", "1", "--output",
+                str(continuation), "--actor", actor,
+            ]
+            with patch.object(sys, "argv", argv), patch.object(
+                showcase.subprocess, "run",
+            ) as run, self.assertRaisesRegex(
+                RuntimeError, "continuation checkpoint"
+            ):
+                showcase.main()
+            run.assert_not_called()
+            self.assertEqual(continuation.read_bytes(), b"continuation")
 
     def test_analyzer_provenance_mismatch_is_rejected(self) -> None:
         mutations = {
@@ -498,6 +635,14 @@ class ShowcaseProvenanceTests(unittest.TestCase):
             self.assertIsNotNone(match)
             self.assertEqual(json.loads(match.group(1)), standalone)
             self.assertEqual(standalone["meta"]["actor"], self.ACTOR)
+            self.assertEqual(
+                standalone["meta"]["match_id"],
+                "1-" + hashlib.sha256(
+                    (ROOT / "data/c8.bin").read_bytes()
+                ).hexdigest()[:12],
+            )
+            self.assertNotIn("root_model_path", standalone["meta"])
+            self.assertNotIn("continuation_model_path", standalone["meta"])
             self.assertEqual(os.stat(output).st_mode & 0o777, 0o640)
             self.assertEqual(os.stat(viewer).st_mode & 0o777, 0o644)
 

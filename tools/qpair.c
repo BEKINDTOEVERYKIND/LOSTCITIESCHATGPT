@@ -417,7 +417,7 @@ int main(int argc, char **argv)
                    ss.guard_rejected[i] ? "discard" : "-",
                    MOVE_PACK(ss.mv[i]) == MOVE_PACK(selected) ? "yes" : "");
         }
-        free((void *)evaluator.net);
+        spec_release(&evaluator);
         free(net);
         return 0;
     }

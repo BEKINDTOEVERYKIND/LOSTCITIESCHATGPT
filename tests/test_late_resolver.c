@@ -406,6 +406,76 @@ static void test_bounded_resolver_information_invariance(void)
           memcmp(&foreign_stats, &a, sizeof a) == 0,
           "planned, fallback, and fail-closed resolver outputs differ");
 
+    /* Root candidates and priors belong to the root checkpoint; every policy
+     * node after a candidate belongs to the continuation checkpoint.  Two
+     * deliberately opposite continuation sentinels must therefore change
+     * bounded values without changing any root row. */
+    Net *play_continuation = malloc(sizeof *play_continuation);
+    Net *discard_continuation = malloc(sizeof *discard_continuation);
+    CHECK(play_continuation && discard_continuation,
+          "cannot allocate dual-network late sentinels");
+    if (play_continuation && discard_continuation) {
+        net_zero(play_continuation);
+        net_zero(discard_continuation);
+        for (int c = 0; c < NCARD; c++) {
+            play_continuation->bplay[c * 2 + 0] = 16.0f;
+            play_continuation->bplay[c * 2 + 1] = -16.0f;
+            discard_continuation->bplay[c * 2 + 0] = -16.0f;
+            discard_continuation->bplay[c * 2 + 1] = 16.0f;
+        }
+        play_continuation->bdraw[0] = 8.0f;
+        discard_continuation->bdraw[0] = 8.0f;
+        for (int d = 1; d < NET_NDRAW; d++) {
+            play_continuation->bdraw[d] = -8.0f;
+            discard_continuation->bdraw[d] = -8.0f;
+        }
+        NetEvalPlan play_plan, discard_plan;
+        net_eval_plan_init(play_continuation, &play_plan);
+        net_eval_plan_init(discard_continuation, &discard_plan);
+        LateResolverStats play_stats, discard_stats;
+        Move play_move = { 0 }, discard_move = { 0 };
+        int play_ok = late_resolver_choose_dual_plan(
+            net, play_continuation, &st, 0, 3, 1, 6, 0.0,
+            &play_move, &play_stats, &eval_plan, &play_plan);
+        int discard_ok = late_resolver_choose_dual_plan(
+            net, discard_continuation, &st, 0, 3, 1, 6, 0.0,
+            &discard_move, &discard_stats, &eval_plan, &discard_plan);
+        CHECK(!play_stats.unavailable && !discard_stats.unavailable,
+              "dual-network late sentinel was unavailable");
+        int same_root =
+            play_stats.root_candidates == discard_stats.root_candidates;
+        int changed_descendant = 0;
+        for (int i = 0; same_root && i < play_stats.root_candidates; i++) {
+            if (!semantic_move_equal(play_stats.candidate[i],
+                                     discard_stats.candidate[i]) ||
+                play_stats.prior[i] != discard_stats.prior[i])
+                same_root = 0;
+            if (play_stats.horizon2_q[i] != discard_stats.horizon2_q[i] ||
+                play_stats.horizon4_q[i] != discard_stats.horizon4_q[i])
+                changed_descendant = 1;
+        }
+        CHECK(same_root,
+              "continuation sentinel changed bounded root candidates/priors");
+        CHECK(changed_descendant,
+              "continuation sentinel did not reach bounded descendants");
+
+        /* Both plans are independently owner-bound.  Swapping them must fail
+         * closed to complete inference for each role, byte-identically. */
+        LateResolverStats swapped_stats;
+        Move swapped_move = { 0 };
+        int swapped_ok = late_resolver_choose_dual_plan(
+            net, play_continuation, &st, 0, 3, 1, 6, 0.0,
+            &swapped_move, &swapped_stats, &play_plan, &eval_plan);
+        CHECK(swapped_ok == play_ok &&
+              (!play_ok || semantic_move_equal(swapped_move, play_move)) &&
+              memcmp(&swapped_stats, &play_stats,
+                     sizeof play_stats) == 0,
+              "foreign root/continuation plans did not fail closed exactly");
+        (void)discard_ok;
+    }
+    free(play_continuation);
+    free(discard_continuation);
+
     /* The production rollout owns one proof for its whole decision.  Compare
      * that path with the full-inference oracle at a real resolver entry,
      * including every diagnostic byte and the gameplay RNG state. */

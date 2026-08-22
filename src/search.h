@@ -13,6 +13,9 @@
 
 struct Agent;
 
+/* Rollout deliberately spends worlds on only a small policy-guided prefix. */
+#define ROLLOUT_MAX_CANDIDATES 8
+
 enum {
     SEARCH_SKIP_NONE = 0,
     SEARCH_SKIP_FORCED,
@@ -152,6 +155,15 @@ Move search_move(const struct Agent *a, const State *st, Rng *rng,
  * configured rollout selection objective. */
 Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
                   float *out_value, SearchStats *stats);
+
+/* Exact flat policy-prefix admission used by the production rollout actor.
+ * Ties retain legal-move enumeration order.  baseline is always unique at
+ * candidate zero, even when it lies below the floor; order must hold at least
+ * ROLLOUT_MAX_CANDIDATES indices.  Returns the admitted count. */
+int rollout_policy_prefix_indices(
+    const Move *mv, const float *prob, int n, int baseline,
+    int root_width, float cand_floor, float cand_mass, int min_cand,
+    int *order);
 /* Exact terminal objective used by rollout mode 0/1/2. */
 double rollout_terminal_objective(const State *terminal, int p, int mode);
 
@@ -176,6 +188,19 @@ int rollout_policy_terminal_choice(const Move *mv, int n, int selected);
  * the function safely retries without that heuristic filter. */
 int rollout_policy_deck_choice(const State *st, const Move *mv,
                                const float *score, int n, uint64_t dead);
+
+/* Exact semantic-information cycle tracker used by production late playouts.
+ * One instance belongs to one continuation trajectory.  The key deliberately
+ * ignores nply and physical wager identity; repeated states are detected only
+ * with at most three deck cards remaining, exactly as in rollout.c. */
+typedef struct {
+    uint64_t information_key[LC_MAX_PLIES];
+    int n;
+} RolloutLateCycleHistory;
+
+void rollout_late_cycle_init(RolloutLateCycleHistory *history);
+int rollout_late_cycle_repeated(RolloutLateCycleHistory *history,
+                                const State *st);
 
 /* Strategic equality used by late-rollout cycle detection.  Inactive pile
  * storage and the physical IDs of indistinguishable wagers are ignored. */

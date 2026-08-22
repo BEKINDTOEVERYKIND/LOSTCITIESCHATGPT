@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""End-to-end contracts for conservative opponent-population training."""
+"""End-to-end contracts for conservative PPO generation modes."""
 
 from __future__ import annotations
 
 import re
+import os
+import shutil
 import struct
 import subprocess
 import tempfile
@@ -15,6 +17,268 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PopulationTrainingTest(unittest.TestCase):
+    def test_continuation_state_start_contract_and_determinism(self) -> None:
+        source = ROOT / "data" / "champion.bin"
+        with tempfile.TemporaryDirectory(prefix="lc-rl-continuation-") as tmp:
+            first = Path(tmp) / "first.bin"
+            second = Path(tmp) / "second.bin"
+            command = [
+                str(ROOT / "bin" / "rl"),
+                "--init", str(source),
+                "--out", str(first),
+                "--continuation-start", "14",
+                "--continuation-root", str(source),
+                "--iters", "1",
+                "--games", "2",
+                "--rounds", "1",
+                "--threads", "1",
+                "--epochs", "1",
+                "--batch", "32",
+                "--vcoef", "1",
+                "--ent", "0",
+                "--wd", "0",
+                "--seed", "20260822",
+            ]
+            run = subprocess.run(
+                command, cwd=ROOT, text=True, capture_output=True, check=True
+            )
+            contract = re.search(
+                r"continuation roots (\d+): baseline (\d+), challenger "
+                r"(\d+); first actor round ply (\d+); root actor rows (\d+); "
+                r"exact deck-one moves (\d+); cycle-forced moves (\d+); "
+                r"cap-reserve moves (\d+); "
+                r"fingerprint ([0-9a-f]{16})",
+                run.stdout,
+            )
+            self.assertIsNotNone(contract, run.stdout)
+            (roots, baseline, challenger, first_ply, root_rows, exact,
+             cycle_forces, cap_forces, fingerprint) = contract.groups()
+            self.assertEqual(int(roots), 2)
+            self.assertEqual(int(baseline) + int(challenger), 2)
+            self.assertEqual(int(first_ply), 15)
+            self.assertEqual(int(root_rows), 0)
+            self.assertEqual(int(exact), 2)
+            self.assertGreaterEqual(int(cycle_forces), 0)
+            self.assertEqual(int(cap_forces), 0)
+            self.assertRegex(run.stdout, r"lambda 1\.00")
+
+            initial_guard = re.search(
+                r"immutable champion fingerprint: ([0-9a-f]{16})", run.stdout
+            )
+            final_guard = re.search(
+                r"immutable champion verified ([0-9a-f]{16})", run.stdout
+            )
+            self.assertIsNotNone(initial_guard, run.stdout)
+            self.assertIsNotNone(final_guard, run.stdout)
+            self.assertEqual(initial_guard.group(1), final_guard.group(1))
+
+            repeated = command.copy()
+            repeated[repeated.index(str(first))] = str(second)
+            repeated.extend(["--lambda", "1"])
+            second_run = subprocess.run(
+                repeated, cwd=ROOT, text=True, capture_output=True, check=True
+            )
+            second_contract = re.search(
+                r"continuation roots (\d+): baseline (\d+), challenger "
+                r"(\d+); first actor round ply (\d+); root actor rows (\d+); "
+                r"exact deck-one moves (\d+); cycle-forced moves (\d+); "
+                r"cap-reserve moves (\d+); "
+                r"fingerprint ([0-9a-f]{16})",
+                second_run.stdout,
+            )
+            self.assertIsNotNone(second_contract, second_run.stdout)
+            self.assertEqual(second_contract.groups(), contract.groups())
+            self.assertEqual(second.read_bytes(), first.read_bytes())
+            self.assertEqual(second_contract.group(9), fingerprint)
+
+            # The learner may resume from an unrelated checkpoint without
+            # changing the separately loaded root actor.
+            pinned = Path(tmp) / "pinned.bin"
+            pinned_command = command.copy()
+            pinned_command[pinned_command.index(str(source))] = str(
+                ROOT / "data" / "best.bin"
+            )
+            pinned_command[pinned_command.index(str(first))] = str(pinned)
+            pinned_command[pinned_command.index("--epochs") + 1] = "0"
+            pinned_run = subprocess.run(
+                pinned_command,
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            pinned_guard = re.search(
+                r"immutable champion fingerprint: ([0-9a-f]{16})",
+                pinned_run.stdout,
+            )
+            self.assertIsNotNone(pinned_guard, pinned_run.stdout)
+            self.assertEqual(pinned_guard.group(1), initial_guard.group(1))
+
+    def test_explicitly_disabled_continuation_preserves_legacy_ppo(self) -> None:
+        source = ROOT / "data" / "champion.bin"
+        with tempfile.TemporaryDirectory(prefix="lc-rl-continuation-off-") as tmp:
+            implicit = Path(tmp) / "implicit.bin"
+            explicit = Path(tmp) / "explicit.bin"
+            command = [
+                str(ROOT / "bin" / "rl"),
+                "--init", str(source),
+                "--out", str(implicit),
+                "--iters", "1",
+                "--games", "2",
+                "--rounds", "1",
+                "--threads", "1",
+                "--epochs", "1",
+                "--batch", "32",
+                "--vcoef", "0",
+                "--bw", "0",
+                "--ent", "0",
+                "--wd", "0",
+                "--eval", "0",
+                "--seed", "20260823",
+            ]
+            implicit_run = subprocess.run(
+                command, cwd=ROOT, text=True, capture_output=True, check=True
+            )
+            self.assertRegex(implicit_run.stdout, r"lambda 0\.85")
+            explicit_command = command.copy()
+            explicit_command[explicit_command.index(str(implicit))] = str(explicit)
+            explicit_command.extend(
+                ["--continuation-start", "0", "--lambda", "0.85"]
+            )
+            subprocess.run(
+                explicit_command,
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertEqual(implicit.read_bytes(), explicit.read_bytes())
+
+    def test_continuation_root_is_loaded_byte_exact(self) -> None:
+        source = ROOT / "data" / "champion.bin"
+        with tempfile.TemporaryDirectory(prefix="lc-rl-raw-root-") as tmp:
+            asymmetric = Path(tmp) / "asymmetric.bin"
+            payload = bytearray(source.read_bytes())
+            magic, feat_dim, h1, h2, nplay, version = struct.unpack(
+                "=6I", payload[:24]
+            )
+            self.assertEqual((magic, version), (0x4C435651, 6))
+            bplay_float = (
+                feat_dim * h1 + h1 + h1 * h2 + h2 + h2 + 1
+                + nplay * h2
+            )
+            bplay_offset = 24 + bplay_float * 4
+            value = struct.unpack_from("=f", payload, bplay_offset)[0]
+            struct.pack_into("=f", payload, bplay_offset, value + 0.375)
+            asymmetric.write_bytes(payload)
+
+            fingerprint = 1469598103934665603
+            for byte in payload[24:]:
+                fingerprint ^= byte
+                fingerprint = (fingerprint * 1099511628211) & ((1 << 64) - 1)
+
+            output = Path(tmp) / "unused.bin"
+            run = subprocess.run(
+                [
+                    str(ROOT / "bin" / "rl"),
+                    "--init", str(source),
+                    "--out", str(output),
+                    "--continuation-start", "14",
+                    "--continuation-root", str(asymmetric),
+                    "--iters", "0",
+                    "--games", "1",
+                    "--rounds", "1",
+                    "--threads", "1",
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            guard = re.search(
+                r"immutable champion fingerprint: ([0-9a-f]{16})",
+                run.stdout,
+            )
+            self.assertIsNotNone(guard, run.stdout)
+            self.assertEqual(guard.group(1), f"{fingerprint:016x}")
+
+    def test_continuation_output_cannot_alias_protected_checkpoints(self) -> None:
+        source = ROOT / "data" / "champion.bin"
+        with tempfile.TemporaryDirectory(prefix="lc-rl-alias-") as tmp:
+            directory = Path(tmp)
+            protected = directory / "protected.bin"
+            anchor = directory / "anchor.bin"
+            shutil.copyfile(source, protected)
+            shutil.copyfile(source, anchor)
+            original = protected.read_bytes()
+
+            symlink = directory / "symlink.bin"
+            symlink.symlink_to(protected)
+            hardlink = directory / "hardlink.bin"
+            os.link(protected, hardlink)
+            generated_base = directory / "generated.bin"
+            os.link(protected, Path(f"{generated_base}.it1"))
+            subdir = directory / "subdir"
+            subdir.mkdir()
+            canonical_alias = subdir / ".." / protected.name
+
+            cases = [
+                (protected, None),
+                (symlink, None),
+                (hardlink, None),
+                (generated_base, None),
+                (canonical_alias, None),
+                (anchor, anchor),
+            ]
+            for output, anchor_path in cases:
+                with self.subTest(output=output, anchor=anchor_path):
+                    command = [
+                        str(ROOT / "bin" / "rl"),
+                        "--init", str(protected),
+                        "--out", str(output),
+                        "--continuation-start", "14",
+                        "--continuation-root", str(protected),
+                        "--iters", "1",
+                    ]
+                    if anchor_path:
+                        command.extend(["--anchor", str(anchor_path)])
+                    run = subprocess.run(
+                        command, cwd=ROOT, text=True, capture_output=True
+                    )
+                    self.assertNotEqual(run.returncode, 0)
+                    self.assertIn("aliases protected checkpoint", run.stderr)
+            self.assertEqual(protected.read_bytes(), original)
+
+    def test_continuation_rejects_nonproduction_start(self) -> None:
+        source = ROOT / "data" / "champion.bin"
+        run = subprocess.run(
+            [
+                str(ROOT / "bin" / "rl"),
+                "--init", str(source),
+                "--continuation-start", "13",
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn("must be 0 or 14", run.stderr)
+
+    def test_continuation_requires_independent_root_checkpoint(self) -> None:
+        source = ROOT / "data" / "champion.bin"
+        run = subprocess.run(
+            [
+                str(ROOT / "bin" / "rl"),
+                "--init", str(source),
+                "--continuation-start", "14",
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn("requires --continuation-root PATH", run.stderr)
+
     def test_population_training_rejects_unbalanced_game_count(self) -> None:
         source = ROOT / "data" / "champion.bin"
         run = subprocess.run(
@@ -289,6 +553,12 @@ class PopulationTrainingTest(unittest.TestCase):
              "--belief-only and --v6-only are mutually exclusive"),
             (["--belief-only", "--anchor", str(source), "--kl", "0.1"],
              "--belief-only cannot optimize an anchor KL"),
+            (["--lambda", "nan"],
+             "--lambda must be finite and between zero and one"),
+            (["--lambda", "-0.1"],
+             "--lambda must be finite and between zero and one"),
+            (["--lambda", "1.1"],
+             "--lambda must be finite and between zero and one"),
         ]
         for args, error in cases:
             with self.subTest(args=args):
@@ -301,6 +571,21 @@ class PopulationTrainingTest(unittest.TestCase):
                 )
                 self.assertNotEqual(run.returncode, 0)
                 self.assertIn(error, run.stderr)
+
+        continuation = subprocess.run(
+            [
+                str(ROOT / "bin" / "rl"),
+                "--init", str(source),
+                "--continuation-start", "14",
+                "--continuation-root", str(source),
+                "--lambda", "0.85",
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+        self.assertNotEqual(continuation.returncode, 0)
+        self.assertIn("requires --lambda 1 exactly", continuation.stderr)
 
 
 if __name__ == "__main__":

@@ -28,7 +28,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MAX_CAND 8
+#define MAX_CAND ROLLOUT_MAX_CANDIDATES
 #define URGENT_SEMANTIC_WORLDS 16384
 #define CONFIRM_POLICY_MASS 0.995
 #define ACTION_SHORTLIST_MAX 5
@@ -114,11 +114,6 @@ enum {
  * information, never of the sampled opponent hand or deck order.  Store the
  * semantic information-state identities seen on this trajectory; nply is
  * intentionally absent so a literal shuttle cannot evade detection. */
-typedef struct {
-    uint64_t information_key[LC_MAX_PLIES];
-    int n;
-} LateCycleHistory;
-
 static uint64_t late_information_hash(const State *st, int p);
 static uint64_t late_decision_seed(const State *st, int p, int panel_domain);
 
@@ -175,9 +170,15 @@ int rollout_same_late_state(const State *a, const State *b)
            memcmp(a->cum, b->cum, sizeof a->cum) == 0;
 }
 
-static int late_cycle_repeated(LateCycleHistory *history, const State *st)
+void rollout_late_cycle_init(RolloutLateCycleHistory *history)
 {
-    if (!history || st->deck_left > 3) return 0;
+    if (history) history->n = 0;
+}
+
+int rollout_late_cycle_repeated(RolloutLateCycleHistory *history,
+                                const State *st)
+{
+    if (!history || !st || st->deck_left > 3) return 0;
     uint64_t key = late_information_hash(st, st->turn);
     for (int i = 0; i < history->n; i++)
         if (history->information_key[i] == key) return 1;
@@ -187,6 +188,15 @@ static int late_cycle_repeated(LateCycleHistory *history, const State *st)
 }
 
 static int same_semantic_action(Move a, Move b);
+
+/* A null continuation pointer is the programmatic/default spelling of the
+ * historical one-network actor.  Keeping the fallback here also makes Agents
+ * produced by older aggregate initializers preserve their exact behavior. */
+static const Net *continuation_net(const Agent *a)
+{
+    return a && a->continuation_net ? a->continuation_net
+                                    : (a ? a->net : NULL);
+}
 
 static int playout(const Net *net, const NetEvalPlan *eval_plan,
                    State *s, int p, int prune, Rng *symrng,
@@ -455,8 +465,8 @@ static int playout(const Net *net, const NetEvalPlan *eval_plan,
     /* Only entries below n are ever read.  Zeroing the full history here
      * clears roughly 100 KiB for every sampled continuation and needlessly
      * dominates high-world audits. */
-    LateCycleHistory cycle_history;
-    cycle_history.n = 0;
+    RolloutLateCycleHistory cycle_history;
+    rollout_late_cycle_init(&cycle_history);
     int depth = 0;
     while (!s->over) {
         if (exact_terminal == 1 && s->deck_left == 1) {
@@ -485,7 +495,8 @@ static int playout(const Net *net, const NetEvalPlan *eval_plan,
          * same completed continuation. */
         int force_cap_reserve =
             (int)s->nply + (int)s->deck_left >= LC_MAX_PLIES;
-        int force_cycle_deck = late_cycle_repeated(&cycle_history, s);
+        int force_cycle_deck =
+            rollout_late_cycle_repeated(&cycle_history, s);
         const uint8_t *turn_perm =
             other_perm && s->turn == other_player ? other_perm : fixed_perm;
         const uint8_t *replan_fixed_perm = fixed_perm;
@@ -1732,6 +1743,70 @@ static int append_unique(int *order, int *count, int limit, int index)
     return 1;
 }
 
+int rollout_policy_prefix_indices(
+    const Move *mv, const float *prob, int n, int baseline,
+    int root_width, float cand_floor, float cand_mass, int min_cand,
+    int *order)
+{
+    (void)mv; /* Indices, probabilities, and legal enumeration define order. */
+    if (!prob || !order || n <= 0 || baseline < 0 || baseline >= n)
+        return 0;
+    int maxcand = root_width;
+    if (maxcand > MAX_CAND) maxcand = MAX_CAND;
+    if (maxcand > n) maxcand = n;
+    if (maxcand < 1) maxcand = 1;
+
+    int ranked[MAX_MOVES];
+    for (int i = 0; i < n; i++) ranked[i] = i;
+    /* Strict comparison is intentional: exact ties retain the engine's legal
+     * move enumeration order, matching the deployed policy argmax. */
+    for (int i = 0; i < maxcand; i++) {
+        int best = i;
+        for (int j = i + 1; j < n; j++)
+            if (prob[ranked[j]] > prob[ranked[best]]) best = j;
+        int tmp = ranked[i]; ranked[i] = ranked[best]; ranked[best] = tmp;
+    }
+
+    int keep = min_cand > 1 ? min_cand : 1;
+    if (keep > maxcand) keep = maxcand;
+    int count;
+    if (cand_mass > 0.0f) {
+        count = 0;
+        double mass = 0.0;
+        while (count < maxcand &&
+               (count < keep || mass < (double)cand_mass)) {
+            order[count] = ranked[count];
+            mass += prob[ranked[count]];
+            count++;
+        }
+    } else {
+        count = maxcand;
+        for (int i = 0; i < count; i++) order[i] = ranked[i];
+        float floor_p = cand_floor > 0.0f ? cand_floor : 0.02f;
+        while (count > keep && prob[order[count - 1]] < floor_p) count--;
+    }
+
+    int baseline_pos = -1;
+    for (int i = 0; i < count; i++)
+        if (order[i] == baseline) {
+            baseline_pos = i;
+            break;
+        }
+    if (baseline_pos < 0) {
+        if (count < MAX_CAND)
+            order[count++] = baseline;
+        else
+            order[count - 1] = baseline;
+        baseline_pos = count - 1;
+    }
+    if (baseline_pos > 0) {
+        int tmp = order[0];
+        order[0] = order[baseline_pos];
+        order[baseline_pos] = tmp;
+    }
+    return count;
+}
+
 static int same_semantic_action(Move a, Move b)
 {
     if (a.discard != b.discard) return 0;
@@ -2134,7 +2209,8 @@ static int useful_pile_pickup(
  * objective floor against candidate zero; a statistically tied alternative
  * leader does not erase an independently verified improvement. */
 static int confirm_trusted_prefix(
-    const Agent *a, const NetEvalPlan *eval_plan,
+    const Agent *a, const Net *cont_net,
+    const NetEvalPlan *cont_eval_plan,
     const State *st, int p,
     const Move *mv, const int *order, int ntrusted, int proposed,
     int cont_prune, int cont_sym, const BeliefDist *belief, int have_belief,
@@ -2204,7 +2280,8 @@ static int confirm_trusted_prefix(
             LateReplanContext replan = late_replan_context_init(
                 replan_worlds, replan_cores,
                 LATE_PANEL_TRUSTED_CONFIRM, &replan_cache);
-            int m = playout(a->net, eval_plan, &s, p, cont_prune, NULL, perm,
+            int m = playout(cont_net, cont_eval_plan, &s, p, cont_prune,
+                            NULL, perm,
                             other_perm, p ^ 1, 0,
                             cont_sym, a->plan_deck_max,
                             a->plan_block_gap,
@@ -2269,11 +2346,19 @@ static Move rollout_move_impl(const struct Agent *a, const State *st,
                               Rng *rng, float *out_value,
                               SearchStats *stats, int use_eval_plan)
 {
-    NetEvalPlan eval_plan_storage;
+    const Net *cont_net = continuation_net(a);
+    NetEvalPlan eval_plan_storage, cont_eval_plan_storage;
     const NetEvalPlan *eval_plan = NULL;
+    const NetEvalPlan *cont_eval_plan = NULL;
     if (a->net && use_eval_plan) {
         net_eval_plan_init(a->net, &eval_plan_storage);
         eval_plan = &eval_plan_storage;
+    }
+    if (cont_net == a->net) {
+        /* The historical/default actor aliases the checkpoint.  Reuse its
+         * owner-bound proof rather than scanning the same immutable model a
+         * second time on every decision. */
+        cont_eval_plan = eval_plan;
     }
     if (stats) {
         memset(stats, 0, sizeof *stats);
@@ -2397,12 +2482,17 @@ static Move rollout_move_impl(const struct Agent *a, const State *st,
      * evaluator after a completed rejection would silently undo that gate. */
     if (bounded_late_root_enabled(a) && st->deck_left >= 2 &&
         st->deck_left <= LATE_REPLAN_MAX_DECK) {
+        if (!cont_eval_plan && cont_net && cont_net != a->net &&
+            use_eval_plan) {
+            net_eval_plan_init(cont_net, &cont_eval_plan_storage);
+            cont_eval_plan = &cont_eval_plan_storage;
+        }
         Move resolved = { 0 };
         LateResolverStats late_stats;
-        int late_passed = late_resolver_choose_plan(
-            a->net, st, a->win_q, 3, a->symmetries,
+        int late_passed = late_resolver_choose_dual_plan(
+            a->net, cont_net, st, a->win_q, 3, a->symmetries,
             a->root_width, a->bounded_late_min,
-            &resolved, &late_stats, eval_plan);
+            &resolved, &late_stats, eval_plan, cont_eval_plan);
         if (stats) {
             stats->late_resolver_attempted = 1;
             stats->late_resolver_stable = late_stats.stable;
@@ -2796,9 +2886,21 @@ static Move rollout_move_impl(const struct Agent *a, const State *st,
             st, mv, prob, n, current_baseline, maxcand,
             a->action_core_count, keep, a->cand_floor, a->cand_mass,
             order, &action_core_candidates, &action_draw_candidates);
-    } else {
+    } else if (a->net && current_baseline == current_policy_top) {
+        /* The maintained flat-policy path.  Its deployed baseline is the
+         * literal policy argmax, so candidate zero is already in the sorted
+         * prefix.  Export this exact admission rule for continuation-policy
+         * training without coupling that code to rollout inference. */
+        ncand = rollout_policy_prefix_indices(
+            mv, prob, n, current_baseline, maxcand,
+            a->cand_floor, a->cand_mass, keep, order);
+    } else if (a->net) {
+        /* Preserve the historical experimental draw-planner path verbatim.
+         * In particular, a full eight-row audit could not append a repaired
+         * baseline outside the prefix; changing that unrelated edge belongs
+         * in a separately qualified experiment. */
         ncand = maxcand;
-        if (a->net && a->cand_mass > 0.0f) {
+        if (a->cand_mass > 0.0f) {
             ncand = 0;
             double mass = 0.0;
             while (ncand < maxcand &&
@@ -2806,10 +2908,15 @@ static Move rollout_move_impl(const struct Agent *a, const State *st,
                 mass += prob[order[ncand]];
                 ncand++;
             }
-        } else if (a->net) {
+        } else {
             float floor_p = a->cand_floor > 0.0f ? a->cand_floor : 0.02f;
             while (ncand > keep && prob[order[ncand - 1]] < floor_p) ncand--;
         }
+        append_unique(order, &ncand, MAX_CAND, current_baseline);
+    } else {
+        /* The heuristic scores are not probabilities and historically have
+         * no floor/mass filter. */
+        ncand = maxcand;
         append_unique(order, &ncand, MAX_CAND, current_baseline);
     }
     /* Enabling the late method promises an actual comparison.  A sharp
@@ -2961,6 +3068,15 @@ static Move rollout_move_impl(const struct Agent *a, const State *st,
         return mv[order[0]];
     }
 
+    /* A distinct continuation checkpoint is irrelevant until a root
+     * candidate is actually played.  Defer its parameter proof past every
+     * root-only phase/confidence/singleton gate so early policy turns pay no
+     * second checkpoint scan. */
+    if (!cont_eval_plan && cont_net && cont_net != a->net && use_eval_plan) {
+        net_eval_plan_init(cont_net, &cont_eval_plan_storage);
+        cont_eval_plan = &cont_eval_plan_storage;
+    }
+
     double sum[MAX_CAND], sumw[MAX_CAND], sumobj[MAX_CAND];
     for (int i = 0; i < neval; i++) {
         sum[i] = 0.0;
@@ -3077,7 +3193,7 @@ static Move rollout_move_impl(const struct Agent *a, const State *st,
             LateReplanContext replan = late_replan_context_init(
                 replan_worlds, replan_cores, LATE_PANEL_PRIMARY,
                 &primary_replan_cache);
-            int m = playout(a->net, eval_plan, &s, p, cont_prune,
+            int m = playout(cont_net, cont_eval_plan, &s, p, cont_prune,
                             random_cont_sym ? &pr : NULL,
                             fixed_perm, other_fixed_perm, p ^ 1,
                             sample_cont_actions, cont_sym,
@@ -3151,7 +3267,8 @@ static Move rollout_move_impl(const struct Agent *a, const State *st,
     int prefix_gate_passed = 0;
     if (a->policy_prefix_mode >= 2 && proposed_reference != 0) {
         reference = confirm_trusted_prefix(
-            a, eval_plan, st, p, mv, order, trusted_candidates,
+            a, cont_net, cont_eval_plan, st, p, mv, order,
+            trusted_candidates,
             proposed_reference,
             cont_prune, cont_sym, &belief, have_belief,
             confirm_seed_base ^ UINT64_C(0xE7037ED1A0B428DB),
@@ -3269,7 +3386,8 @@ static Move rollout_move_impl(const struct Agent *a, const State *st,
                         confirm_other_perm = cont_perms[other_pk];
                     }
                 }
-                (void)playout(a->net, eval_plan, &baseline, p, cont_prune,
+                (void)playout(cont_net, cont_eval_plan, &baseline, p,
+                              cont_prune,
                               a->confirm_exact5 || confirm_perm ? NULL : &brng,
                               confirm_perm, confirm_other_perm, p ^ 1, 0,
                               a->confirm_exact5 ? 5 : cont_sym,
@@ -3296,7 +3414,7 @@ static Move rollout_move_impl(const struct Agent *a, const State *st,
                             LATE_PANEL_CHALLENGER_CONFIRM,
                             &confirm_replan_cache);
                     (void)playout(
-                        a->net, eval_plan, &challenger, p, cont_prune,
+                        cont_net, cont_eval_plan, &challenger, p, cont_prune,
                         a->confirm_exact5 || confirm_perm ? NULL : &crng,
                         confirm_perm, confirm_other_perm, p ^ 1, 0,
                         a->confirm_exact5 ? 5 : cont_sym,

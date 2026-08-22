@@ -177,6 +177,20 @@ void spec_parse_selfrollout(const char *spec, const Net *net, Agent *a)
     parse_rollout_tail(spec[npre] == ':' ? spec + npre + 1 : "", a, spec);
 }
 
+void spec_release(Agent *a)
+{
+    if (!a) return;
+    const Net *root = a->net;
+    const Net *continuation = a->continuation_net;
+    if (a->owns_continuation_net && continuation && continuation != root)
+        free((void *)continuation);
+    if (a->owns_net && root) free((void *)root);
+    a->net = NULL;
+    a->continuation_net = NULL;
+    a->owns_net = 0;
+    a->owns_continuation_net = 0;
+}
+
 void spec_parse(const char *spec, Agent *a)
 {
     char buf[512];
@@ -202,18 +216,34 @@ void spec_parse(const char *spec, Agent *a)
         return;
     }
     if (!strcmp(tok, "net") || !strcmp(tok, "mcts") || !strcmp(tok, "policy") ||
-        !strcmp(tok, "rollout") || !strcmp(tok, "rolloutu")) {
+        !strcmp(tok, "rollout") || !strcmp(tok, "rolloutu") ||
+        !strcmp(tok, "rollout2") || !strcmp(tok, "rolloutu2")) {
         int is_mcts = !strcmp(tok, "mcts");
         int is_policy = !strcmp(tok, "policy");
-        int is_rollout = !strcmp(tok, "rollout") || !strcmp(tok, "rolloutu");
-        int is_uniform = !strcmp(tok, "rolloutu");
+        int is_rollout = !strcmp(tok, "rollout") || !strcmp(tok, "rolloutu") ||
+                         !strcmp(tok, "rollout2") || !strcmp(tok, "rolloutu2");
+        int is_two_net = !strcmp(tok, "rollout2") || !strcmp(tok, "rolloutu2");
+        int is_uniform = !strcmp(tok, "rolloutu") || !strcmp(tok, "rolloutu2");
         char *path = strtok_r(NULL, ":", &save);
         if (!path) { fprintf(stderr, "agent '%s' needs a network path\n", tok); exit(1); }
         Net *n = load_net(path);
         agent_default(a, is_rollout ? AG_ROLLOUT :
                          (is_mcts ? AG_MCTS : (is_policy ? AG_POLICY : AG_NET)), n);
+        a->owns_net = 1;
         char *v;
         if (is_rollout) {
+            if (is_two_net) {
+                char *continuation_path = strtok_r(NULL, ":", &save);
+                if (!continuation_path) {
+                    fprintf(stderr,
+                            "agent '%s' needs a continuation network path\n",
+                            tok);
+                    exit(1);
+                }
+                a->continuation_net = strcmp(path, continuation_path) == 0
+                    ? n : load_net(continuation_path);
+                a->owns_continuation_net = a->continuation_net != n;
+            }
             a->no_belief = is_uniform;
             parse_rollout_tail(save ? save : "", a, spec);
         } else if (is_policy) {

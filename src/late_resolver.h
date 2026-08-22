@@ -70,6 +70,17 @@ int late_resolver_choose_plan(const Net *net, const State *st, int objective,
                               Move *out, LateResolverStats *stats,
                               const NetEvalPlan *eval_plan);
 
+/* Two-network form used by rollout actors.  Root candidate construction and
+ * priors use root_net/root_eval_plan.  Every observation-keyed policy after a
+ * root candidate uses continuation_net/continuation_eval_plan.  A null
+ * continuation_net aliases root_net, preserving the historical actor. */
+int late_resolver_choose_dual_plan(
+    const Net *root_net, const Net *continuation_net,
+    const State *st, int objective, int cores, int policy_symmetries,
+    int max_actions, double practical_min, Move *out,
+    LateResolverStats *stats, const NetEvalPlan *root_eval_plan,
+    const NetEvalPlan *continuation_eval_plan);
+
 /* Small public invariant hook used by focused runtime tests. */
 int late_resolver_assignment_count(const State *st, int p);
 

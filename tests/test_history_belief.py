@@ -179,6 +179,43 @@ class HistoryBeliefTests(unittest.TestCase):
                 ROOT / "data/c8.bin",
             )
 
+    def test_dual_actor_uses_root_checkpoint_and_shifted_rollout_tail(self) -> None:
+        source = (
+            "rolloutu2:data/champion.bin:data/c8.bin:512:4:0.02:0:1:20:"
+            "0:0:0:0:3.5:2:2:20:0:0:20:1:0:512:1"
+        )
+        self.assertEqual(
+            history_belief.validate_actor_prefix(
+                source, 3, 20, ROOT / "data/champion.bin"
+            ),
+            source,
+        )
+        with self.assertRaisesRegex(
+            history_belief.ViewError, "checkpoint does not match"
+        ):
+            history_belief.validate_actor_prefix(
+                source, 3, 20, ROOT / "data/c8.bin"
+            )
+
+        searched_early = source.replace(":0:1:20:", ":0:1:2:")
+        with self.assertRaisesRegex(
+            history_belief.ViewError, "rollout-search action"
+        ):
+            history_belief.validate_actor_prefix(
+                searched_early, 3, 20, ROOT / "data/champion.bin"
+            )
+
+    def test_dual_actor_requires_continuation_checkpoint_field(self) -> None:
+        with self.assertRaisesRegex(
+            history_belief.ViewError, "continuation checkpoint"
+        ):
+            history_belief.validate_actor_prefix(
+                "rollout2:data/champion.bin",
+                0,
+                20,
+                ROOT / "data/champion.bin",
+            )
+
     def test_ply4_actor_aware_golden_and_cardinality(self) -> None:
         result = history_belief.annotate(
             fixture(),

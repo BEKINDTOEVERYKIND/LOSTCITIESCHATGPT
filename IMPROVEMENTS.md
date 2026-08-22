@@ -836,6 +836,38 @@ be rerun safely. Small multi-seed candidates were neutral or negative, so no
 PPO checkpoint was promoted in this cycle. The infrastructure is retained;
 the failed checkpoints are not.
 
+It also has an opt-in continuation-only state-start mode for training the
+second network of a role-separated rollout actor. The immutable champion plays
+from a separately required `--continuation-root` checkpoint, so later learner
+resumes cannot silently leak into the root role. That champion plays
+the public match prefix through ply 13 and supplies the exact maintained
+20-way, width-five, 2%-floor policy shortlist at ply 14. Candidate zero receives
+half the starts when a challenger is admitted; the other half is uniform over
+those nonbaseline moves, while singleton shortlists necessarily use candidate
+zero.
+Only then is the mover's sanitized view uniformly determinized. The root action
+is applied without a gradient, both seats' downstream learner decisions are
+sampled on-policy, and exact one-card-deck solver actions are omitted. The root
+is loaded raw, with no setup-time wager projection. Canonical-path and
+device/inode preflight protects the root, learner initialization, and anchor
+from `--out` and every `.itN` output, including symlink and hard-link aliases.
+
+The continuation behavior distribution is the live policy conditioned on the
+same maintained dead-discard mask as production. Temperature renormalization,
+stored PPO probability, PPO ratio, and entropy use that conditional support;
+augmented rows reconstruct it in stored coordinates. Masked logits receive no
+PPO or entropy gradient, while the deliberately full-legal anchor KL can still
+protect them. Generation also reuses rollout's semantic late-cycle tracker and
+cap-reserve deck forcing. Both force the best allowed deck-draw action without
+an actor row, and an unfinished engine-fuse trajectory is rejected.
+
+Continuation mode defaults to and requires lambda exactly one. Returns
+terminate at the same mode-0 round margin used by the production evaluator and
+cannot inherit full-match critic bootstraps; value remains only an
+action-independent advantage baseline. Belief training and misleading
+standalone-policy evaluation are disabled for this mode; any resulting
+checkpoint still requires a locked dual-network actor test before promotion.
+
 ## Remaining high-value work
 
 1. Give earlier-round MCTS one consistent utility. Final-round terminals are

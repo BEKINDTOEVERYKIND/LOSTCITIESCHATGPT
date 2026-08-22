@@ -35,7 +35,9 @@ static int trace_enabled;
 static int trace_n;
 static int trace_last_nply;
 static int trace_bad_perm;
+static int trace_bad_net;
 static int trace_overflow;
+static const Net *trace_expected_net;
 
 static int traced_policy_probs_perm_plan(
     const Net *net, const State *st, Move *mv, float *prob, float *value,
@@ -66,6 +68,7 @@ static void trace_reset(void)
     trace_n = 0;
     trace_last_nply = -1;
     trace_bad_perm = 0;
+    trace_bad_net = 0;
     trace_overflow = 0;
 }
 
@@ -74,10 +77,12 @@ static void trace_stop(void)
     trace_enabled = 0;
 }
 
-static void trace_record(const State *st, const uint8_t perm[NSUIT],
+static void trace_record(const Net *net, const State *st,
+                         const uint8_t perm[NSUIT],
                          const Move *mv, const float *prob, int n)
 {
     if (!trace_enabled) return;
+    if (trace_expected_net && net != trace_expected_net) trace_bad_net++;
     if (trace_n == 0 || (int)st->nply <= trace_last_nply) {
         if (trace_n >= TRACE_MAX_TRAJECTORIES) {
             trace_overflow = 1;
@@ -112,7 +117,7 @@ static int traced_policy_probs_perm_plan(
     const uint8_t perm[NSUIT], const NetEvalPlan *plan)
 {
     int n = policy_probs_perm_plan(net, st, mv, prob, value, perm, plan);
-    trace_record(st, perm, mv, prob, n);
+    trace_record(net, st, perm, mv, prob, n);
     return n;
 }
 
@@ -153,6 +158,9 @@ static void check_role_schedule(const char *label, int root_player,
     CHECK(!trace_overflow, "%s trace overflowed", label);
     CHECK(trace_bad_perm == 0, "%s used a permutation outside the 20-group",
           label);
+    CHECK(trace_bad_net == 0,
+          "%s routed %d policy calls through the root/wrong checkpoint",
+          label, trace_bad_net);
     CHECK(trace_n == worlds * candidates,
           "%s traced %d trajectories, expected %d", label, trace_n,
           worlds * candidates);
@@ -197,13 +205,16 @@ static void check_role_schedule(const char *label, int root_player,
 
 static void test_rollout_mode4_product(void)
 {
+    Net *root = calloc(1, sizeof *root);
     Net *zero = calloc(1, sizeof *zero);
-    CHECK(zero != NULL, "allocate mode-4 zero network");
-    if (!zero) return;
+    CHECK(root != NULL && zero != NULL,
+          "allocate mode-4 root/continuation networks");
+    if (!root || !zero) { free(root); free(zero); return; }
     State st = reachable_late_state(6);
     const int p = st.turn;
     Agent a;
-    agent_default(&a, AG_ROLLOUT, zero);
+    agent_default(&a, AG_ROLLOUT, root);
+    a.continuation_net = zero;
     a.dets = ROLE_PRODUCT;
     a.root_width = 2;
     a.min_cand = 2;
@@ -221,6 +232,7 @@ static void test_rollout_mode4_product(void)
     int fixed_offset = (int)(fork % ROLE_GROUP);
     int other_offset = (int)(rotl64(fork, 31) % ROLE_GROUP);
     SearchStats stats_a;
+    trace_expected_net = zero;
     trace_reset();
     Move move_a = rollout_move(&a, &st, &rng, NULL, &stats_a);
     Rng rng_a = rng;
@@ -245,6 +257,8 @@ static void test_rollout_mode4_product(void)
           memcmp(first_trace, trace_trajectory, sizeof first_trace) == 0,
           "mode-4 decision, diagnostics, RNG, or role trajectories are not "
           "deterministic");
+    trace_expected_net = NULL;
+    free(root);
     free(zero);
 }
 
@@ -272,7 +286,8 @@ static PrefixResult run_prefix_panel(const Agent *a,
     PrefixResult out;
     memset(&out, 0, sizeof out);
     out.selected = confirm_trusted_prefix(
-        a, plan, st, st->turn, chosen, order, 2, 1, 0, ROLE_GROUP,
+        a, continuation_net(a), plan, st, st->turn,
+        chosen, order, 2, 1, 0, ROLE_GROUP,
         &unused_belief, 0, seed, ROLE_PRODUCT, &out.worlds,
         out.q, out.se, out.delta, out.dse, &out.agreement, &out.gate,
         &out.work);
@@ -281,16 +296,19 @@ static PrefixResult run_prefix_panel(const Agent *a,
 
 static void test_prefix_mode3_product(void)
 {
+    Net *root = calloc(1, sizeof *root);
     Net *zero = calloc(1, sizeof *zero);
-    CHECK(zero != NULL, "allocate prefix-mode-3 zero network");
-    if (!zero) return;
+    CHECK(root != NULL && zero != NULL,
+          "allocate prefix-mode-3 root/continuation networks");
+    if (!root || !zero) { free(root); free(zero); return; }
     NetEvalPlan plan;
     net_eval_plan_init(zero, &plan);
     State st = reachable_late_state(7); /* odd ply: root player is seat 1 */
     const int p = st.turn;
     CHECK(p == 1, "prefix role fixture no longer starts with player 1");
     Agent a;
-    agent_default(&a, AG_ROLLOUT, zero);
+    agent_default(&a, AG_ROLLOUT, root);
+    a.continuation_net = zero;
     a.confirm_dets = ROLE_PRODUCT;
     a.policy_prefix_mode = 3;
     a.playout_symmetries = ROLE_GROUP;
@@ -302,6 +320,7 @@ static void test_prefix_mode3_product(void)
     rng_seed(&perm_rng, seed ^ UINT64_C(0x8CB92BA72F3D8DD7));
     int fixed_offset = (int)rng_below(&perm_rng, ROLE_GROUP);
     int other_offset = (int)rng_below(&perm_rng, ROLE_GROUP);
+    trace_expected_net = zero;
     trace_reset();
     PrefixResult first = run_prefix_panel(&a, &plan, &st, seed);
     trace_stop();
@@ -319,6 +338,8 @@ static void test_prefix_mode3_product(void)
     CHECK(memcmp(&first, &second, sizeof first) == 0 && trace_n == first_n &&
           memcmp(first_trace, trace_trajectory, sizeof first_trace) == 0,
           "prefix-mode-3 result or role trajectories are not deterministic");
+    trace_expected_net = NULL;
+    free(root);
     free(zero);
 }
 
@@ -366,6 +387,7 @@ static void test_fixed_role_trajectory_equivariance(void)
     State finish_a;
     PlayoutWork work_a;
     trace_reset();
+    trace_expected_net = net;
     int margin_a = run_fixed_role_playout(
         net, &plan, &start, fixed, other, &finish_a, &work_a);
     trace_stop();
@@ -437,6 +459,7 @@ static void test_fixed_role_trajectory_equivariance(void)
         }
     }
     free(net);
+    trace_expected_net = NULL;
 }
 
 int main(void)

@@ -877,14 +877,53 @@ default actor.
 ./bin/rl --init data/champion.bin --belief-only --bw 1 \
          --trajectory-symmetries 20 --games 1000 --rounds 3 \
          --out data/belief-head-only.bin
+
+# Optional continuation-role PPO.  The immutable champion plays plies 0..13,
+# then its exact production shortlist supplies a gradient-free ply-14 root.
+# PPO learns only later decisions in uniformly sampled hidden worlds.
+./bin/rl --init data/champion.bin --continuation-start 14 \
+         --continuation-root data/champion.bin \
+         --anchor data/champion.bin --kl 0.5 --lambda 1 \
+         --rounds 3 --games 1000 \
+         --out data/continuation-candidate.bin
 ```
 
-Both PPO capabilities above are opt-in research tools and are disabled by
-default. `--belief-only` requires positive `--bw`, cannot be combined with
-`--v6-only` or anchor-KL optimization, and applies weight decay only inside
-the belief head. Match evaluation and trajectory suit-map selection are
+These PPO capabilities are opt-in research tools and are disabled by default.
+`--belief-only` requires positive `--bw`, cannot be combined with `--v6-only`
+or anchor-KL optimization, and applies weight decay only inside the belief
+head. Continuation mode accepts only the maintained handoff at ply 14. It uses
+an independently loaded, required `--continuation-root` checkpoint, so resuming
+the learner cannot silently replace the frozen root actor. The root is loaded
+byte-for-byte without an implicit wager projection. Before training, canonical
+path and existing-file identity checks reject `--out` and every generated
+`.itN` checkpoint if it could overwrite the root, learner initialization, or
+anchor through a direct path, symlink, or hard link. It then uses
+the shared production flat-policy admission (width five, 2% floor, minimum
+one). When at least one nonbaseline move is admitted, candidate zero is chosen
+half the time and the other half is divided uniformly over those challengers;
+a singleton shortlist necessarily uses candidate zero. The selected root and exact
+deck-one solution receive no policy row; both seats' downstream learner moves
+do. Downstream behavior and PPO condition on production's maintained
+dead-discard mask, including after suit augmentation: masked moves have zero
+behavior, PPO, and entropy mass, while the full-legal anchor KL can still
+protect their logits. The shared semantic late-cycle tracker and cap-reserve
+rule force the conditionally best deck draw without an actor row, ensuring
+completion through the real deck rule; an unfinished capped round is rejected.
+Continuation mode defaults to and requires `--lambda 1` exactly. Its target is
+therefore always the production audit's mode-0 completed-round margin, with the
+value head serving only as an action-independent advantage baseline. Belief
+loss and standalone-policy evaluation default off because the eventual
+checkpoint must be qualified specifically in the dual-network rollout
+continuation role. Match evaluation and trajectory suit-map selection are
 thread-stable, but complete PPO training is not yet checkpoint-identical when
 `--threads` changes; keep the worker count fixed across training comparisons.
+
+Dual actors use `rollout2:ROOT:CONT:...` or
+`rolloutu2:ROOT:CONT:...`; the remaining positional tail is unchanged from the
+corresponding one-network spec. `ROOT` supplies the real decision's policy,
+value, belief, priors, and shortlist. `CONT` supplies every policy decision
+after a candidate is applied. Using the same checkpoint in both positions is
+an exact backward-compatible spelling of the historical actor.
 
 ## Playing, analysing, measuring
 

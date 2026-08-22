@@ -122,6 +122,11 @@
  *                   policy-prefix confirmation thresholds.
  *   rolloutu:PATH[...]                 (same, but uniform world sampling: the
  *                                       ablation for the learned hand beliefs)
+ *   rollout2:ROOT_PATH:CONT_PATH[...]  (root policy/value/belief/shortlist use
+ *                                       ROOT_PATH; every policy decision after
+ *                                       a root candidate uses CONT_PATH)
+ *   rolloutu2:ROOT_PATH:CONT_PATH[...] (same two-network actor with uniform
+ *                                       hidden-world sampling)
  *   mcts:PATH[:dets[:sims[:root_width[:node_width[:symmetries]]]]]
  *                                      (symmetry averaging is root-only)
  */
@@ -165,8 +170,14 @@
     "rolloutu:data/champion.bin:2048:5:0.01:0:1:14:0:0:0:0:3.5:2:2:20:" \
     "0:0:20:1:0:2048:1:0:0:0:0:0:0:2:1:0:0:2:1:0:3:1:0:0:1"
 
-/* Parses spec into *a, loading a network if needed.  Exits on error. */
+/* Parses spec into *a, loading a network if needed.  Exits on error.  Call
+ * spec_release() when the parsed actor's process lifetime does not own it. */
 void spec_parse(const char *spec, Agent *a);
+
+/* Release checkpoints owned by spec_parse().  Caller-owned live networks
+ * passed to agent_default/spec_parse_selfrollout are never freed.  Aliased
+ * root/continuation checkpoints are freed exactly once. */
+void spec_release(Agent *a);
 
 /* Parses selfrollout[:ROLLOUT_TAIL] into *a using the caller-owned live
  * network.  This is the training counterpart of rollout:PATH[...] and shares

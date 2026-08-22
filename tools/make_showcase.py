@@ -35,19 +35,41 @@ DEFAULT_EVALUATOR = (
     "2:1:0:3:1:0:0:1"
 )
 GAME_MARKER = '<script type="application/json" id="game-data">'
+ROLLOUT_KINDS = {"rollout", "rolloutu", "rollout2", "rolloutu2"}
+TWO_NETWORK_ROLLOUT_KINDS = {"rollout2", "rolloutu2"}
 
 
 def repo_path(path: Path) -> Path:
     return path if path.is_absolute() else ROOT / path
 
 
-def actor_model_path(spec: str) -> Path:
+def actor_model_paths(spec: str) -> tuple[Path, Path | None]:
+    """Return the actor's root and optional continuation checkpoints."""
     fields = spec.split(":")
-    if len(fields) < 2 or fields[0] not in {"policy", "rollout", "rolloutu"}:
+    if len(fields) < 2 or fields[0] not in {"policy", *ROLLOUT_KINDS}:
         raise RuntimeError("showcase actor must be a policy or rollout network spec")
     if not fields[1]:
         raise RuntimeError("showcase actor spec has no checkpoint path")
-    return repo_path(Path(fields[1]))
+    continuation = None
+    if fields[0] in TWO_NETWORK_ROLLOUT_KINDS:
+        if len(fields) < 3 or not fields[2]:
+            raise RuntimeError(
+                "two-network showcase actor spec has no continuation checkpoint path"
+            )
+        continuation = repo_path(Path(fields[2]))
+    return repo_path(Path(fields[1])), continuation
+
+
+def actor_model_path(spec: str) -> Path:
+    """Backward-compatible accessor for the actor's root checkpoint."""
+    return actor_model_paths(spec)[0]
+
+
+def rollout_tail_start(fields: list[str]) -> int:
+    """Index of the unchanged rollout tail after its checkpoint field(s)."""
+    if not fields or fields[0] not in ROLLOUT_KINDS:
+        raise RuntimeError("actor is not a rollout network spec")
+    return 3 if fields[0] in TWO_NETWORK_ROLLOUT_KINDS else 2
 
 
 def same_semantic_action(first: dict, second: dict) -> bool:
@@ -440,16 +462,43 @@ def main() -> None:
             "provenance value remains exact in JavaScript"
         )
 
-    actor_model = actor_model_path(args.actor)
-    if paths_alias(args.output, actor_model):
-        raise RuntimeError("--output must not replace the actor checkpoint")
+    initial_actor_fields = args.actor.split(":")
+    if initial_actor_fields[0] in TWO_NETWORK_ROLLOUT_KINDS:
+        actor_model, continuation_model = actor_model_paths(args.actor)
+    else:
+        # Keep this legacy entry point as the single-network lookup used by
+        # existing callers and tests.
+        actor_model = actor_model_path(args.actor)
+        continuation_model = None
+    actor_checkpoints = [("root", actor_model)]
+    if continuation_model is not None:
+        actor_checkpoints.append(("continuation", continuation_model))
+    for role, checkpoint in actor_checkpoints:
+        if paths_alias(args.output, checkpoint):
+            checkpoint_label = (
+                "actor checkpoint"
+                if continuation_model is None
+                else f"actor {role} checkpoint"
+            )
+            raise RuntimeError(
+                f"--output must not replace the {checkpoint_label}"
+            )
     viewer_source = None
     viewer_start = viewer_end = None
     if args.embed_viewer:
         if paths_alias(args.output, args.embed_viewer):
             raise RuntimeError("--embed-viewer must differ from --output")
-        if paths_alias(args.embed_viewer, actor_model):
-            raise RuntimeError("--embed-viewer must not replace the actor checkpoint")
+        for role, checkpoint in actor_checkpoints:
+            if paths_alias(args.embed_viewer, checkpoint):
+                checkpoint_label = (
+                    "actor checkpoint"
+                    if continuation_model is None
+                    else f"actor {role} checkpoint"
+                )
+                raise RuntimeError(
+                    "--embed-viewer must not replace the "
+                    f"{checkpoint_label}"
+                )
         viewer_source, viewer_start, viewer_end = viewer_template(args.embed_viewer)
     check_destination(args.output, "output")
     if args.embed_viewer:
@@ -457,7 +506,11 @@ def main() -> None:
         # file; this also verifies that a sibling staging file can be created.
         check_destination(args.embed_viewer, "viewer")
 
-    model_hash = hashlib.sha256(actor_model.read_bytes()).hexdigest()
+    checkpoint_hashes = {
+        role: hashlib.sha256(checkpoint.read_bytes()).hexdigest()
+        for role, checkpoint in actor_checkpoints
+    }
+    model_hash = checkpoint_hashes["root"]
     if args.model:
         asserted_hash = hashlib.sha256(repo_path(args.model).read_bytes()).hexdigest()
         if asserted_hash != model_hash:
@@ -479,11 +532,22 @@ def main() -> None:
         text=True,
         stdout=subprocess.PIPE,
     )
-    final_model_hash = hashlib.sha256(actor_model.read_bytes()).hexdigest()
-    if final_model_hash != model_hash:
-        raise RuntimeError(
-            "actor checkpoint changed while the showcase was being analyzed"
-        )
+    final_checkpoint_hashes = {
+        role: hashlib.sha256(checkpoint.read_bytes()).hexdigest()
+        for role, checkpoint in actor_checkpoints
+    }
+    for role, initial_hash in checkpoint_hashes.items():
+        if final_checkpoint_hashes[role] != initial_hash:
+            checkpoint_label = (
+                "actor checkpoint"
+                if continuation_model is None
+                else f"actor {role} checkpoint"
+            )
+            raise RuntimeError(
+                f"{checkpoint_label} changed while the showcase was being "
+                "analyzed"
+            )
+    final_model_hash = final_checkpoint_hashes["root"]
     if args.model:
         final_asserted_hash = hashlib.sha256(
             repo_path(args.model).read_bytes()
@@ -529,8 +593,11 @@ def main() -> None:
             )
 
     actor_fields = args.actor.split(":")
-    rollout_actor = args.actor.startswith(("rollout:", "rolloutu:"))
-    policy_actor = args.actor.startswith("policy:")
+    actor_kind = actor_fields[0]
+    rollout_actor = actor_kind in ROLLOUT_KINDS
+    dual_network_actor = actor_kind in TWO_NETWORK_ROLLOUT_KINDS
+    policy_actor = actor_kind == "policy"
+    tail_start = rollout_tail_start(actor_fields) if rollout_actor else 0
     actor_draw_root_deck_max = 0
     actor_draw_playout_deck_max = 0
     actor_terminal_mode = 1 if rollout_actor else 0
@@ -539,20 +606,30 @@ def main() -> None:
     actor_bounded_late_root = False
     actor_bounded_late_min = 1.0
     try:
-        if rollout_actor and len(actor_fields) > 31:
-            actor_draw_root_deck_max = int(actor_fields[31])
-            if len(actor_fields) > 32:
-                actor_draw_playout_deck_max = int(actor_fields[32])
-            if len(actor_fields) > 37:
-                actor_terminal_mode = int(actor_fields[37])
-            if len(actor_fields) > 38:
-                actor_deck2_replan_worlds = int(actor_fields[38])
-            if len(actor_fields) > 39:
-                actor_deck2_replan_cores = int(actor_fields[39])
-            if len(actor_fields) > 40:
-                actor_bounded_late_root = bool(int(actor_fields[40]))
-            if len(actor_fields) > 41:
-                actor_bounded_late_min = float(actor_fields[41])
+        if rollout_actor and len(actor_fields) > tail_start + 29:
+            actor_draw_root_deck_max = int(actor_fields[tail_start + 29])
+            if len(actor_fields) > tail_start + 30:
+                actor_draw_playout_deck_max = int(
+                    actor_fields[tail_start + 30]
+                )
+            if len(actor_fields) > tail_start + 35:
+                actor_terminal_mode = int(actor_fields[tail_start + 35])
+            if len(actor_fields) > tail_start + 36:
+                actor_deck2_replan_worlds = int(
+                    actor_fields[tail_start + 36]
+                )
+            if len(actor_fields) > tail_start + 37:
+                actor_deck2_replan_cores = int(
+                    actor_fields[tail_start + 37]
+                )
+            if len(actor_fields) > tail_start + 38:
+                actor_bounded_late_root = bool(
+                    int(actor_fields[tail_start + 38])
+                )
+            if len(actor_fields) > tail_start + 39:
+                actor_bounded_late_min = float(
+                    actor_fields[tail_start + 39]
+                )
         elif policy_actor and len(actor_fields) > 6:
             actor_draw_root_deck_max = int(actor_fields[6])
     except ValueError as exc:
@@ -598,18 +675,30 @@ def main() -> None:
     actor_root_width = None
     if rollout_actor:
         try:
-            actor_worlds = int(actor_fields[2])
-            actor_root_width = int(actor_fields[3])
-            actor_search_from_round_ply = int(actor_fields[7])
-            actor_confirmation_worlds = int(actor_fields[21])
+            actor_worlds = int(actor_fields[tail_start])
+            actor_root_width = int(actor_fields[tail_start + 1])
+            actor_search_from_round_ply = int(actor_fields[tail_start + 5])
+            actor_confirmation_worlds = int(actor_fields[tail_start + 19])
         except (IndexError, ValueError) as exc:
             raise RuntimeError("rollout actor spec is incomplete") from exc
-        actor_method = "late_round_rollout_consensus"
-        actor_label = (
-            "Champion + validated coherent rollout consensus "
-            f"({actor_worlds}+{actor_confirmation_worlds} worlds, "
-            f"top {actor_root_width})"
-        )
+        if dual_network_actor:
+            root_name = Path(actor_fields[1]).name
+            continuation_name = Path(actor_fields[2]).name
+            actor_method = "dual_network_late_round_rollout_consensus"
+            actor_label = (
+                f"Root {root_name} (policy, value, belief, shortlist) + "
+                f"continuation {continuation_name} (post-candidate play) · "
+                "validated coherent rollout consensus "
+                f"({actor_worlds}+{actor_confirmation_worlds} worlds, "
+                f"top {actor_root_width})"
+            )
+        else:
+            actor_method = "late_round_rollout_consensus"
+            actor_label = (
+                "Champion + validated coherent rollout consensus "
+                f"({actor_worlds}+{actor_confirmation_worlds} worlds, "
+                f"top {actor_root_width})"
+            )
     if actor_draw_root_deck_max > 0:
         actor_method += "_with_information_set_draw_repair"
         actor_label += (
@@ -639,6 +728,24 @@ def main() -> None:
             " + authoritative bounded deck-2/3 root gate "
             f"(>{actor_bounded_late_min:g} point gain)"
         )
+    match_id = f"{args.seed}-{model_hash[:12]}"
+    dual_model_provenance = {}
+    if dual_network_actor:
+        assert continuation_model is not None
+        continuation_hash = checkpoint_hashes["continuation"]
+        # Include both complete content identities.  Root-only IDs would make
+        # two distinct continuation policies appear to be the same match.
+        match_id = f"{args.seed}-{model_hash}-{continuation_hash}"
+        dual_model_provenance = {
+            "root_model_path": actor_fields[1],
+            "root_model_sha256": model_hash,
+            "root_model_role": "policy, value, belief, and root shortlist",
+            "continuation_model_path": actor_fields[2],
+            "continuation_model_sha256": continuation_hash,
+            "continuation_model_role": (
+                "policy decisions after each evaluated root candidate"
+            ),
+        }
     game["meta"].update(
         actor_label=actor_label,
         actor_method=actor_method,
@@ -659,12 +766,13 @@ def main() -> None:
         actor_bounded_late_min=actor_bounded_late_min,
         model_sha256=model_hash,
         model_path=str(Path(args.actor.split(":")[1])),
-        match_id=f"{args.seed}-{model_hash[:12]}",
+        match_id=match_id,
         selection="random_unfiltered",
         selection_note=(
             "Seed generated randomly once before simulation; the match result "
             "and decisions were not screened, retried, or selected."
         ),
+        **dual_model_provenance,
     )
 
     output_payload = json.dumps(game, separators=(",", ":")) + "\n"

@@ -13,13 +13,13 @@ CORE    := $(SRC)/lc.c $(SRC)/features.c $(SRC)/net.c $(SRC)/heuristic.c \
            $(SRC)/match.c $(SRC)/spec.c
 
 all: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_role_coherence \
-	$(BIN)/test_late_resolver \
+	$(BIN)/test_late_resolver $(BIN)/test_rl_support \
 	$(BIN)/arena $(BIN)/train \
 	$(BIN)/bench $(BIN)/probe $(BIN)/rl $(BIN)/ladder $(BIN)/play \
 	$(BIN)/showgame $(BIN)/dumpfeat $(BIN)/analyze $(BIN)/searchcmp \
 	$(BIN)/qpair $(BIN)/mine $(BIN)/robust_distill $(BIN)/symmetrize \
 	$(BIN)/history_belief $(BIN)/planprobe $(BIN)/planarena \
-	$(BIN)/belief_eval $(BIN)/test_belief_eval \
+	$(BIN)/belief_eval $(BIN)/test_belief_eval $(BIN)/continuation_arena \
 	$(DATA)/champion.bin
 
 $(BIN):
@@ -42,7 +42,16 @@ $(BIN)/test_late_resolver: tests/test_late_resolver.c $(CORE) $(HDRS) \
 	$(DATA)/champion.bin | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
 
+# White-box continuation-PPO tests include rl.c so they can verify the exact
+# conditional support and per-logit gradients without widening the trainer ABI.
+$(BIN)/test_rl_support: tests/test_rl_support.c tools/rl.c $(CORE) $(HDRS) | $(BIN)
+	$(CC) $(CFLAGS) -o $@ \
+		$(filter-out tools/rl.c,$(filter %.c,$^)) $(LDFLAGS)
+
 $(BIN)/arena: tools/arena.c $(CORE) $(HDRS) | $(BIN)
+	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
+
+$(BIN)/continuation_arena: tools/continuation_arena.c $(CORE) $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
 
 $(BIN)/train: tools/train.c tools/train_target.h $(CORE) $(HDRS) | $(BIN)
@@ -52,18 +61,21 @@ $(BIN)/bench: tools/bench.c $(CORE) $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
 
 test: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_role_coherence \
-	$(BIN)/test_late_resolver \
+	$(BIN)/test_late_resolver $(BIN)/test_rl_support \
 	$(BIN)/test_belief_eval \
-	$(BIN)/belief_eval $(BIN)/rl $(BIN)/arena $(DATA)/champion.bin
+	$(BIN)/belief_eval $(BIN)/rl $(BIN)/arena $(BIN)/continuation_arena \
+	$(DATA)/champion.bin
 	./$(BIN)/test_engine
 	./$(BIN)/test_runtime
 	./$(BIN)/test_role_coherence
 	./$(BIN)/test_late_resolver
+	./$(BIN)/test_rl_support
 	./$(BIN)/test_belief_eval
 	python3 -m unittest tests/test_rl_population.py
 	python3 -m unittest tests/test_belief_eval.py
 	python3 -m unittest tests/test_make_showcase.py
 	python3 -m unittest tests/test_merge_arena.py
+	python3 -m unittest tests/test_continuation_arena.py
 
 audit-test: $(BIN)/qpair $(DATA)/champion.bin
 	python3 tools/audit_regression.py

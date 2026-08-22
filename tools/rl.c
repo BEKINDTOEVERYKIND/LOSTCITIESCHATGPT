@@ -1,3 +1,5 @@
+#define _XOPEN_SOURCE 700
+
 /* rl -- self-play policy optimisation (PPO) for the Lost Cities network.
  *
  * Why policy gradient rather than expert iteration: candidate moves in this
@@ -24,6 +26,7 @@
 #include "../src/agent.h"
 #include "../src/heuristic.h"
 #include "../src/match.h"
+#include "../src/search.h"
 #include "../src/spec.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -33,6 +36,10 @@
 #include <stddef.h>
 #include <time.h>
 #include <pthread.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <errno.h>
 
 typedef struct {
     State st;
@@ -42,10 +49,12 @@ typedef struct {
     uint16_t chosen;  /* packed move                                      */
     uint8_t persp;
     uint8_t actor;    /* 1 when persp is the player who moved             */
+    uint8_t continuation_role; /* conditional dead-discard support applies */
 } RLSample;
 
 typedef struct {
     const Net *net;
+    const Net *champion; /* immutable prefix/root policy in continuation mode */
     const Agent *opponent; /* optional frozen population member             */
     float opponent_mix;    /* fraction of matches played against opponent  */
     int games;          /* matches per iteration */
@@ -67,7 +76,25 @@ typedef struct {
     float mw;           /* weight of the margin term in the return          */
     int rounds;
     int trajectory_symmetries; /* 0 off; otherwise one fixed group member */
+    int continuation_start; /* 0 ordinary PPO; currently 14 when enabled */
+    int continuation_rounds;
+    int continuation_baseline_roots;
+    int continuation_challenger_roots;
+    int continuation_exact_moves;
+    int continuation_cycle_forces;
+    int continuation_cap_forces;
+    int continuation_min_actor_ply;
+    uint64_t continuation_fingerprint;
 } GenJob;
+
+enum {
+    CONTINUATION_START_PLY = 14,
+    CONTINUATION_ROOT_WIDTH = 5,
+    CONTINUATION_ROOT_SYMMETRIES = 20,
+    CONTINUATION_PLAYOUT_PRUNE = 1
+};
+
+static const float CONTINUATION_ROOT_FLOOR = 0.02f;
 
 static int16_t checked_cumulative_score(int score)
 {
@@ -92,6 +119,119 @@ static uint64_t mix64(uint64_t x)
     x ^= x >> 27;
     x *= UINT64_C(0x94D049BB133111EB);
     return x ^ (x >> 31);
+}
+
+static uint64_t net_byte_fingerprint(const Net *net)
+{
+    const unsigned char *p = (const unsigned char *)net;
+    uint64_t h = UINT64_C(1469598103934665603);
+    for (size_t i = 0; i < sizeof *net; i++) {
+        h ^= p[i];
+        h *= UINT64_C(1099511628211);
+    }
+    return h;
+}
+
+typedef struct {
+    char canonical[PATH_MAX];
+    dev_t device;
+    ino_t inode;
+    int exists;
+} CheckpointIdentity;
+
+/* Resolve both existing files and a not-yet-created output.  Existing
+ * symlinks collapse through realpath, while stat's device/inode pair also
+ * catches hard links.  For a new output, resolving its parent protects the
+ * same file spelled through relative components or a symlinked directory. */
+static int checkpoint_identity(const char *path, CheckpointIdentity *out)
+{
+    if (!path || !*path || !out) return -1;
+    memset(out, 0, sizeof *out);
+    struct stat sb;
+    if (realpath(path, out->canonical)) {
+        if (stat(path, &sb) != 0) return -1;
+        out->device = sb.st_dev;
+        out->inode = sb.st_ino;
+        out->exists = 1;
+        return 0;
+    }
+    if (errno != ENOENT && errno != ENOTDIR) return -1;
+
+    size_t len = strlen(path);
+    if (len == 0 || len >= PATH_MAX || path[len - 1] == '/') return -1;
+    char parent[PATH_MAX], resolved_parent[PATH_MAX];
+    const char *base = path;
+    const char *slash = strrchr(path, '/');
+    if (!slash) {
+        memcpy(parent, ".", 2);
+    } else {
+        base = slash + 1;
+        size_t plen = slash == path ? 1 : (size_t)(slash - path);
+        if (plen >= sizeof parent) return -1;
+        memcpy(parent, path, plen);
+        parent[plen] = '\0';
+    }
+    if (!*base || !strcmp(base, ".") || !strcmp(base, "..") ||
+        !realpath(parent, resolved_parent))
+        return -1;
+    int written = snprintf(out->canonical, sizeof out->canonical,
+                           "%s/%s", resolved_parent, base);
+    return written < 0 || (size_t)written >= sizeof out->canonical ? -1 : 0;
+}
+
+static int checkpoint_same_file(const CheckpointIdentity *a,
+                                const CheckpointIdentity *b)
+{
+    if (!strcmp(a->canonical, b->canonical)) return 1;
+    return a->exists && b->exists && a->device == b->device &&
+           a->inode == b->inode;
+}
+
+static int continuation_checkpoint_preflight(
+    const char *out_path, int iters, const char *init_path,
+    const char *root_path, const char *anchor_path)
+{
+    const char *protected_path[3] = { init_path, root_path, anchor_path };
+    CheckpointIdentity protected_id[3];
+    int nprotected = anchor_path ? 3 : 2;
+    for (int i = 0; i < nprotected; i++) {
+        if (checkpoint_identity(protected_path[i], &protected_id[i]) != 0 ||
+            !protected_id[i].exists) {
+            fprintf(stderr, "cannot resolve protected checkpoint %s\n",
+                    protected_path[i]);
+            return 0;
+        }
+    }
+
+    for (int i = 0;; i++) {
+        char generated[PATH_MAX];
+        const char *candidate = out_path;
+        if (i > 0) {
+            int written = snprintf(generated, sizeof generated, "%s.it%d",
+                                   out_path, i);
+            if (written < 0 || (size_t)written >= sizeof generated) {
+                fprintf(stderr, "generated checkpoint path is too long\n");
+                return 0;
+            }
+            candidate = generated;
+        }
+        CheckpointIdentity output_id;
+        if (checkpoint_identity(candidate, &output_id) != 0) {
+            fprintf(stderr, "cannot resolve output checkpoint %s\n",
+                    candidate);
+            return 0;
+        }
+        for (int p = 0; p < nprotected; p++) {
+            if (checkpoint_same_file(&output_id, &protected_id[p])) {
+                fprintf(stderr,
+                        "output checkpoint %s aliases protected checkpoint %s\n",
+                        candidate, protected_path[p]);
+                return 0;
+            }
+        }
+        if (i >= iters) break;
+    }
+    return 1;
 }
 
 /* Keep a uniform sample of arbitrarily long games instead of silently
@@ -281,6 +421,7 @@ static void *gen_worker(void *arg)
                 s->st = chain[t];
                 s->persp = (uint8_t)p;
                 s->vtarget = G;
+                s->continuation_role = 0;
                 if (chain[t].turn == p && chain_actor[t]) {
                     s->actor = 1;
                     s->chosen = chain_mv[t];
@@ -296,6 +437,399 @@ static void *gen_worker(void *arg)
         }
         j->absmargin += fabs((double)(score[0] - score[1]));
         j->score_sum += score[0] + score[1];
+        j->done++;
+    }
+    return NULL;
+}
+
+/* Condition both the raw and tempered policies on the maintained rollout
+ * continuation's exact allowed-action support.  Dominated discards remain
+ * legal engine moves, but playout_prune=1 assigns them zero behavior mass.
+ * Apply the predicate in the same coordinate system stored in RLSample so
+ * suit augmentation and PPO reconstruct precisely the same support. */
+static int continuation_condition_policy(
+    const State *st, const Move *mv, int n, float temperature,
+    float *raw_prob, float *behavior_prob, uint8_t *allowed_out,
+    uint64_t *dead_out)
+{
+    if (!st || !mv || !raw_prob || !behavior_prob || n <= 0 ||
+        n > MAX_MOVES || !(temperature > 0.0f) ||
+        !lc_float_isfinite(temperature))
+        return 0;
+    uint64_t dead = CONTINUATION_PLAYOUT_PRUNE
+        ? (lc_dead_cards(st) & st->hand[st->turn]) : 0;
+    double raw_sum = 0.0;
+    int allowed_n = 0;
+    for (int i = 0; i < n; i++) {
+        int allowed = !(dead && lc_discard_dominated(st, mv[i], dead));
+        if (allowed_out) allowed_out[i] = (uint8_t)allowed;
+        if (allowed && raw_prob[i] > 0.0f &&
+            lc_float_isfinite(raw_prob[i])) {
+            raw_sum += raw_prob[i];
+            allowed_n++;
+        } else {
+            raw_prob[i] = 0.0f;
+        }
+    }
+    if (dead_out) *dead_out = dead;
+    if (allowed_n <= 0 || !(raw_sum > 0.0) ||
+        !lc_double_isfinite(raw_sum))
+        return 0;
+    float raw_inv = (float)(1.0 / raw_sum);
+    double behavior_sum = 0.0;
+    for (int i = 0; i < n; i++) {
+        if (raw_prob[i] == 0.0f) {
+            behavior_prob[i] = 0.0f;
+            continue;
+        }
+        raw_prob[i] *= raw_inv;
+        behavior_prob[i] = temperature == 1.0f
+            ? raw_prob[i] : powf(raw_prob[i], 1.0f / temperature);
+        behavior_sum += behavior_prob[i];
+    }
+    if (!(behavior_sum > 0.0) || !lc_double_isfinite(behavior_sum))
+        return 0;
+    float behavior_inv = (float)(1.0 / behavior_sum);
+    for (int i = 0; i < n; i++) behavior_prob[i] *= behavior_inv;
+    return n;
+}
+
+static int continuation_trajectory_policy_probs_plan(
+    const Net *net, const NetEvalPlan *plan, const State *engine_state,
+    const uint8_t perm[NSUIT], float temperature,
+    State *view, Move *view_mv, Move *engine_mv,
+    float *raw_prob, float *behavior_prob)
+{
+    uint8_t inverse[NSUIT], seen = 0;
+    for (int s = 0; s < NSUIT; s++) {
+        if (perm[s] >= NSUIT || (seen & (uint8_t)(1u << perm[s])))
+            return 0;
+        seen |= (uint8_t)(1u << perm[s]);
+        inverse[perm[s]] = (uint8_t)s;
+    }
+    lc_permute_suits(engine_state, view, perm);
+    int n = policy_probs_sym_plan(
+        net, view, view_mv, raw_prob, NULL, 1, plan);
+    if (n <= 0) return n;
+    for (int i = 0; i < n; i++) {
+        engine_mv[i] = lc_permute_move(view_mv[i], inverse);
+    }
+    return continuation_condition_policy(
+        view, view_mv, n, temperature, raw_prob, behavior_prob, NULL, NULL);
+}
+
+/* State-start PPO for the role actually served by a rollout continuation
+ * network.  This is deliberately a separate generator: when the opt-in mode
+ * is disabled, not one branch, random draw, or sample in historical PPO is
+ * changed.
+ *
+ * The immutable champion owns the real prefix (plies 0..13) and the exact
+ * production root shortlist at ply 14.  The mover's information state is
+ * uniformly determinized before the gradient-free root move is applied.
+ * Only decisions strictly below that root are sampled from the current
+ * iteration's frozen learner.  The one-card-deck rules solver is also outside
+ * the learned policy and therefore contributes no PPO row. */
+static void *gen_continuation_worker(void *arg)
+{
+    GenJob *j = (GenJob *)arg;
+    NetEvalPlan champion_plan, learner_plan;
+    net_eval_plan_init(j->champion, &champion_plan);
+    net_eval_plan_init(j->net, &learner_plan);
+    Rng reservoir_rng;
+    rng_seed(&reservoir_rng, j->seed ^ (UINT64_C(0xD1B54A32D192ED03)
+                                     * (uint64_t)(j->thread + 1)));
+    Move mv[MAX_MOVES], engine_mv[MAX_MOVES];
+    float pr[MAX_MOVES], behavior[MAX_MOVES];
+
+    for (int g = j->thread; g < j->games; g += j->nthread) {
+        uint8_t trajectory_perm[NSUIT];
+        if (!trajectory_suit_permutation(j->trajectory_symmetries, j->seed,
+                                         (uint64_t)g, trajectory_perm)) {
+            fprintf(stderr, "invalid continuation trajectory suit group\n");
+            exit(EXIT_FAILURE);
+        }
+        int augment = j->trajectory_symmetries > 0;
+        if (augment) {
+            uint64_t code = 0;
+            for (int s = 0; s < NSUIT; s++)
+                code = code * NSUIT + trajectory_perm[s];
+            j->augmentation_fingerprint ^=
+                mix64((uint64_t)g * UINT64_C(0xD6E8FEB86659FD93)
+                      ^ code ^ UINT64_C(0x8EBC6AF09C88C6E3));
+        }
+
+        int cum[2] = { 0, 0 };
+        for (int rd = 0; rd < j->rounds; rd++) {
+            uint64_t episode = (uint64_t)g * MATCH_ROUNDS + (uint64_t)rd;
+            Rng deal_rng;
+            rng_seed(&deal_rng,
+                     mix64(j->seed ^ UINT64_C(0x243F6A8885A308D3)
+                           ^ (episode + 1) *
+                             UINT64_C(0x9E3779B97F4A7C15)));
+            State real;
+            lc_deal(&real, &deal_rng);
+            real.round = (uint8_t)rd;
+            real.cum[0] = checked_cumulative_score(cum[0]);
+            real.cum[1] = checked_cumulative_score(cum[1]);
+            real.turn = (uint8_t)(rd & 1);
+
+            /* The deployed actor is policy-only before its ply-14 handoff.
+             * Exact 20-way averaging and strict-first argmax ties match
+             * agent_move(AG_POLICY) without exposing any private state. */
+            while (!real.over && real.nply < j->continuation_start) {
+                int n = policy_probs_sym_plan(
+                    j->champion, &real, mv, pr, NULL,
+                    CONTINUATION_ROOT_SYMMETRIES, &champion_plan);
+                if (n <= 0) {
+                    fprintf(stderr,
+                            "continuation champion prefix has no legal move\n");
+                    exit(EXIT_FAILURE);
+                }
+                int best = 0;
+                for (int i = 1; i < n; i++)
+                    if (pr[i] > pr[best]) best = i;
+                lc_apply(&real, mv[best]);
+            }
+            if (real.over || real.nply != j->continuation_start) {
+                fprintf(stderr,
+                        "continuation prefix did not reach round ply %d\n",
+                        j->continuation_start);
+                exit(EXIT_FAILURE);
+            }
+
+            const int root_player = real.turn;
+            State root_view;
+            agent_information_view(&real, root_player, &root_view);
+            int nroot = policy_probs_sym_plan(
+                j->champion, &root_view, mv, pr, NULL,
+                CONTINUATION_ROOT_SYMMETRIES, &champion_plan);
+            if (nroot <= 0) {
+                fprintf(stderr, "continuation root has no legal move\n");
+                exit(EXIT_FAILURE);
+            }
+            int baseline = 0;
+            for (int i = 1; i < nroot; i++)
+                if (pr[i] > pr[baseline]) baseline = i;
+            int order[8];
+            int admitted = rollout_policy_prefix_indices(
+                mv, pr, nroot, baseline, CONTINUATION_ROOT_WIDTH,
+                CONTINUATION_ROOT_FLOOR, 0.0f, 1, order);
+            if (admitted <= 0 || order[0] != baseline) {
+                fprintf(stderr,
+                        "continuation root policy-prefix admission failed\n");
+                exit(EXIT_FAILURE);
+            }
+
+            Rng root_rng;
+            rng_seed(&root_rng,
+                     mix64(j->seed ^ UINT64_C(0xA4093822299F31D0)
+                           ^ (episode + 1) *
+                             UINT64_C(0xBF58476D1CE4E5B9)));
+            int picked = 0;
+            if (admitted > 1 && rng_below(&root_rng, 2) != 0)
+                picked = 1 + (int)rng_below(
+                    &root_rng, (uint32_t)(admitted - 1));
+            if (picked == 0) j->continuation_baseline_roots++;
+            else j->continuation_challenger_roots++;
+            Move root_move = mv[order[picked]];
+            j->continuation_fingerprint ^=
+                mix64((episode + 1) * UINT64_C(0xD6E8FEB86659FD93)
+                      ^ (uint64_t)MOVE_PACK(root_move)
+                      ^ ((uint64_t)admitted << 16));
+            Rng determinization_rng;
+            rng_seed(&determinization_rng,
+                     mix64(j->seed ^ UINT64_C(0x13198A2E03707344)
+                           ^ (episode + 1) *
+                             UINT64_C(0x94D049BB133111EB)));
+            State world;
+            /* Root admission is a property of the original information
+             * state.  Only after selecting that same legal candidate do we
+             * sample the uniform hidden world used for its continuation. */
+            determinize(&root_view, root_player, &determinization_rng, &world);
+            /* This is the action whose continuations rollout compares.  It is
+             * intentionally absent from chain[] and can receive no gradient. */
+            lc_apply(&world, root_move);
+
+            int T = 0;
+            RolloutLateCycleHistory cycle_history;
+            rollout_late_cycle_init(&cycle_history);
+            Rng behavior_rng;
+            rng_seed(&behavior_rng,
+                     mix64(j->seed ^ UINT64_C(0x082EFA98EC4E6C89)
+                           ^ (episode + 1) *
+                             UINT64_C(0x8CB92BA72F3D8DD7)));
+            while (!world.over) {
+                if (world.deck_left == 1) {
+                    int n = lc_moves(&world, mv);
+                    int exact = rollout_exact_terminal_choice(
+                        &world, mv, NULL, n, 0, NULL);
+                    if (exact < 0) {
+                        fprintf(stderr,
+                                "continuation exact deck-one solver failed\n");
+                        exit(EXIT_FAILURE);
+                    }
+                    lc_apply(&world, mv[exact]);
+                    j->continuation_exact_moves++;
+                    continue;
+                }
+                int force_cycle_deck =
+                    rollout_late_cycle_repeated(&cycle_history, &world);
+                int force_cap_reserve =
+                    (int)world.nply + (int)world.deck_left >= LC_MAX_PLIES;
+                if (force_cycle_deck || force_cap_reserve) {
+                    /* Match rollout.c's engine-fuse reserve.  An unfinished
+                     * 300-ply score is not a game objective and must never
+                     * become a PPO target.  This conditional policy action is
+                     * forced progress, so it receives no actor row. */
+                    int n;
+                    const Move *forced_mv = mv;
+                    if (augment) {
+                        State forced_view;
+                        n = continuation_trajectory_policy_probs_plan(
+                            j->net, &learner_plan, &world,
+                            trajectory_perm, j->temp,
+                            &forced_view, mv, engine_mv, pr, behavior);
+                        forced_mv = engine_mv;
+                    } else {
+                        n = policy_probs_sym_plan(
+                            j->net, &world, mv, pr, NULL, 1,
+                            &learner_plan);
+                        if (n > 0)
+                            n = continuation_condition_policy(
+                                &world, mv, n, j->temp, pr, behavior,
+                                NULL, NULL);
+                    }
+                    uint64_t dead =
+                        lc_dead_cards(&world) & world.hand[world.turn];
+                    int deck = rollout_policy_deck_choice(
+                        &world, forced_mv, pr, n, dead);
+                    if (n <= 0 || deck < 0) {
+                        fprintf(stderr,
+                                "continuation forced-progress policy failed\n");
+                        exit(EXIT_FAILURE);
+                    }
+                    lc_apply(&world, forced_mv[deck]);
+                    if (force_cycle_deck)
+                        j->continuation_cycle_forces++;
+                    else
+                        j->continuation_cap_forces++;
+                    continue;
+                }
+                if (T >= CHAIN_MAX) {
+                    fprintf(stderr, "continuation trajectory is too long\n");
+                    exit(EXIT_FAILURE);
+                }
+
+                if (augment)
+                    lc_permute_suits(&world, &chain[T], trajectory_perm);
+                else
+                    chain[T] = world;
+                int n;
+                Move played, stored_played;
+                if (augment) {
+                    n = continuation_trajectory_policy_probs_plan(
+                        j->net, &learner_plan, &world,
+                        trajectory_perm, j->temp,
+                        &chain[T], mv, engine_mv, pr, behavior);
+                    if (n <= 0) {
+                        fprintf(stderr,
+                                "continuation trajectory policy has no legal move\n");
+                        exit(EXIT_FAILURE);
+                    }
+                } else {
+                    n = policy_probs_sym_plan(
+                        j->net, &world, mv, pr, NULL, 1, &learner_plan);
+                    if (n <= 0) {
+                        fprintf(stderr,
+                                "continuation learner has no legal move\n");
+                        exit(EXIT_FAILURE);
+                    }
+                    n = continuation_condition_policy(
+                        &world, mv, n, j->temp, pr, behavior, NULL, NULL);
+                    if (n <= 0) {
+                        fprintf(stderr,
+                                "continuation learner conditional policy failed\n");
+                        exit(EXIT_FAILURE);
+                    }
+                }
+
+                double h = 0.0;
+                for (int i = 0; i < n; i++)
+                    if (pr[i] > 1e-9f) h -= pr[i] * log(pr[i]);
+                j->entropy += h;
+                j->entropy_n++;
+
+                int c;
+                c = sample_index(behavior, n, &behavior_rng);
+                chain_p[T] = behavior[c];
+                if (augment) {
+                    stored_played = mv[c];
+                    played = engine_mv[c];
+                } else {
+                    stored_played = mv[c];
+                    played = mv[c];
+                }
+                chain_actor[T] = 1;
+                chain_mv[T] = MOVE_PACK(stored_played);
+                int actor_ply = chain[T].nply;
+                if (j->continuation_min_actor_ply == 0 ||
+                    actor_ply < j->continuation_min_actor_ply)
+                    j->continuation_min_actor_ply = actor_ply;
+                T++;
+                lc_apply(&world, played);
+            }
+            if (world.deck_left > 0) {
+                fprintf(stderr,
+                        "continuation generated an unfinished capped round\n");
+                exit(EXIT_FAILURE);
+            }
+
+            /* The root audit's initial objective is mode 0: completed round
+             * margin from each player's perspective.  Continuation mode
+             * requires lambda=1, so the value is only an action-independent
+             * advantage baseline and cannot change this terminal target. */
+            for (int t = 0; t < T; t++) {
+                float v0 = net_value_state_sym(j->net, &chain[t], 0, 1);
+                float v1 = net_value_state_sym(j->net, &chain[t], 1, 1);
+                chain_v[0][t] = 0.5f * (v0 - v1);
+                chain_v[1][t] = -chain_v[0][t];
+            }
+            for (int p = 0; p < 2; p++) {
+                float G = (float)rollout_terminal_objective(&world, p, 0);
+                for (int t = T - 1; t >= 0; t--) {
+                    size_t slot = reservoir_slot(j, &reservoir_rng);
+                    if (slot == SIZE_MAX) continue;
+                    RLSample *s = &j->out[slot];
+                    s->st = chain[t];
+                    s->persp = (uint8_t)p;
+                    s->vtarget = G;
+                    s->continuation_role = 1;
+                    if (chain[t].turn == p) {
+                        s->actor = 1;
+                        s->chosen = chain_mv[t];
+                        s->oldp = chain_p[t];
+                        s->adv = G - chain_v[p][t];
+                    } else {
+                        s->actor = 0;
+                        s->chosen = 0;
+                        s->oldp = 1.0f;
+                        s->adv = 0.0f;
+                    }
+                }
+            }
+
+            int rs0 = lc_score(&world, 0);
+            int rs1 = lc_score(&world, 1);
+            cum[0] += rs0;
+            cum[1] += rs1;
+            j->plies += world.nply;
+            j->continuation_rounds++;
+        }
+
+        if (cum[0] > cum[1]) j->p0_match_wins += 1.0;
+        else if (cum[0] == cum[1]) j->p0_match_wins += 0.5;
+        j->absmargin += fabs((double)(cum[0] - cum[1]));
+        j->score_sum += cum[0] + cum[1];
         j->done++;
     }
     return NULL;
@@ -330,6 +864,7 @@ static void *opt_worker(void *arg)
     uint16_t pk[MAX_MOVES];
     float logit[MAX_MOVES], prob[MAX_MOVES], rawprob[MAX_MOVES];
     float dlog[MAX_MOVES], alogit[MAX_MOVES], aprob[MAX_MOVES];
+    uint8_t allowed[MAX_MOVES];
     uint8_t bcard[NCARD], held[NCARD];
     float blogit[NCARD], bmarg[NCARD], dbel[NCARD];
 
@@ -392,6 +927,19 @@ static void *opt_worker(void *arg)
             for (int k = 0; k < n; k++) {
                 pk[k] = MOVE_PACK(mv[k]);
                 if (pk[k] == s->chosen) ci = k;
+                allowed[k] = 1;
+            }
+            if (s->continuation_role) {
+                uint64_t dead =
+                    lc_dead_cards(&s->st) & s->st.hand[s->st.turn];
+                for (int k = 0; k < n; k++)
+                    allowed[k] = (uint8_t)!(
+                        dead && lc_discard_dominated(&s->st, mv[k], dead));
+                if (ci >= 0 && !allowed[ci]) {
+                    fprintf(stderr,
+                            "continuation PPO sample selected a masked move\n");
+                    exit(EXIT_FAILURE);
+                }
             }
             if (ci < 0) {
                 net_backward(t->net, &f, &act, dcenter, pk, NULL, 0,
@@ -416,10 +964,28 @@ static void *opt_worker(void *arg)
              * compare oldp with that same behaviour-policy family. */
             if (t->temp != 1.0f)
                 for (int k = 0; k < n; k++) logit[k] /= t->temp;
-            float mx = logit[0];
-            for (int k = 1; k < n; k++) if (logit[k] > mx) mx = logit[k];
+            int first = 0;
+            if (s->continuation_role) {
+                while (first < n && !allowed[first]) first++;
+                if (first >= n) {
+                    fprintf(stderr,
+                            "continuation PPO sample has empty support\n");
+                    exit(EXIT_FAILURE);
+                }
+            }
+            float mx = logit[first];
+            for (int k = first + 1; k < n; k++)
+                if ((!s->continuation_role || allowed[k]) && logit[k] > mx)
+                    mx = logit[k];
             float sum = 0.0f;
-            for (int k = 0; k < n; k++) { prob[k] = expf(logit[k] - mx); sum += prob[k]; }
+            for (int k = 0; k < n; k++) {
+                if (s->continuation_role && !allowed[k]) {
+                    prob[k] = 0.0f;
+                    continue;
+                }
+                prob[k] = expf(logit[k] - mx);
+                sum += prob[k];
+            }
             float inv = 1.0f / sum;
             float ent = 0.0f;
             for (int k = 0; k < n; k++) {
@@ -439,6 +1005,13 @@ static void *opt_worker(void *arg)
             ploss += -(double)(ratio < lo ? lo : (ratio > hi ? hi : ratio)) * A;
             float gsurr = use ? -A * ratio : 0.0f;
             for (int k = 0; k < n; k++) {
+                if (s->continuation_role && !allowed[k]) {
+                    /* Deployment assigns this move zero behavior mass.  PPO
+                     * and entropy therefore have no gradient here; the
+                     * full-legal anchor KL below may still protect it. */
+                    dlog[k] = 0.0f;
+                    continue;
+                }
                 float dsurr = gsurr * ((k == ci ? 1.0f : 0.0f) - prob[k]);
                 float dent = t->entcoef * prob[k] * (logf(prob[k] + 1e-9f) + ent);
                 /* net_backward differentiates the untempered network logit. */
@@ -516,6 +1089,7 @@ int main(int argc, char **argv)
     const char *ref_spec = "heur";
     const char *gen_opponent_spec = NULL;
     const char *anchor_path = NULL;
+    const char *continuation_root_path = NULL;
     int iters = 30, games = 4000, nthread = 4, batch = 512, epochs = 2;
     int eval_pairs = 400, eval_every = 1;
     float lr = 3e-4f, wd = 1e-7f, lambda = 0.85f, clip = 0.2f;
@@ -524,6 +1098,8 @@ int main(int argc, char **argv)
     float opponent_mix = 0.0f, klcoef = 0.0f;
     int v6_only = 0, belief_only = 0;
     int rounds = MATCH_ROUNDS, trajectory_symmetries = 0;
+    int continuation_start = 0;
+    int bw_explicit = 0, eval_explicit = 0, lambda_explicit = 0;
     uint64_t seed = 7, eval_seed = 20260727ULL;
 
     for (int i = 1; i < argc; i++) {
@@ -535,6 +1111,8 @@ int main(int argc, char **argv)
         else if (ARG("--gen-opponent")) gen_opponent_spec = argv[++i];
         else if (ARG("--opponent-mix")) opponent_mix = (float)atof(argv[++i]);
         else if (ARG("--anchor")) anchor_path = argv[++i];
+        else if (ARG("--continuation-root"))
+            continuation_root_path = argv[++i];
         else if (ARG("--kl")) klcoef = (float)atof(argv[++i]);
         else if (ARG("--iters")) iters = atoi(argv[++i]);
         else if (ARG("--games")) games = atoi(argv[++i]);
@@ -542,17 +1120,26 @@ int main(int argc, char **argv)
         else if (ARG("--batch")) batch = atoi(argv[++i]);
         else if (ARG("--epochs")) epochs = atoi(argv[++i]);
         else if (ARG("--lr")) lr = (float)atof(argv[++i]);
-        else if (ARG("--lambda")) lambda = (float)atof(argv[++i]);
+        else if (ARG("--lambda")) {
+            lambda = (float)atof(argv[++i]);
+            lambda_explicit = 1;
+        }
         else if (ARG("--clip")) clip = (float)atof(argv[++i]);
         else if (ARG("--vcoef")) vcoef = (float)atof(argv[++i]);
         else if (ARG("--ent")) entcoef = (float)atof(argv[++i]);
         else if (ARG("--temp")) temp = (float)atof(argv[++i]);
         else if (ARG("--winbonus")) winbonus = (float)atof(argv[++i]);
-        else if (ARG("--bw")) bw = (float)atof(argv[++i]);
+        else if (ARG("--bw")) {
+            bw = (float)atof(argv[++i]);
+            bw_explicit = 1;
+        }
         else if (ARG("--mw")) mw = (float)atof(argv[++i]);
         else if (ARG("--rounds")) rounds = atoi(argv[++i]);
         else if (ARG("--wd")) wd = (float)atof(argv[++i]);
-        else if (ARG("--eval")) eval_pairs = atoi(argv[++i]);
+        else if (ARG("--eval")) {
+            eval_pairs = atoi(argv[++i]);
+            eval_explicit = 1;
+        }
         else if (ARG("--eval-every")) eval_every = atoi(argv[++i]);
         else if (ARG("--eval-seed")) eval_seed = strtoull(argv[++i], NULL, 10);
         else if (ARG("--seed")) seed = strtoull(argv[++i], NULL, 10);
@@ -564,10 +1151,64 @@ int main(int argc, char **argv)
                                      parsed < INT_MIN || parsed > INT_MAX)
                                   ? -1 : (int)parsed;
         }
+        else if (ARG("--continuation-start"))
+            continuation_start = atoi(argv[++i]);
         else if (!strcmp(k, "--v6-only")) v6_only = 1;
         else if (!strcmp(k, "--belief-only")) belief_only = 1;
         else { fprintf(stderr, "unknown option %s\n", k); return 1; }
         #undef ARG
+    }
+    if (continuation_start != 0 &&
+        continuation_start != CONTINUATION_START_PLY) {
+        fprintf(stderr, "--continuation-start must be 0 or %d\n",
+                CONTINUATION_START_PLY);
+        return 1;
+    }
+    if (!lc_float_isfinite(lambda) || lambda < 0.0f || lambda > 1.0f) {
+        fprintf(stderr, "--lambda must be finite and between zero and one\n");
+        return 1;
+    }
+    if (continuation_start > 0) {
+        /* The first campaign learns only the rolloutu continuation role.
+         * Uniform worlds intentionally contain no behavioural hand signal,
+         * and standalone-policy checkpoint evaluation is not the deployed
+         * dual-network actor. */
+        if (!bw_explicit) bw = 0.0f;
+        if (!eval_explicit) eval_pairs = 0;
+        if (!lambda_explicit) lambda = 1.0f;
+        if (lambda != 1.0f) {
+            fprintf(stderr,
+                    "continuation-only PPO requires --lambda 1 exactly\n");
+            return 1;
+        }
+        if (bw > 0.0f || belief_only) {
+            fprintf(stderr,
+                    "continuation-only PPO requires --bw 0 and cannot use "
+                    "--belief-only\n");
+            return 1;
+        }
+        if (gen_opponent_spec || opponent_mix > 0.0f) {
+            fprintf(stderr,
+                    "continuation-only PPO cannot use opponent-population "
+                    "generation\n");
+            return 1;
+        }
+        if (!continuation_root_path) {
+            fprintf(stderr,
+                    "--continuation-start 14 requires --continuation-root "
+                    "PATH\n");
+            return 1;
+        }
+        if (eval_pairs > 0) {
+            fprintf(stderr,
+                    "continuation-only PPO requires --eval 0; qualify the "
+                    "checkpoint as a rollout2 actor\n");
+            return 1;
+        }
+    } else if (continuation_root_path) {
+        fprintf(stderr,
+                "--continuation-root requires --continuation-start 14\n");
+        return 1;
     }
     if (!(temp > 0.0f) || !lc_float_isfinite(temp)) {
         fprintf(stderr, "--temp must be finite and greater than zero\n");
@@ -621,13 +1262,20 @@ int main(int argc, char **argv)
         fprintf(stderr, "--rounds must be between 1 and %d\n", MATCH_ROUNDS);
         return 1;
     }
+    if (continuation_start > 0 &&
+        !continuation_checkpoint_preflight(
+            out_path, iters, init_path, continuation_root_path, anchor_path))
+        return 1;
 
     Net *net = (Net *)malloc(sizeof(Net));
     Net *frozen = (Net *)malloc(sizeof(Net));
+    Net *champion = continuation_start > 0
+                  ? (Net *)malloc(sizeof(Net)) : NULL;
     Net *anchor = anchor_path ? (Net *)malloc(sizeof(Net)) : NULL;
     Net *legacy_base = v6_only ? (Net *)malloc(sizeof(Net)) : NULL;
     Adam *adam = (Adam *)calloc(1, sizeof(Adam));
-    if (!net || !frozen || (anchor_path && !anchor) ||
+    if (!net || !frozen || (continuation_start > 0 && !champion) ||
+        (anchor_path && !anchor) ||
         (v6_only && !legacy_base) || !adam) {
         fprintf(stderr, "network allocation failed\n");
         return 1;
@@ -641,6 +1289,15 @@ int main(int argc, char **argv)
     }
     if (anchor) net_project_wager_symmetry(anchor);
     if (legacy_base) memcpy(legacy_base, net, sizeof(Net));
+    if (champion) {
+        if (net_load(champion, continuation_root_path) != 0) {
+            fprintf(stderr, "cannot load continuation root %s\n",
+                    continuation_root_path);
+            return 1;
+        }
+    }
+    uint64_t champion_fingerprint = champion
+        ? net_byte_fingerprint(champion) : 0;
     printf("initialised from %s\n", init_path);
 
     Agent ref;
@@ -673,6 +1330,15 @@ int main(int argc, char **argv)
                "mapping per match\n", trajectory_symmetries);
     if (belief_only)
         printf("     optimizer: belief head only (trunk, policy and value frozen)\n");
+    if (continuation_start > 0)
+        printf("     continuation-only state start: immutable champion %s; "
+               "plies "
+               "0..13, production root at ply 14 (20-way, width 5, floor "
+               "%.2f), 50%% baseline / 50%% admitted challenger, uniform "
+               "worlds, objective mode 0\n"
+               "     immutable champion fingerprint: %016llx\n",
+               continuation_root_path, CONTINUATION_ROOT_FLOOR,
+               (unsigned long long)champion_fingerprint);
     fflush(stdout);
 
     for (int it = 1; it <= iters; it++) {
@@ -685,6 +1351,7 @@ int main(int argc, char **argv)
         size_t per = cap / (size_t)nthread;
         for (int i = 0; i < nthread; i++) {
             jobs[i].net = frozen;
+            jobs[i].champion = champion;
             jobs[i].opponent = gen_opponent_ptr;
             jobs[i].opponent_mix = opponent_mix;
             jobs[i].games = games;
@@ -698,8 +1365,12 @@ int main(int argc, char **argv)
             jobs[i].mw = mw;
             jobs[i].rounds = rounds;
             jobs[i].trajectory_symmetries = trajectory_symmetries;
+            jobs[i].continuation_start = continuation_start;
         }
-        for (int i = 0; i < nthread; i++) pthread_create(&th[i], NULL, gen_worker, &jobs[i]);
+        void *(*generator)(void *) = continuation_start > 0
+                                   ? gen_continuation_worker : gen_worker;
+        for (int i = 0; i < nthread; i++)
+            pthread_create(&th[i], NULL, generator, &jobs[i]);
         for (int i = 0; i < nthread; i++) pthread_join(th[i], NULL);
 
         /* compact the per-thread blocks into one contiguous array */
@@ -712,7 +1383,15 @@ int main(int argc, char **argv)
         size_t seen = 0;
         long entn = 0;
         int gdone = 0, opponent_games = 0;
+        int continuation_rounds = 0;
+        int continuation_baseline_roots = 0;
+        int continuation_challenger_roots = 0;
+        int continuation_exact_moves = 0;
+        int continuation_cycle_forces = 0;
+        int continuation_cap_forces = 0;
+        int continuation_min_actor_ply = 0;
         uint64_t augmentation_fingerprint = 0;
+        uint64_t continuation_fingerprint = 0;
         int learner_seat_games[2] = {0, 0};
         for (int i = 0; i < nthread; i++) {
             plies += jobs[i].plies; absm += jobs[i].absmargin; pts += jobs[i].score_sum;
@@ -721,6 +1400,21 @@ int main(int argc, char **argv)
             learnerw += jobs[i].learner_match_wins;
             opponent_games += jobs[i].opponent_games;
             augmentation_fingerprint ^= jobs[i].augmentation_fingerprint;
+            continuation_fingerprint ^= jobs[i].continuation_fingerprint;
+            continuation_rounds += jobs[i].continuation_rounds;
+            continuation_baseline_roots +=
+                jobs[i].continuation_baseline_roots;
+            continuation_challenger_roots +=
+                jobs[i].continuation_challenger_roots;
+            continuation_exact_moves += jobs[i].continuation_exact_moves;
+            continuation_cycle_forces += jobs[i].continuation_cycle_forces;
+            continuation_cap_forces += jobs[i].continuation_cap_forces;
+            if (jobs[i].continuation_min_actor_ply > 0 &&
+                (continuation_min_actor_ply == 0 ||
+                 jobs[i].continuation_min_actor_ply <
+                    continuation_min_actor_ply))
+                continuation_min_actor_ply =
+                    jobs[i].continuation_min_actor_ply;
             learner_seat_games[0] += jobs[i].learner_seat_games[0];
             learner_seat_games[1] += jobs[i].learner_seat_games[1];
             seen += jobs[i].nseen;
@@ -751,6 +1445,18 @@ int main(int argc, char **argv)
                    "learner score %.1f%%\n",
                    opponent_games, learner_seat_games[0], learner_seat_games[1],
                    100.0 * learnerw / opponent_games);
+        if (continuation_start > 0)
+            printf("         continuation roots %d: baseline %d, challenger "
+                   "%d; first actor round ply %d; root actor rows 0; exact "
+                   "deck-one moves %d; cycle-forced moves %d; "
+                   "cap-reserve moves %d; fingerprint "
+                   "%016llx\n",
+                   continuation_rounds, continuation_baseline_roots,
+                   continuation_challenger_roots,
+                   continuation_min_actor_ply, continuation_exact_moves,
+                   continuation_cycle_forces,
+                   continuation_cap_forces,
+                   (unsigned long long)continuation_fingerprint);
         if (seen > n)
             printf("         reservoir retained %zu/%zu generated samples (%.1f%%)\n",
                    n, seen, 100.0 * (double)n / (double)seen);
@@ -828,11 +1534,25 @@ int main(int argc, char **argv)
                    pn ? pl / pn : 0.0, bcnt ? bl / bcnt : 0.0,
                    pn ? kl / pn : 0.0,
                    pn ? 100.0 * cl / pn : 0.0);
+        if (champion) {
+            uint64_t after = net_byte_fingerprint(champion);
+            if (after != champion_fingerprint) {
+                fprintf(stderr,
+                        "immutable continuation champion was modified\n");
+                return 1;
+            }
+            printf("         immutable champion verified %016llx\n",
+                   (unsigned long long)after);
+        }
         fflush(stdout);
 
-        char path[512];
+        char path[PATH_MAX];
         net_save(net, out_path);
-        snprintf(path, sizeof path, "%s.it%d", out_path, it);
+        int path_n = snprintf(path, sizeof path, "%s.it%d", out_path, it);
+        if (path_n < 0 || (size_t)path_n >= sizeof path) {
+            fprintf(stderr, "generated checkpoint path is too long\n");
+            return 1;
+        }
         net_save(net, path);
 
         if (eval_pairs > 0 && (it % eval_every == 0 || it == iters)) {
@@ -849,8 +1569,8 @@ int main(int argc, char **argv)
             fflush(stdout);
         }
     }
-    free((void *)ref.net);
-    if (gen_opponent_ptr) free((void *)gen_opponent.net);
+    spec_release(&ref);
+    if (gen_opponent_ptr) spec_release(&gen_opponent);
     for (int i = 0; i < nthread; i++) free(grads[i]);
     free(grads);
     free(order);
@@ -858,6 +1578,7 @@ int main(int argc, char **argv)
     free(adam);
     free(legacy_base);
     free(anchor);
+    free(champion);
     free(frozen);
     free(net);
     return 0;

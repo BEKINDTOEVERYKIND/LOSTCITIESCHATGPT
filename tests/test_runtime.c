@@ -587,6 +587,22 @@ static void test_late_rollout_cycle_break(void)
 
     State st = late_cycle_test_state();
 
+    RolloutLateCycleHistory cycle;
+    rollout_late_cycle_init(&cycle);
+    State before_window = st;
+    before_window.deck_left = 4;
+    CHECK(!rollout_late_cycle_repeated(&cycle, &before_window) && cycle.n == 0,
+          "late-cycle tracker recorded a state before deck three");
+    CHECK(!rollout_late_cycle_repeated(&cycle, &st) && cycle.n == 1,
+          "late-cycle tracker rejected its first semantic state");
+    State repeated = st;
+    repeated.nply = 97;
+    CHECK(rollout_late_cycle_repeated(&cycle, &repeated) && cycle.n == 1,
+          "late-cycle tracker failed to ignore nply on repetition");
+    repeated.turn ^= 1;
+    CHECK(!rollout_late_cycle_repeated(&cycle, &repeated) && cycle.n == 2,
+          "late-cycle tracker ignored a changed public decision state");
+
     /* Popped pile slots retain stale bytes, and the three wager IDs are
      * physically distinct only inside the engine.  Neither may keep an
      * otherwise repeated strategic state out of the cycle detector. */
@@ -1208,6 +1224,97 @@ static void test_centered_mcts_value(void)
     }
     free(base);
     free(shifted);
+}
+
+static int legacy_flat_prefix_for_test(
+    const float *prob, int n, int baseline, int root_width,
+    float cand_floor, float cand_mass, int min_cand, int *order)
+{
+    for (int i = 0; i < n; i++) order[i] = i;
+    int maxcand = root_width < ROLLOUT_MAX_CANDIDATES
+        ? root_width : ROLLOUT_MAX_CANDIDATES;
+    if (maxcand < 1) maxcand = 1;
+    if (maxcand > n) maxcand = n;
+    for (int i = 0; i < maxcand; i++) {
+        int best = i;
+        for (int j = i + 1; j < n; j++)
+            if (prob[order[j]] > prob[order[best]]) best = j;
+        int tmp = order[i]; order[i] = order[best]; order[best] = tmp;
+    }
+    int keep = min_cand > 1 ? min_cand : 1;
+    if (keep > maxcand) keep = maxcand;
+    int count = maxcand;
+    if (cand_mass > 0.0f) {
+        count = 0;
+        double mass = 0.0;
+        while (count < maxcand &&
+               (count < keep || mass < (double)cand_mass)) {
+            mass += prob[order[count]];
+            count++;
+        }
+    } else {
+        float floor_p = cand_floor > 0.0f ? cand_floor : 0.02f;
+        while (count > keep && prob[order[count - 1]] < floor_p) count--;
+    }
+    int baseline_pos = -1;
+    for (int i = 0; i < count; i++)
+        if (order[i] == baseline) baseline_pos = i;
+    if (baseline_pos < 0 && count < ROLLOUT_MAX_CANDIDATES) {
+        order[count++] = baseline;
+        baseline_pos = count - 1;
+    }
+    if (baseline_pos > 0) {
+        int tmp = order[0]; order[0] = order[baseline_pos];
+        order[baseline_pos] = tmp;
+    }
+    return count;
+}
+
+static void test_rollout_policy_prefix_helper(void)
+{
+    Move mv[10];
+    for (int i = 0; i < 10; i++) {
+        mv[i].card = (uint8_t)i;
+        mv[i].discard = (uint8_t)(i & 1);
+        mv[i].draw = (uint8_t)(i % (NSUIT + 1));
+    }
+    static const struct {
+        float prob[10];
+        int n, baseline, width, min_cand;
+        float floor, mass;
+        const char *label;
+    } cases[] = {
+        { { .40f, .40f, .08f, .04f, .02f, .019f },
+          6, 0, 6, 1, .02f, 0.0f, "ties/exact-floor" },
+        { { .60f }, 1, 0, 8, 7, .02f, 0.0f, "singleton/clipping" },
+        { { .50f, .20f, .10f, .08f, .06f, .04f },
+          6, 0, 5, 1, .02f, .75f, "mass" },
+        { { .70f, .10f, .019f, .018f, .017f },
+          5, 0, 5, 3, .02f, 0.0f, "minimum" },
+        { { .50f, .20f, .10f, .08f, .06f, .04f },
+          6, 0, 2, 1, .02f, 0.0f, "width" },
+        { { .50f, .20f, .10f, .01f, .009f, .008f },
+          6, 3, 5, 1, .02f, 0.0f, "below-floor-baseline" },
+    };
+    for (size_t k = 0; k < sizeof cases / sizeof cases[0]; k++) {
+        int expected[ROLLOUT_MAX_CANDIDATES];
+        int actual[ROLLOUT_MAX_CANDIDATES];
+        int en = legacy_flat_prefix_for_test(
+            cases[k].prob, cases[k].n, cases[k].baseline,
+            cases[k].width, cases[k].floor, cases[k].mass,
+            cases[k].min_cand, expected);
+        int an = rollout_policy_prefix_indices(
+            mv, cases[k].prob, cases[k].n, cases[k].baseline,
+            cases[k].width, cases[k].floor, cases[k].mass,
+            cases[k].min_cand, actual);
+        CHECK(an == en &&
+              memcmp(actual, expected, sizeof(int) * (size_t)en) == 0,
+              "policy-prefix helper changed legacy %s admission",
+              cases[k].label);
+        CHECK(an > 0 && actual[0] == cases[k].baseline,
+              "policy-prefix helper lost %s baseline candidate zero",
+              cases[k].label);
+    }
 }
 
 static void test_rollout_policy_shortlist(void)
@@ -1865,6 +1972,9 @@ static void test_rollout_spec_tail(void)
                &a);
     CHECK(a.kind == AG_ROLLOUT && a.no_belief,
           "rolloutu kind/world model parsed incorrectly");
+    CHECK(a.continuation_net == a.net && a.owns_net &&
+          !a.owns_continuation_net,
+          "legacy rollout spec no longer aliases its root checkpoint");
     CHECK(a.dets == 256 && a.root_width == 5 && a.min_cand == 2,
           "rollout core fields parsed incorrectly");
     CHECK(a.ply_lo == 14 && a.ply_hi == 50 && a.eval_cand == 4,
@@ -1895,7 +2005,33 @@ static void test_rollout_spec_tail(void)
           a.bounded_late_root == 0 &&
           fabsf(a.bounded_late_min - 2.25f) < 1e-6f,
           "rollout planner/semantic tail parsed incorrectly");
-    free((void *)a.net);
+    spec_release(&a);
+
+    Agent dual;
+    spec_parse(
+        "rolloutu2:data/champion.bin:data/c8.bin:32:3:0.02:0:1:14",
+        &dual);
+    CHECK(dual.kind == AG_ROLLOUT && dual.no_belief &&
+          dual.net != NULL && dual.continuation_net != NULL &&
+          dual.continuation_net != dual.net && dual.owns_net &&
+          dual.owns_continuation_net && dual.dets == 32 &&
+          dual.root_width == 3 && dual.ply_lo == 14,
+          "rolloutu2 did not parse distinct root/continuation checkpoints");
+    spec_release(&dual);
+    CHECK(dual.net == NULL && dual.continuation_net == NULL &&
+          !dual.owns_net && !dual.owns_continuation_net,
+          "dual-network Agent release did not clear owned checkpoints");
+
+    Agent dual_alias;
+    spec_parse(
+        "rollout2:data/champion.bin:data/champion.bin:16:2",
+        &dual_alias);
+    CHECK(!dual_alias.no_belief && dual_alias.net != NULL &&
+          dual_alias.continuation_net == dual_alias.net &&
+          dual_alias.owns_net && !dual_alias.owns_continuation_net &&
+          dual_alias.dets == 16 && dual_alias.root_width == 2,
+          "rollout2 same-path checkpoint was not safely aliased");
+    spec_release(&dual_alias);
 
     Agent p;
     spec_parse("policy:data/champion.bin:0:20:16:12:4", &p);
@@ -1903,7 +2039,7 @@ static void test_rollout_spec_tail(void)
           p.plan_deck_max == 16 && p.plan_block_gap == 12 &&
           p.draw_root_deck_max == 4 && p.draw_playout_deck_max == 0,
           "policy scheduling tail parsed incorrectly");
-    free((void *)p.net);
+    spec_release(&p);
 
     Agent champion;
     spec_parse(LC_CHAMPION_AGENT_SPEC, &champion);
@@ -1938,7 +2074,9 @@ static void test_rollout_spec_tail(void)
           champion.bounded_late_root == 0 &&
           fabsf(champion.bounded_late_min - 1.0f) < 1e-6f,
           "maintained champion spec drifted from its locked configuration");
-    free((void *)champion.net);
+    CHECK(champion.continuation_net == champion.net,
+          "maintained champion no longer aliases its continuation network");
+    spec_release(&champion);
 
     Agent audit;
     spec_parse(LC_AUDIT_AGENT_SPEC, &audit);
@@ -1954,7 +2092,7 @@ static void test_rollout_spec_tail(void)
           audit.deck2_replan_cores == 0 && audit.bounded_late_root == 1 &&
           fabsf(audit.bounded_late_min - 1.0f) < 1e-6f,
           "post-game audit spec drifted from its focused configuration");
-    free((void *)audit.net);
+    spec_release(&audit);
 
     /* Training's live-network form must not have a private, fixed-size copy of
      * the rollout parser.  This deliberately exceeds the old 128-byte buffer
@@ -1972,6 +2110,9 @@ static void test_rollout_spec_tail(void)
     spec_parse_selfrollout(self_spec, live, &live_rollout);
     CHECK(live_rollout.kind == AG_ROLLOUT && live_rollout.net == live,
           "selfrollout did not preserve its caller-owned live network");
+    CHECK(live_rollout.continuation_net == live &&
+          !live_rollout.owns_net && !live_rollout.owns_continuation_net,
+          "selfrollout did not alias its caller-owned continuation network");
     CHECK(live_rollout.dets == 256 &&
           live_rollout.root_width == 5 &&
           live_rollout.ply_hi == 299 &&
@@ -2009,7 +2150,7 @@ static void test_rollout_spec_tail(void)
         &legacy_tail);
     CHECK(legacy_tail.exact_terminal == 0,
           "controlled exact-terminal ablation field was not parsed");
-    free((void *)legacy_tail.net);
+    spec_release(&legacy_tail);
 
     Agent root_only_tail;
     spec_parse(
@@ -2018,7 +2159,7 @@ static void test_rollout_spec_tail(void)
         &root_only_tail);
     CHECK(root_only_tail.exact_terminal == 2,
           "root-only exact-terminal propagation ablation was not parsed");
-    free((void *)root_only_tail.net);
+    spec_release(&root_only_tail);
 
     Agent policy_action_tail;
     spec_parse(
@@ -2027,7 +2168,7 @@ static void test_rollout_spec_tail(void)
         &policy_action_tail);
     CHECK(policy_action_tail.exact_terminal == 3,
           "policy-action terminal propagation control was not parsed");
-    free((void *)policy_action_tail.net);
+    spec_release(&policy_action_tail);
 }
 
 static void test_information_preserving_scheduler(void)
@@ -2867,6 +3008,180 @@ static void check_eval_plan_policy(const Net *net, const NetEvalPlan *plan,
           "%s plan changed sampled-symmetry inference or RNG", label);
 }
 
+static void init_rollout_continuation_sentinel(Net *net, int discard)
+{
+    net_zero(net);
+    for (int c = 0; c < NCARD; c++) {
+        net->bplay[c * 2 + 0] = discard ? -16.0f : 16.0f;
+        net->bplay[c * 2 + 1] = discard ? 16.0f : -16.0f;
+    }
+    net->bdraw[0] = 8.0f;
+    for (int d = 1; d < NET_NDRAW; d++) net->bdraw[d] = -8.0f;
+}
+
+static void test_dual_network_rollout(void)
+{
+    /* An explicitly dual same-path spec is the legacy actor, not merely a
+     * numerically similar configuration.  Check every observable byte. */
+    Agent legacy, explicit_alias;
+    spec_parse(
+        "rolloutu:data/champion.bin:6:3:0.02:0:3",
+        &legacy);
+    spec_parse(
+        "rolloutu2:data/champion.bin:data/champion.bin:6:3:0.02:0:3",
+        &explicit_alias);
+    State st = reviewed_state(legacy.net, 20);
+    Rng legacy_rng, alias_rng;
+    rng_seed(&legacy_rng, UINT64_C(0x4455414C414C4941));
+    alias_rng = legacy_rng;
+    SearchStats legacy_stats, alias_stats;
+    float legacy_value = 0.0f, alias_value = 0.0f;
+    Move legacy_move = rollout_move(
+        &legacy, &st, &legacy_rng, &legacy_value, &legacy_stats);
+    Move alias_move = rollout_move(
+        &explicit_alias, &st, &alias_rng, &alias_value, &alias_stats);
+    CHECK(MOVE_PACK(legacy_move) == MOVE_PACK(alias_move) &&
+          memcmp(&legacy_value, &alias_value, sizeof legacy_value) == 0 &&
+          memcmp(&legacy_stats, &alias_stats, sizeof legacy_stats) == 0 &&
+          memcmp(&legacy_rng, &alias_rng, sizeof legacy_rng) == 0,
+          "same-checkpoint dual spec changed move, value, stats, or RNG");
+    spec_release(&legacy);
+    spec_release(&explicit_alias);
+
+    Net *root = malloc(sizeof *root);
+    Net *play = malloc(sizeof *play);
+    Net *discard = malloc(sizeof *discard);
+    Net *root_before = malloc(sizeof *root_before);
+    CHECK(root && play && discard && root_before,
+          "dual-network sentinel allocation failed");
+    if (!root || !play || !discard || !root_before) {
+        free(root); free(play); free(discard); free(root_before);
+        return;
+    }
+    CHECK(net_load(root, "data/champion.bin") == 0,
+          "load root checkpoint for dual-network sentinel");
+    memcpy(root_before, root, sizeof *root);
+    init_rollout_continuation_sentinel(play, 0);
+    init_rollout_continuation_sentinel(discard, 1);
+
+    Agent play_actor;
+    agent_default(&play_actor, AG_ROLLOUT, root);
+    play_actor.continuation_net = play;
+    play_actor.no_belief = 1;
+    play_actor.dets = 8;
+    play_actor.root_width = 3;
+    play_actor.min_cand = 3;
+    play_actor.cand_floor = 0.02f;
+    play_actor.symmetries = 5;
+    play_actor.playout_symmetries = 1;
+    play_actor.playout_prune = 0;
+    play_actor.override_k = 0.0f;
+    Agent discard_actor = play_actor;
+    discard_actor.continuation_net = discard;
+
+    Rng play_rng, discard_rng;
+    rng_seed(&play_rng, UINT64_C(0x53454E54494E454C));
+    discard_rng = play_rng;
+    SearchStats play_stats, discard_stats;
+    float play_root_value = 0.0f, discard_root_value = 0.0f;
+    (void)rollout_move(
+        &play_actor, &st, &play_rng, &play_root_value, &play_stats);
+    (void)rollout_move(
+        &discard_actor, &st, &discard_rng,
+        &discard_root_value, &discard_stats);
+
+    int root_rows_equal = play_stats.n == discard_stats.n &&
+        play_stats.nlegal == discard_stats.nlegal &&
+        play_stats.policy_top == discard_stats.policy_top &&
+        play_stats.policy_mass == discard_stats.policy_mass &&
+        memcmp(&play_root_value, &discard_root_value,
+               sizeof play_root_value) == 0;
+    int continuation_changed = 0;
+    for (int i = 0; i < play_stats.n && i < discard_stats.n; i++) {
+        if (MOVE_PACK(play_stats.mv[i]) != MOVE_PACK(discard_stats.mv[i]) ||
+            play_stats.prior[i] != discard_stats.prior[i])
+            root_rows_equal = 0;
+        if (play_stats.q[i] != discard_stats.q[i])
+            continuation_changed = 1;
+    }
+    CHECK(root_rows_equal,
+          "continuation checkpoint changed root shortlist/prior/value");
+    CHECK(continuation_changed,
+          "distinct continuation sentinels did not reach primary playouts");
+    CHECK(memcmp(&play_rng, &discard_rng, sizeof play_rng) == 0,
+          "deterministic continuation sentinels changed root RNG consumption");
+    CHECK(memcmp(root, root_before, sizeof *root) == 0,
+          "dual-network rollout mutated the frozen root checkpoint");
+
+    Agent trusted_actor = play_actor;
+    trusted_actor.policy_prefix_mode = 2;
+    trusted_actor.confirm_dets = 6;
+    Rng trusted_rng;
+    rng_seed(&trusted_rng, UINT64_C(0x5452555354454450));
+    SearchStats trusted_stats;
+    (void)rollout_move(
+        &trusted_actor, &st, &trusted_rng, NULL, &trusted_stats);
+    CHECK(trusted_stats.prefix_proposed > 0 &&
+          trusted_stats.prefix_confirm_worlds == 6,
+          "dual continuation did not exercise trusted-prefix confirmation");
+
+    Agent challenger_actor = play_actor;
+    challenger_actor.dets = 256;
+    challenger_actor.confirm_dets = 6;
+    challenger_actor.override_k = 0.01f;
+    challenger_actor.override_min = 0.0f;
+    Rng challenger_rng;
+    rng_seed(&challenger_rng, UINT64_C(0x4348414C4C454E47));
+    SearchStats challenger_stats;
+    (void)rollout_move(
+        &challenger_actor, &st, &challenger_rng, NULL, &challenger_stats);
+    int primary_qualified = 0;
+    for (int i = 0; i < challenger_stats.n; i++)
+        if (challenger_stats.pqualified[i]) primary_qualified = 1;
+    CHECK(primary_qualified && challenger_stats.confirm_worlds == 6,
+          "dual continuation did not exercise generic challenger confirmation");
+
+    Agent heuristic;
+    agent_default(&heuristic, AG_ROLLOUT, NULL);
+    heuristic.dets = 2;
+    heuristic.root_width = 4;
+    heuristic.min_cand = 1;
+    heuristic.playout_prune = 0;
+    Rng heuristic_rng;
+    rng_seed(&heuristic_rng, UINT64_C(0x4845555249535449));
+    SearchStats heuristic_stats;
+    (void)rollout_move(
+        &heuristic, &st, &heuristic_rng, NULL, &heuristic_stats);
+    CHECK(heuristic_stats.n == 4 && heuristic_stats.worlds == 2,
+          "network-free heuristic rollout no longer keeps its full width");
+
+    /* A null optional continuation pointer must be an exact alias, including
+     * the planned fast path and RNG stream. */
+    Agent null_alias = play_actor;
+    null_alias.continuation_net = NULL;
+    Agent pointer_alias = null_alias;
+    pointer_alias.continuation_net = root;
+    Rng null_rng, pointer_rng;
+    rng_seed(&null_rng, UINT64_C(0x4E554C4C414C4941));
+    pointer_rng = null_rng;
+    SearchStats null_stats, pointer_stats;
+    float null_value = 0.0f, pointer_value = 0.0f;
+    Move null_move = rollout_move(
+        &null_alias, &st, &null_rng, &null_value, &null_stats);
+    Move pointer_move = rollout_move(
+        &pointer_alias, &st, &pointer_rng, &pointer_value, &pointer_stats);
+    CHECK(MOVE_PACK(null_move) == MOVE_PACK(pointer_move) &&
+          memcmp(&null_value, &pointer_value, sizeof null_value) == 0 &&
+          memcmp(&null_stats, &pointer_stats, sizeof null_stats) == 0 &&
+          memcmp(&null_rng, &pointer_rng, sizeof null_rng) == 0,
+          "null continuation alias changed move, value, stats, or RNG");
+
+    free(root_before);
+    free(discard);
+    free(play);
+    free(root);
+}
+
 static void test_network_eval_plan(void)
 {
     Net *net = malloc(sizeof *net);
@@ -3105,6 +3420,7 @@ int main(void)
     test_belief_distribution();
     test_exact_k_belief_objective();
     test_centered_mcts_value();
+    test_rollout_policy_prefix_helper();
     test_rollout_policy_shortlist();
     test_random_symmetry_policy_sample();
     test_rollout_spec_tail();
@@ -3120,6 +3436,7 @@ int main(void)
     test_rollout_match_thread_determinism();
     test_suit_symmetry_ensemble();
     test_trajectory_suit_augmentation();
+    test_dual_network_rollout();
     test_network_eval_plan();
     if (failures == 0) {
         printf("all runtime regression tests passed\n");

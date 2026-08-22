@@ -29,6 +29,8 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 SUITS = "YBWGR"
 DEFAULT_SEED = 0xA7710B311EF
+ROLLOUT_KINDS = {"rollout", "rolloutu", "rollout2", "rolloutu2"}
+TWO_NETWORK_ROLLOUT_KINDS = {"rollout2", "rolloutu2"}
 
 
 class ViewError(ValueError):
@@ -204,6 +206,11 @@ def validate_actor_prefix(
     kind = fields[0]
     if len(fields) < 2 or not fields[1]:
         raise ViewError("source actor spec does not identify its checkpoint")
+    dual_network_actor = kind in TWO_NETWORK_ROLLOUT_KINDS
+    if dual_network_actor and (len(fields) < 3 or not fields[2]):
+        raise ViewError(
+            "source actor spec does not identify its continuation checkpoint"
+        )
     source_net_path = Path(fields[1])
     if not source_net_path.is_absolute():
         source_net_path = ROOT / source_net_path
@@ -252,22 +259,31 @@ def validate_actor_prefix(
                     "target prefix comes from a planner-enabled policy; v1 "
                     "models only unmodified argmax actions"
                 )
-        elif kind in ("rollout", "rolloutu"):
-            search_from = int(numeric(7, 0.0, "rollout ply threshold"))
+        elif kind in ROLLOUT_KINDS:
+            tail_start = 3 if dual_network_actor else 2
+
+            def rollout_numeric(
+                tail_index: int, default: float, label: str
+            ) -> float:
+                return numeric(tail_start + tail_index, default, label)
+
+            search_from = int(
+                rollout_numeric(5, 0.0, "rollout ply threshold")
+            )
             actor_symmetries = int(
-                numeric(15, 1.0, "rollout policy symmetries")
+                rollout_numeric(13, 1.0, "rollout policy symmetries")
             )
             plan_deck_max = int(
-                numeric(23, 0.0, "rollout planner deck threshold")
+                rollout_numeric(21, 0.0, "rollout planner deck threshold")
             )
             plan_block_gap = int(
-                numeric(24, 0.0, "rollout planner block gap")
+                rollout_numeric(22, 0.0, "rollout planner block gap")
             )
             semantic_candidates = int(
-                numeric(25, 0.0, "semantic-candidate flag")
+                rollout_numeric(23, 0.0, "semantic-candidate flag")
             )
             draw_root_deck_max = int(
-                numeric(31, 0.0, "root draw-planner deck threshold")
+                rollout_numeric(29, 0.0, "root draw-planner deck threshold")
             )
             if target_round_ply > search_from:
                 raise ViewError(

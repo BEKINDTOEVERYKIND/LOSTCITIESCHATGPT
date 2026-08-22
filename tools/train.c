@@ -647,7 +647,16 @@ int main(int argc, char **argv)
             spec_parse_selfrollout(gen_spec, net, &gen);
         } else {
             spec_parse(gen_spec, &gen);
+            const Net *loaded_root = gen.net;
+            int shared_continuation =
+                !gen.continuation_net || gen.continuation_net == loaded_root;
             gen.net = net;
+            gen.owns_net = 0;
+            if (shared_continuation) {
+                gen.continuation_net = net;
+                gen.owns_continuation_net = 0;
+            }
+            free((void *)loaded_root);
         }
         if (gen_symmetries > 0) gen.symmetries = gen_symmetries;
 
@@ -698,6 +707,8 @@ int main(int argc, char **argv)
                added, seen, rp.n,
                ga / gdone, gp / gdone);
         fflush(stdout);
+        if (gen.owns_net || gen.owns_continuation_net)
+            spec_release(&gen);
         free(jobs); free(th);
 
     training:

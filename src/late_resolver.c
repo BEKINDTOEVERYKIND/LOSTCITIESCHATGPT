@@ -760,11 +760,23 @@ static int lr_solve_horizon(const Net *net, const NetEvalPlan *eval_plan,
     return !ctx.failed;
 }
 
-int late_resolver_choose_plan(const Net *net, const State *st, int objective,
-                              int cores, int policy_symmetries,
-                              int max_actions, double practical_min,
-                              Move *out, LateResolverStats *stats,
-                              const NetEvalPlan *eval_plan)
+static const NetEvalPlan *lr_safe_eval_plan(
+    const Net *net, const NetEvalPlan *eval_plan)
+{
+    if (!net || !eval_plan || eval_plan->owner != net ||
+        (eval_plan->dense_count != FEAT_LEGACY_DENSE &&
+         eval_plan->dense_count != FEAT_DENSE) ||
+        eval_plan->zero_combination > 1)
+        return NULL;
+    return eval_plan;
+}
+
+int late_resolver_choose_dual_plan(
+    const Net *root_net, const Net *continuation_net,
+    const State *st, int objective, int cores, int policy_symmetries,
+    int max_actions, double practical_min, Move *out,
+    LateResolverStats *stats, const NetEvalPlan *root_eval_plan,
+    const NetEvalPlan *continuation_eval_plan)
 {
     if (stats) {
         memset(stats, 0, sizeof *stats);
@@ -772,10 +784,11 @@ int late_resolver_choose_plan(const Net *net, const State *st, int objective,
         stats->horizon4_best = -1;
         stats->unavailable = 1;
     }
-    if (!net || !st || !out || st->over || st->deck_left < 2 ||
+    if (!root_net || !st || !out || st->over || st->deck_left < 2 ||
         st->deck_left > LR_MAX_DECK || cores != LR_MAX_CORES ||
         max_actions < 1)
         return 0;
+    if (!continuation_net) continuation_net = root_net;
     if (max_actions > LR_MAX_ACTIONS) max_actions = LR_MAX_ACTIONS;
     if (!(practical_min >= 0.0) || !lc_double_isfinite(practical_min))
         return 0;
@@ -789,14 +802,12 @@ int late_resolver_choose_plan(const Net *net, const State *st, int objective,
      * null plan deliberately takes the complete feature/head path without
      * rescanning the checkpoint; the owner is responsible for constructing a
      * fresh plan after every model mutation. */
-    const NetEvalPlan *safe_eval_plan = eval_plan;
-    if (!safe_eval_plan || safe_eval_plan->owner != net ||
-        (safe_eval_plan->dense_count != FEAT_LEGACY_DENSE &&
-         safe_eval_plan->dense_count != FEAT_DENSE) ||
-        safe_eval_plan->zero_combination > 1)
-        safe_eval_plan = NULL;
-    root_ctx.net = net;
-    root_ctx.eval_plan = safe_eval_plan;
+    const NetEvalPlan *safe_root_eval_plan =
+        lr_safe_eval_plan(root_net, root_eval_plan);
+    const NetEvalPlan *safe_continuation_eval_plan =
+        lr_safe_eval_plan(continuation_net, continuation_eval_plan);
+    root_ctx.net = root_net;
+    root_ctx.eval_plan = safe_root_eval_plan;
     root_ctx.cores = cores;
     root_ctx.max_actions = max_actions;
     /* Rank the root with the configured deployed ensemble.  Exact-20 at every
@@ -818,12 +829,14 @@ int late_resolver_choose_plan(const Net *net, const State *st, int objective,
     memset(&s2, 0, sizeof s2);
     memset(&s4, 0, sizeof s4);
     int ok2 = lr_solve_horizon(
-        net, safe_eval_plan, st, &plan, root_action, root_prior, nroot,
+        continuation_net, safe_continuation_eval_plan,
+        st, &plan, root_action, root_prior, nroot,
         objective, cores, policy_symmetries > 1 ? 5 : 1, max_actions,
         2, &h2, &v2,
         q2, &best2, &s2);
     int ok4 = ok2 && lr_solve_horizon(
-        net, safe_eval_plan, st, &plan, root_action, root_prior, nroot,
+        continuation_net, safe_continuation_eval_plan,
+        st, &plan, root_action, root_prior, nroot,
         objective, cores, policy_symmetries > 1 ? 5 : 1, max_actions,
         4, &h4, &v4,
         q4, &best4, &s4);
@@ -874,6 +887,17 @@ int late_resolver_choose_plan(const Net *net, const State *st, int objective,
     }
     if (!passed || !lr_resolve_action(st, h4, out)) return 0;
     return 1;
+}
+
+int late_resolver_choose_plan(const Net *net, const State *st, int objective,
+                              int cores, int policy_symmetries,
+                              int max_actions, double practical_min,
+                              Move *out, LateResolverStats *stats,
+                              const NetEvalPlan *eval_plan)
+{
+    return late_resolver_choose_dual_plan(
+        net, net, st, objective, cores, policy_symmetries, max_actions,
+        practical_min, out, stats, eval_plan, eval_plan);
 }
 
 int late_resolver_choose(const Net *net, const State *st, int objective,
