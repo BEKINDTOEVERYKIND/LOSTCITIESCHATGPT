@@ -1877,7 +1877,8 @@ int main(int argc, char **argv)
             printf("         %ld updates in %.1fs: value rmse %.1f pts, surrogate %.4f, "
                    "belief exact-K nll/card %.3f, anchor KL %.5f, clipped %.1f%%\n",
                    steps, ts,
-                   sqrt(vl / ((double)steps * batch)) * VAL_SCALE,
+                   steps ? sqrt(vl / ((double)steps * batch)) * VAL_SCALE
+                         : 0.0,
                    pn ? pl / pn : 0.0, bcnt ? bl / bcnt : 0.0,
                    pn ? kl / pn : 0.0,
                    pn ? 100.0 * cl / pn : 0.0);

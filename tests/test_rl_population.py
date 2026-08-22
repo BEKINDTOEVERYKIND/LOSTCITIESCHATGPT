@@ -194,6 +194,8 @@ class PopulationTrainingTest(unittest.TestCase):
                 two_command, cwd=ROOT, text=True, capture_output=True,
                 check=True,
             )
+            for run in (one, two):
+                self.assertNotRegex(run.stdout.lower(), r"\b(?:nan|inf)\b")
             pattern = (
                 r"continuation role product group 5: tails (\d+); "
                 r"pair-count (\d+)\.\.(\d+); root/opponent marginals "
