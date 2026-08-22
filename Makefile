@@ -12,7 +12,8 @@ CORE    := $(SRC)/lc.c $(SRC)/features.c $(SRC)/net.c $(SRC)/heuristic.c \
            $(SRC)/late_resolver.c $(SRC)/agent.c \
            $(SRC)/match.c $(SRC)/spec.c
 
-all: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_late_resolver \
+all: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_role_coherence \
+	$(BIN)/test_late_resolver \
 	$(BIN)/arena $(BIN)/train \
 	$(BIN)/bench $(BIN)/probe $(BIN)/rl $(BIN)/ladder $(BIN)/play \
 	$(BIN)/showgame $(BIN)/dumpfeat $(BIN)/analyze $(BIN)/searchcmp \
@@ -30,6 +31,13 @@ $(BIN)/test_engine: tests/test_engine.c $(SRC)/lc.c $(HDRS) | $(BIN)
 $(BIN)/test_runtime: tests/test_runtime.c tools/train_target.h $(CORE) $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
 
+# White-box role-coherence tests include rollout.c directly so they can trace
+# its fixed-permutation policy calls without adding hooks to the gameplay ABI.
+ROLE_TEST_CORE := $(filter-out $(SRC)/rollout.c,$(CORE))
+$(BIN)/test_role_coherence: tests/test_role_coherence.c $(ROLE_TEST_CORE) \
+	$(HDRS) $(DATA)/champion.bin | $(BIN)
+	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
+
 $(BIN)/test_late_resolver: tests/test_late_resolver.c $(CORE) $(HDRS) \
 	$(DATA)/champion.bin | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
@@ -43,11 +51,13 @@ $(BIN)/train: tools/train.c tools/train_target.h $(CORE) $(HDRS) | $(BIN)
 $(BIN)/bench: tools/bench.c $(CORE) $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
 
-test: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_late_resolver \
+test: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_role_coherence \
+	$(BIN)/test_late_resolver \
 	$(BIN)/test_belief_eval \
 	$(BIN)/belief_eval $(BIN)/rl $(BIN)/arena $(DATA)/champion.bin
 	./$(BIN)/test_engine
 	./$(BIN)/test_runtime
+	./$(BIN)/test_role_coherence
 	./$(BIN)/test_late_resolver
 	./$(BIN)/test_belief_eval
 	python3 -m unittest tests/test_rl_population.py
