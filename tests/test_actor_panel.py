@@ -12,6 +12,8 @@ from tools.validate_actor_shards import validate_shards
 ROOT = Path(__file__).resolve().parents[1]
 ARENA = ROOT / "bin" / "arena"
 WORKFLOW = ROOT / ".github" / "workflows" / "continuation-soup-v1.yml"
+TRANSPORT_ARENA = ROOT / "bin" / "arena"
+TRANSPORT_ROOT = ROOT / "data" / "champion.bin"
 
 
 class LockedActorPanelTest(unittest.TestCase):
@@ -19,8 +21,11 @@ class LockedActorPanelTest(unittest.TestCase):
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertNotIn("workflow_dispatch", text)
         self.assertEqual(text.count(
-            "data/experiments/locked_continuation_soup_v1_distributed_execution.json"),
+            "data/experiments/locked_continuation_soup_v1_distributed_execution_retry.json"),
             4)
+        self.assertNotIn(
+            "data/experiments/locked_continuation_soup_v1_distributed_execution.json\n",
+            text)
         self.assertIn(
             "start: [0, 20, 40, 60, 80, 100, 120, 140, 160, 180]",
             text)
@@ -38,6 +43,22 @@ class LockedActorPanelTest(unittest.TestCase):
         self.assertIn(
             "e88c97912165165f200e7e1ebe9705971916c93083fa0049d63aa6eeba1adb8d",
             text)
+        self.assertIn(
+            "a65f73871e04ed0e21f2bc9920a235cbb5d29950b35bb91df37ae9dcc8801efa",
+            text)
+        self.assertIn(
+            'test "$(sha256sum campaign/bin/arena | cut -d\' \' -f1)" = "$ARENA_SHA"',
+            text)
+        self.assertNotIn("make -C source", text)
+        self.assertNotIn("path: source", text)
+        self.assertEqual(TRANSPORT_ARENA.stat().st_size, 362592)
+        self.assertEqual(TRANSPORT_ROOT.stat().st_size, 2823748)
+        self.assertEqual(
+            hashlib.sha256(TRANSPORT_ARENA.read_bytes()).hexdigest(),
+            "a65f73871e04ed0e21f2bc9920a235cbb5d29950b35bb91df37ae9dcc8801efa")
+        self.assertEqual(
+            hashlib.sha256(TRANSPORT_ROOT.read_bytes()).hexdigest(),
+            "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417")
 
     def _shard(self, directory: Path, orientation: str, start: int,
                count: int, seed: int) -> None:
