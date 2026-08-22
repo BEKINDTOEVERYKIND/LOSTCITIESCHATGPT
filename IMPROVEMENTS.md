@@ -880,26 +880,72 @@ action-independent advantage baseline. Belief training and misleading
 standalone-policy evaluation are disabled for this mode; any resulting
 checkpoint still requires a locked dual-network actor test before promotion.
 
+### Continuation-v2 factorial result
+
+The second locked campaign tested the two material training choices directly:
+round-margin versus final-round hybrid targets, and shared versus independent
+trajectory-coherent player roles. Three seeds per cell generated 590,112
+continuation tails. All 12 runs passed the immutable-root, role-balance,
+finite-update, exact-deck-one, checkpoint, and checksum contracts. Screen A
+then completed all 84 fixed checkpoint comparisons before selecting one winner
+per seed; Screen B completed all 12 winners and four equal-weight soups on one
+fresh 6,000-pair panel before applying its fixed gate.
+
+No cell was eligible. The exact selector outputs are retained in
+`data/experiments/continuation_v2_screen_a_result.json` and
+`data/experiments/continuation_v2_result.json`; run and artifact provenance is
+in `data/experiments/continuation_v2_execution_result.json`.
+
+| soup | early margin | round-2 score | hybrid | seed winners positive on all three | gate |
+| --- | ---: | ---: | ---: | ---: | --- |
+| objective 0 / shared | +0.2869 ± 0.1545 | 50.500% ± 0.275% | +0.4996 ± 0.2812 | 1/3 | fail |
+| objective 0 / independent | +0.0700 ± 0.1585 | 49.963% ± 0.254% | −0.0402 ± 0.2598 | 1/3 | fail |
+| objective 2 / shared | +0.2758 ± 0.1313 | 49.900% ± 0.218% | −0.0880 ± 0.2232 | 0/3 | fail |
+| objective 2 / independent | +0.4736 ± 0.1435 | 50.213% ± 0.237% | +0.2269 ± 0.2417 | 1/3 | fail |
+
+The objective-0/shared soup cleared all three aggregate one-sided lower bounds:
+`+0.0327` early margin, `50.047%` round-2 match score, and `+0.0371` hybrid.
+It nevertheless failed the deliberately independent robustness requirement
+because only one seed winner was positive on all three endpoints. Objective-2
+with independent roles had the strongest early-round point margin, but its
+round-2 score and hybrid lower bounds remained below parity. These results do
+not support changing the continuation checkpoint, and the workflow consumed no
+reserved actor seed.
+
+This clean negative result narrows the underlying problem. Making fixed-policy
+continuations more role-coherent and changing their terminal target can improve
+pooled controller metrics, but neither made the learned downstream policy
+stable across seeds. More worlds would estimate those same fixed-policy basins
+more precisely; it would not turn them into optimal-response values. Future
+continuation selection should therefore measure root-action regret on frozen
+information states under an independent stronger oracle, followed by the same
+reciprocal full-actor gate, rather than promoting another controller-only
+aggregate.
+
 ## Remaining high-value work
 
-1. Give earlier-round MCTS one consistent utility. Final-round terminals are
+1. Build a frozen ply-14+ root-ranking corpus from live actor states, keep only
+   top-policy semantic action cores, and select continuation methods by paired
+   regret under an independent stronger oracle. The reciprocal full actor must
+   remain the only promotion endpoint.
+2. Give earlier-round MCTS one consistent utility. Final-round terminals are
    now exact, but rounds 0/1 still mix match-trained network leaves with
    current-round terminal margins. A separate round-margin value head or an
    explicit continuation through future deals is required.
-2. Replace current-round rollout utility in early rounds with either remaining
+3. Replace current-round rollout utility in early rounds with either remaining
    match simulation or a learned round-end continuation table.
-3. Train v6 with the frozen-opponent/KL path over several independent seeds,
+4. Train v6 with the frozen-opponent/KL path over several independent seeds,
    select on fixed validation deals,
    and report only once on a locked final set.
-4. Revisit learned-world search only together with a better continuation
+5. Revisit learned-world search only together with a better continuation
    policy or a separately validated root method. The corrected posterior beats
    the card-count prior on held-out metrics, but a direct flat-rollout ablation
    lost match score; the decision audit therefore remains uniform.
-5. Measure and report the 300-ply cap rate. Consider an explicit repetition or
+6. Measure and report the 300-ply cap rate. Consider an explicit repetition or
    adjudication rule for evaluation.
-6. Replace raw native C-struct persistence with a canonical endian-stable,
+7. Replace raw native C-struct persistence with a canonical endian-stable,
    checksummed parameter format.
-7. Make complete PPO checkpoint generation invariant to `--threads`. Match
+8. Make complete PPO checkpoint generation invariant to `--threads`. Match
    evaluation and trajectory suit-map selection are thread-stable, but PPO's
    worker-local gameplay/reservoir streams and floating gradient reduction
    still make fixed-seed training depend on the configured worker count; use

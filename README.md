@@ -996,6 +996,32 @@ temporary file before atomic installation. Printed provenance records canonical
 inputs, sizes, exact SHA-256 file hashes, explicitly non-cryptographic loaded
 model FNVs, the numeric contract, and the saved output hashes.
 
+### Locked continuation-v2 result
+
+The complete 2×2 objective/role-mapping campaign is recorded in
+[`data/experiments/continuation_v2_execution_result.json`](data/experiments/continuation_v2_execution_result.json).
+All 12 training runs, the sealed 84-candidate Screen A, all four deterministic
+soups, and the sealed 16-candidate Screen B completed successfully. Every
+Screen-B candidate had zero capped continuations. No cell passed the
+precommitted soup-plus-replicate robustness gate, so the workflow stopped
+without consuming any full-actor seed and `data/champion.bin` remains the
+continuation checkpoint.
+
+| soup | early margin | round-2 match score | round-2 hybrid | positive seed winners | eligible |
+| --- | ---: | ---: | ---: | ---: | --- |
+| objective 0, shared roles | +0.287 ± 0.155 | 50.50% ± 0.28% | +0.500 ± 0.281 | 1/3 | no |
+| objective 0, independent roles | +0.070 ± 0.159 | 49.96% ± 0.25% | −0.040 ± 0.260 | 1/3 | no |
+| objective 2, shared roles | +0.276 ± 0.131 | 49.90% ± 0.22% | −0.088 ± 0.223 | 0/3 | no |
+| objective 2, independent roles | +0.474 ± 0.143 | 50.21% ± 0.24% | +0.227 ± 0.242 | 1/3 | no |
+
+The objective-0/shared soup was the closest: its one-sided 95% lower bounds
+were positive on all three aggregate endpoints, but only one of its three
+independent seed winners was positive on all three. The locked gate required
+at least two. Promoting it would therefore select a pooled gain that did not
+replicate. Exact Screen-A and Screen-B selector outputs are retained in
+[`continuation_v2_screen_a_result.json`](data/experiments/continuation_v2_screen_a_result.json)
+and [`continuation_v2_result.json`](data/experiments/continuation_v2_result.json).
+
 Dual actors use `rollout2:ROOT:CONT:...` or
 `rolloutu2:ROOT:CONT:...`; the remaining positional tail is unchanged from the
 corresponding one-network spec. `ROOT` supplies the real decision's policy,
