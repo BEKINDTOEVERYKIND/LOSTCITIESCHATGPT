@@ -135,8 +135,9 @@ jobs:
             --second merged/baseline-first.json \
             --gate-z 1.695 --require-positive-margin \
             --output merged/reciprocal.json
-          find downloads merged -type f -print0 | sort -z | \
+          find downloads merged -type f ! -name SHA256SUMS.txt -print0 | sort -z | \
             xargs -0 sha256sum > merged/SHA256SUMS.txt
+          sha256sum -c merged/SHA256SUMS.txt
 
       - uses: actions/upload-artifact@v4
         with:

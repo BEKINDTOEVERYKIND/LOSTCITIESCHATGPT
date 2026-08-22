@@ -189,9 +189,15 @@ Combined across 7,000 mirrored pairs, the direct result is approximately
 
 The wager projection alone measured approximately +1.20 ± 0.18 points and
 50.62% over 35,000 pairs. The 20-way suit ensemble supplies most of the
-remaining gain by averaging away arbitrary suit-slot preferences. Exhaustive
-120-way averaging was only +0.70 ± 1.34 over the 20-way mode in a 500-pair
-screen while costing about six times as much, so it was not made the default.
+remaining gain by averaging away arbitrary suit-slot preferences. A positive
+policy-only qualification sent exhaustive 120-way root averaging to a locked
+2,000+2,000-game full-actor holdout. It scored `49.7125% ± 0.6540% SE` with a
+`-0.3955 ± 0.8091` point margin; its predeclared lower bound was `48.6039%`.
+It therefore failed promotion, and the maintained actor remains at 20 root
+symmetries. Every pair row, shard digest, evaluator binary, and the hardened
+remerge are retained in
+[`data/experiments/root120_stage2`](data/experiments/root120_stage2). This is a
+failure to validate 120, not proof that it is intrinsically weaker.
 
 No newly trained checkpoint cleared the promotion bar. In particular, three
 attempts to distil the 20-way ensemble back into one fast network all became

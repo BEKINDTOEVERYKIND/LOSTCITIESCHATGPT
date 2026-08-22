@@ -316,7 +316,20 @@ Five-way averaging alone scored +15.41 ± 0.66 and 58.4% ± 0.5% over 5,000
 pairs. Ten-way then beat five-way by +1.56 ± 0.80, and 20-way beat ten-way by
 +1.79 ± 0.75 in 2,000-pair screens. Full 120-way averaging was only
 +0.70 ± 1.34 / 51.6% ± 1.2% over 20-way in 500 pairs and costs roughly six
-times more, so 20-way is the default.
+times more.
+
+That exploratory result was not used as a deployment claim. A fresh reciprocal
+5,000+5,000-pair policy qualification passed its compute gate, after which the
+unchanged 120-root candidate faced the complete maintained rollout actor on
+fresh seeds. The authoritative 1,000+1,000-pair reciprocal actor panel scored
+`49.7125% ± 0.6540% SE`, with orientation scores `48.95%` and `50.475%`, a
+`-0.3955 ± 0.8091` point margin, and W/L/D `1978/2001/21`. Its required
+1.695-SE lower bound was `48.6039%`; the combined bound, first orientation, and
+positive-margin conditions all failed. Root 20 therefore remains the default.
+The two-sided 95% score interval still includes parity, so the conclusion is
+"not validated," not "proved weaker." All 20 raw shards, timings, hashes, the
+exact evaluator, and a hardened remerge are archived under
+[`data/experiments/root120_stage2`](data/experiments/root120_stage2).
 
 The generated champion retains exact `+0` values in the 110 v6 pile-order
 input rows and the complete 720-way interaction head because its source is a
