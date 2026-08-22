@@ -329,14 +329,32 @@ function candidateAt(value, path){
     "delta_vs_reference","delta_reference_se","policy_prob","prob","visits",
     "confirmation_delta","confirmation_se","coherent_q","coherent_q_se",
     "coherent_delta_vs_baseline","coherent_delta_se","qw",
+    "controller_veto_q","controller_veto_q_se",
+    "controller_veto_delta_vs_baseline","controller_veto_delta_se",
     "bounded_h2_q","bounded_h4_q"])
     optionalNumber(candidate, key, path, -1e9, 1e9);
   for (const key of ["played","baseline","policy_top","retained","trusted_prefix",
     "prefix_proposed","selection_reference","highest_mean","confirmed_best",
     "primary_pass","coherent_evaluated","coherent_numerical_agreement",
-    "coherent_gate_pass","confirmation_pass","guard_rejected","chosen"])
+    "coherent_gate_pass","controller_veto_evaluated",
+    "controller_veto_numerical_agreement","controller_veto_gate_pass",
+    "confirmation_pass","guard_rejected","chosen"])
     optionalBoolean(candidate, key, path);
   return candidate;
+}
+function controllerVetoAt(value, path){
+  const veto = objectAt(value, path);
+  for (const key of ["enabled","may_introduce_move","attempted",
+    "numerical_agreement","gate_passed","passed"])
+    if (typeof veto[key] !== "boolean")
+      schemaError(`${path}.${key}`, "expected boolean");
+  for (const key of ["worlds","proposed"])
+    numberAt(veto[key], `${path}.${key}`, 0, 1000000, true);
+  for (const key of ["delta_vs_baseline","delta_se"])
+    numberAt(veto[key], `${path}.${key}`, -1e9, 1e9, false);
+  stringAt(veto.role, `${path}.role`, 64);
+  stringAt(veto.outcome, `${path}.outcome`, 128);
+  return veto;
 }
 function lateResolverAt(value, path){
   const late = objectAt(value, path);
@@ -510,6 +528,9 @@ function validateGame(value){
       if (actor.status !== undefined) stringAt(actor.status, `${path}.actor_decision.status`, 128);
       if (actor.late_resolver)
         lateResolverAt(actor.late_resolver, `${path}.actor_decision.late_resolver`);
+      if (actor.controller_veto)
+        controllerVetoAt(actor.controller_veto,
+          `${path}.actor_decision.controller_veto`);
       if (actor.action_core_shortlist){
         const core = objectAt(actor.action_core_shortlist,
           `${path}.actor_decision.action_core_shortlist`);
@@ -524,6 +545,9 @@ function validateGame(value){
       if (analysis.objective !== undefined) stringAt(analysis.objective, `${path}.analysis.objective`, 128);
       if (analysis.late_resolver)
         lateResolverAt(analysis.late_resolver, `${path}.analysis.late_resolver`);
+      if (analysis.controller_veto)
+        controllerVetoAt(analysis.controller_veto,
+          `${path}.analysis.controller_veto`);
       if (analysis.action_core_shortlist){
         const core = objectAt(analysis.action_core_shortlist,
           `${path}.analysis.action_core_shortlist`);
@@ -616,6 +640,7 @@ function statusView(code){
     confirmed_policy_prefix_override:["fresh prefix check passed", "caution", "The proposed top-policy correction independently beat the baseline on the configured fresh panel."],
     selected_policy_prefix_leader:["primary-panel leader selected", "caution", "The top-policy numerical leader was selected without a fresh consensus panel. It is a numerical ranking, not proof."],
     failed_policy_prefix_confirmation:["fresh prefix check failed", "caution", "The fresh panel either disagreed or did not clear its configured paired gate, so the selection reference was retained."],
+    failed_controller_veto:["independent controller vetoed", "blocked", "The champion panels proposed a correction, but a separately trained continuation controller chose a different top-policy leader on the same worlds, so the policy baseline was retained."],
     blocked_by_discard_guard:["discard guard blocked change", "blocked", "A challenger was rejected by the conservative discard guard."],
     failed_stochastic_confirmation:["fresh gate did not pass", "caution", "A primary challenger did not repeat strongly enough on fresh stochastic worlds."],
     inconclusive:["inconclusive — reference kept", "", "The sampled differences did not justify changing the selection reference."],
@@ -830,6 +855,14 @@ function renderEvalRows(parent, rows, scope, legacy){
       if (c.coherent_evaluated && finite(c.coherent_delta_vs_baseline))
         addMetric(metrics, "fresh paired Δ vs baseline",
           estimate(c.coherent_delta_vs_baseline, c.coherent_delta_se, 1));
+      if (c.controller_veto_evaluated)
+        addMetric(metrics, "veto-controller Q",
+          estimate(c.controller_veto_q, c.controller_veto_q_se, 1));
+      if (c.controller_veto_evaluated &&
+          finite(c.controller_veto_delta_vs_baseline))
+        addMetric(metrics, "veto Δ vs baseline",
+          estimate(c.controller_veto_delta_vs_baseline,
+            c.controller_veto_delta_se, 1));
       if (c.primary_pass || c.confirmation_pass ||
           (finite(c.confirmation_delta) && finite(c.confirmation_se) && c.confirmation_se > 0))
         addMetric(metrics, "fresh gate Δ", estimate(c.confirmation_delta, c.confirmation_se, 1));
@@ -842,6 +875,19 @@ function renderEvalRows(parent, rows, scope, legacy){
     row.appendChild(metrics); list.appendChild(row);
   });
   parent.appendChild(list);
+}
+function renderControllerVeto(parent, veto){
+  if (!veto || !veto.enabled) return;
+  if (!veto.attempted){
+    addMethodNote(parent,
+      "The independent continuation controller is veto-only and was not reached because no champion-confirmed prefix override survived to this stage.",
+      "");
+    return;
+  }
+  const delta = estimate(veto.delta_vs_baseline, veto.delta_se, 1);
+  addMethodNote(parent,
+    `Independent-controller veto (${veto.worlds} identical worlds): ${veto.passed ? "the same proposed leader repeated, so the correction survived" : "a different leader won, so the policy baseline was retained"}. Its proposed-move delta was ${delta}. This panel can cancel a move but can never introduce one.`,
+    veto.passed ? "supported" : "blocked");
 }
 function renderLateResolver(parent, late, scope){
   if (!late || !late.attempted) return;
@@ -951,7 +997,8 @@ function renderDecision(p){
     const ap = actor.policy_prefix || {};
     const prefixPanelStatus = ap.confirmation_required && ap.worlds > 0 &&
       (actor.status === "confirmed_policy_prefix_override" ||
-       actor.status === "failed_policy_prefix_confirmation");
+       actor.status === "failed_policy_prefix_confirmation" ||
+       actor.status === "failed_controller_veto");
     const av = statusView(actor.status);
     if (!prefixPanelStatus) addMethodNote(actorEl, av.note, av.tone);
     if (ap.confirmation_required && ap.worlds > 0){
@@ -960,6 +1007,7 @@ function renderDecision(p){
       addMethodNote(actorEl, prefixPanelNote(ap),
         ap.confirmed && gated ? "supported" : "caution");
     }
+    renderControllerVeto(actorEl, actor.controller_veto);
   }
 
   const se = $("search"); se.textContent = "";
@@ -1031,7 +1079,8 @@ function renderDecision(p){
     const pp = a.policy_prefix || {};
     const prefixPanelStatus = pp.confirmation_required && pp.worlds > 0 &&
       (a.status === "confirmed_policy_prefix_override" ||
-       a.status === "failed_policy_prefix_confirmation");
+       a.status === "failed_policy_prefix_confirmation" ||
+       a.status === "failed_controller_veto");
     const sv = statusView(a.status);
     if (!prefixPanelStatus) addMethodNote(se, sv.note, sv.tone);
     if (pp.confirmation_required && pp.worlds > 0){
@@ -1042,6 +1091,7 @@ function renderDecision(p){
       addMethodNote(se, prefixPanelNote(pp, refText),
         pp.confirmed && gated ? "supported" : "caution");
     }
+    renderControllerVeto(se, a.controller_veto);
     const conf = a.confirmation || {};
     if (conf.worlds > 0){
       addMethodNote(se,

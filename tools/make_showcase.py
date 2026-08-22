@@ -35,28 +35,60 @@ DEFAULT_EVALUATOR = (
     "2:1:0:3:1:0:0:1"
 )
 GAME_MARKER = '<script type="application/json" id="game-data">'
-ROLLOUT_KINDS = {"rollout", "rolloutu", "rollout2", "rolloutu2"}
+ROLLOUT_KINDS = {
+    "rollout",
+    "rolloutu",
+    "rollout2",
+    "rolloutu2",
+    "rollout3",
+    "rolloutu3",
+}
 TWO_NETWORK_ROLLOUT_KINDS = {"rollout2", "rolloutu2"}
+THREE_NETWORK_ROLLOUT_KINDS = {"rollout3", "rolloutu3"}
+MULTI_NETWORK_ROLLOUT_KINDS = {
+    *TWO_NETWORK_ROLLOUT_KINDS,
+    *THREE_NETWORK_ROLLOUT_KINDS,
+}
 
 
 def repo_path(path: Path) -> Path:
     return path if path.is_absolute() else ROOT / path
 
 
-def actor_model_paths(spec: str) -> tuple[Path, Path | None]:
-    """Return the actor's root and optional continuation checkpoints."""
+def actor_model_paths(
+    spec: str,
+) -> tuple[Path, Path | None] | tuple[Path, Path, Path]:
+    """Return every checkpoint named by a supported actor specification.
+
+    The historical one- and two-network return shapes stay unchanged.  A
+    three-network actor returns ``(root, continuation, veto)`` so callers
+    cannot accidentally omit the conservative-veto checkpoint from their
+    integrity or provenance handling.
+    """
     fields = spec.split(":")
     if len(fields) < 2 or fields[0] not in {"policy", *ROLLOUT_KINDS}:
         raise RuntimeError("showcase actor must be a policy or rollout network spec")
     if not fields[1]:
         raise RuntimeError("showcase actor spec has no checkpoint path")
     continuation = None
-    if fields[0] in TWO_NETWORK_ROLLOUT_KINDS:
+    if fields[0] in MULTI_NETWORK_ROLLOUT_KINDS:
         if len(fields) < 3 or not fields[2]:
             raise RuntimeError(
-                "two-network showcase actor spec has no continuation checkpoint path"
+                "multi-network showcase actor spec has no continuation "
+                "checkpoint path"
             )
         continuation = repo_path(Path(fields[2]))
+    if fields[0] in THREE_NETWORK_ROLLOUT_KINDS:
+        if len(fields) < 4 or not fields[3]:
+            raise RuntimeError(
+                "three-network showcase actor spec has no veto checkpoint path"
+            )
+        assert continuation is not None
+        return (
+            repo_path(Path(fields[1])),
+            continuation,
+            repo_path(Path(fields[3])),
+        )
     return repo_path(Path(fields[1])), continuation
 
 
@@ -69,6 +101,8 @@ def rollout_tail_start(fields: list[str]) -> int:
     """Index of the unchanged rollout tail after its checkpoint field(s)."""
     if not fields or fields[0] not in ROLLOUT_KINDS:
         raise RuntimeError("actor is not a rollout network spec")
+    if fields[0] in THREE_NETWORK_ROLLOUT_KINDS:
+        return 4
     return 3 if fields[0] in TWO_NETWORK_ROLLOUT_KINDS else 2
 
 
@@ -463,8 +497,13 @@ def main() -> None:
         )
 
     initial_actor_fields = args.actor.split(":")
-    if initial_actor_fields[0] in TWO_NETWORK_ROLLOUT_KINDS:
-        actor_model, continuation_model = actor_model_paths(args.actor)
+    veto_model = None
+    if initial_actor_fields[0] in MULTI_NETWORK_ROLLOUT_KINDS:
+        model_paths = actor_model_paths(args.actor)
+        actor_model = model_paths[0]
+        continuation_model = model_paths[1]
+        if initial_actor_fields[0] in THREE_NETWORK_ROLLOUT_KINDS:
+            veto_model = model_paths[2]
     else:
         # Keep this legacy entry point as the single-network lookup used by
         # existing callers and tests.
@@ -473,11 +512,13 @@ def main() -> None:
     actor_checkpoints = [("root", actor_model)]
     if continuation_model is not None:
         actor_checkpoints.append(("continuation", continuation_model))
+    if veto_model is not None:
+        actor_checkpoints.append(("veto", veto_model))
     for role, checkpoint in actor_checkpoints:
         if paths_alias(args.output, checkpoint):
             checkpoint_label = (
                 "actor checkpoint"
-                if continuation_model is None
+                if len(actor_checkpoints) == 1
                 else f"actor {role} checkpoint"
             )
             raise RuntimeError(
@@ -492,7 +533,7 @@ def main() -> None:
             if paths_alias(args.embed_viewer, checkpoint):
                 checkpoint_label = (
                     "actor checkpoint"
-                    if continuation_model is None
+                    if len(actor_checkpoints) == 1
                     else f"actor {role} checkpoint"
                 )
                 raise RuntimeError(
@@ -540,7 +581,7 @@ def main() -> None:
         if final_checkpoint_hashes[role] != initial_hash:
             checkpoint_label = (
                 "actor checkpoint"
-                if continuation_model is None
+                if len(actor_checkpoints) == 1
                 else f"actor {role} checkpoint"
             )
             raise RuntimeError(
@@ -596,6 +637,8 @@ def main() -> None:
     actor_kind = actor_fields[0]
     rollout_actor = actor_kind in ROLLOUT_KINDS
     dual_network_actor = actor_kind in TWO_NETWORK_ROLLOUT_KINDS
+    three_network_actor = actor_kind in THREE_NETWORK_ROLLOUT_KINDS
+    multi_network_actor = dual_network_actor or three_network_actor
     policy_actor = actor_kind == "policy"
     tail_start = rollout_tail_start(actor_fields) if rollout_actor else 0
     actor_draw_root_deck_max = 0
@@ -681,17 +724,29 @@ def main() -> None:
             actor_confirmation_worlds = int(actor_fields[tail_start + 19])
         except (IndexError, ValueError) as exc:
             raise RuntimeError("rollout actor spec is incomplete") from exc
-        if dual_network_actor:
+        if multi_network_actor:
             root_name = Path(actor_fields[1]).name
             continuation_name = Path(actor_fields[2]).name
-            actor_method = "dual_network_late_round_rollout_consensus"
-            actor_label = (
-                f"Root {root_name} (policy, value, belief, shortlist) + "
-                f"continuation {continuation_name} (post-candidate play) · "
-                "validated coherent rollout consensus "
-                f"({actor_worlds}+{actor_confirmation_worlds} worlds, "
-                f"top {actor_root_width})"
-            )
+            if three_network_actor:
+                veto_name = Path(actor_fields[3]).name
+                actor_method = "three_network_late_round_rollout_veto_consensus"
+                actor_label = (
+                    f"Root {root_name} (policy, value, belief, shortlist) + "
+                    f"continuation {continuation_name} (post-candidate play) + "
+                    f"veto {veto_name} (conservative override check) · "
+                    "validated coherent rollout consensus "
+                    f"({actor_worlds}+{actor_confirmation_worlds} worlds, "
+                    f"top {actor_root_width})"
+                )
+            else:
+                actor_method = "dual_network_late_round_rollout_consensus"
+                actor_label = (
+                    f"Root {root_name} (policy, value, belief, shortlist) + "
+                    f"continuation {continuation_name} (post-candidate play) · "
+                    "validated coherent rollout consensus "
+                    f"({actor_worlds}+{actor_confirmation_worlds} worlds, "
+                    f"top {actor_root_width})"
+                )
         else:
             actor_method = "late_round_rollout_consensus"
             actor_label = (
@@ -729,14 +784,14 @@ def main() -> None:
             f"(>{actor_bounded_late_min:g} point gain)"
         )
     match_id = f"{args.seed}-{model_hash[:12]}"
-    dual_model_provenance = {}
-    if dual_network_actor:
+    multi_model_provenance = {}
+    if multi_network_actor:
         assert continuation_model is not None
         continuation_hash = checkpoint_hashes["continuation"]
-        # Include both complete content identities.  Root-only IDs would make
-        # two distinct continuation policies appear to be the same match.
+        # Include every complete content identity.  Root-only IDs would make
+        # distinct continuation or veto policies appear to be the same match.
         match_id = f"{args.seed}-{model_hash}-{continuation_hash}"
-        dual_model_provenance = {
+        multi_model_provenance = {
             "root_model_path": actor_fields[1],
             "root_model_sha256": model_hash,
             "root_model_role": "policy, value, belief, and root shortlist",
@@ -746,6 +801,17 @@ def main() -> None:
                 "policy decisions after each evaluated root candidate"
             ),
         }
+        if three_network_actor:
+            assert veto_model is not None
+            veto_hash = checkpoint_hashes["veto"]
+            match_id = f"{match_id}-{veto_hash}"
+            multi_model_provenance.update({
+                "veto_model_path": actor_fields[3],
+                "veto_model_sha256": veto_hash,
+                "veto_model_role": (
+                    "conservative veto of continuation-approved root overrides"
+                ),
+            })
     game["meta"].update(
         actor_label=actor_label,
         actor_method=actor_method,
@@ -772,7 +838,7 @@ def main() -> None:
             "Seed generated randomly once before simulation; the match result "
             "and decisions were not screened, retried, or selected."
         ),
-        **dual_model_provenance,
+        **multi_model_provenance,
     )
 
     output_payload = json.dumps(game, separators=(",", ":")) + "\n"

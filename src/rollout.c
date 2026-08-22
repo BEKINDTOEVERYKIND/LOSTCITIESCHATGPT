@@ -2347,9 +2347,12 @@ static Move rollout_move_impl(const struct Agent *a, const State *st,
                               SearchStats *stats, int use_eval_plan)
 {
     const Net *cont_net = continuation_net(a);
-    NetEvalPlan eval_plan_storage, cont_eval_plan_storage;
+    const Net *veto_net = a ? a->veto_continuation_net : NULL;
+    NetEvalPlan eval_plan_storage, cont_eval_plan_storage,
+                veto_eval_plan_storage;
     const NetEvalPlan *eval_plan = NULL;
     const NetEvalPlan *cont_eval_plan = NULL;
+    const NetEvalPlan *veto_eval_plan = NULL;
     if (a->net && use_eval_plan) {
         net_eval_plan_init(a->net, &eval_plan_storage);
         eval_plan = &eval_plan_storage;
@@ -3265,16 +3268,65 @@ static Move rollout_move_impl(const struct Agent *a, const State *st,
     double prefix_dse[MAX_CAND] = { 0 };
     int prefix_numerical_agreement = 0;
     int prefix_gate_passed = 0;
+    int prefix_veto_attempted = 0;
+    int prefix_veto_worlds = 0;
+    int prefix_veto_numerical_agreement = 0;
+    int prefix_veto_gate_passed = 0;
+    int prefix_veto_passed = 0;
+    double prefix_veto_q[MAX_CAND] = { 0 };
+    double prefix_veto_se[MAX_CAND] = { 0 };
+    double prefix_veto_delta[MAX_CAND] = { 0 };
+    double prefix_veto_dse[MAX_CAND] = { 0 };
     if (a->policy_prefix_mode >= 2 && proposed_reference != 0) {
+        uint64_t prefix_seed =
+            confirm_seed_base ^ UINT64_C(0xE7037ED1A0B428DB);
         reference = confirm_trusted_prefix(
             a, cont_net, cont_eval_plan, st, p, mv, order,
             trusted_candidates,
             proposed_reference,
             cont_prune, cont_sym, &belief, have_belief,
-            confirm_seed_base ^ UINT64_C(0xE7037ED1A0B428DB),
+            prefix_seed,
             cap, &prefix_confirm_worlds, prefix_q, prefix_se,
             prefix_delta, prefix_dse, &prefix_numerical_agreement,
             &prefix_gate_passed, &work);
+        int primary_prefix_confirmed = reference == proposed_reference;
+
+        /* A controller trained through a different continuation objective may
+         * expose an override that is specific to one downstream policy basin.
+         * Consult it only after the deployed controller's primary and fresh
+         * panels already agree.  It sees the same admitted top-policy moves,
+         * hidden worlds, player-role mappings, and move-keyed randomness, and
+         * it may only retain the proposal or veto it back to candidate zero.
+         * Zeroing the copied thresholds makes this an exact cross-controller
+         * leader-consensus check even for advisory actors that use a paired
+         * effect gate on their first confirmation panel. */
+        if (primary_prefix_confirmed &&
+            work.unfinished_cap_leaves == 0 && veto_net &&
+            veto_net != cont_net) {
+            prefix_veto_attempted = 1;
+            if (use_eval_plan) {
+                if (veto_net == a->net) {
+                    veto_eval_plan = eval_plan;
+                } else {
+                    net_eval_plan_init(
+                        veto_net, &veto_eval_plan_storage);
+                    veto_eval_plan = &veto_eval_plan_storage;
+                }
+            }
+            Agent strict_veto = *a;
+            strict_veto.prefix_confirm_k = 0.0f;
+            strict_veto.prefix_confirm_min = 0.0f;
+            int veto_reference = confirm_trusted_prefix(
+                &strict_veto, veto_net, veto_eval_plan, st, p, mv, order,
+                trusted_candidates, proposed_reference,
+                cont_prune, cont_sym, &belief, have_belief, prefix_seed,
+                cap, &prefix_veto_worlds, prefix_veto_q, prefix_veto_se,
+                prefix_veto_delta, prefix_veto_dse,
+                &prefix_veto_numerical_agreement,
+                &prefix_veto_gate_passed, &work);
+            prefix_veto_passed = veto_reference == proposed_reference;
+            if (!prefix_veto_passed) reference = 0;
+        }
         prefix_confirmed = reference == proposed_reference;
     }
     /* override_k == 0 preserves the fully ungated historical rollout agent
@@ -3495,6 +3547,7 @@ static Move rollout_move_impl(const struct Agent *a, const State *st,
         resolved = 0;
         confirmed = 0;
         prefix_confirmed = 0;
+        prefix_veto_passed = 0;
     }
     float bestq = (float)(sumobj[best] / reps);
     if (stats) {
@@ -3521,6 +3574,12 @@ static Move rollout_move_impl(const struct Agent *a, const State *st,
         stats->prefix_gate_passed = prefix_gate_passed;
         stats->prefix_confirmed = prefix_confirmed;
         stats->prefix_confirm_worlds = prefix_confirm_worlds;
+        stats->prefix_veto_attempted = prefix_veto_attempted;
+        stats->prefix_veto_worlds = prefix_veto_worlds;
+        stats->prefix_veto_numerical_agreement =
+            prefix_veto_numerical_agreement;
+        stats->prefix_veto_gate_passed = prefix_veto_gate_passed;
+        stats->prefix_veto_passed = prefix_veto_passed;
         stats->metric_kind = SEARCH_METRIC_ROLLOUT;
         stats->confirmed = confirmed;
         stats->confirm_worlds = confirm_worlds;
@@ -3579,6 +3638,10 @@ static Move rollout_move_impl(const struct Agent *a, const State *st,
             stats->prefix_se[c] = prefix_se[c];
             stats->prefix_delta[c] = prefix_delta[c];
             stats->prefix_dse[c] = prefix_dse[c];
+            stats->prefix_veto_q[c] = prefix_veto_q[c];
+            stats->prefix_veto_se[c] = prefix_veto_se[c];
+            stats->prefix_veto_delta[c] = prefix_veto_delta[c];
+            stats->prefix_veto_dse[c] = prefix_veto_dse[c];
             stats->pqualified[c] = pqualified[c];
             stats->csupported[c] = csupported[c];
             stats->guard_rejected[c] = guard_rejected[c];

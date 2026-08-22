@@ -1029,6 +1029,20 @@ value, belief, priors, and shortlist. `CONT` supplies every policy decision
 after a candidate is applied. Using the same checkpoint in both positions is
 an exact backward-compatible spelling of the historical actor.
 
+An experimental conservative form is also available:
+
+```text
+rolloutu3:ROOT:CONT:VETO:...
+```
+
+`ROOT` still supplies policy/value/belief and the shortlist, and `CONT` still
+plays every ordinary continuation. `VETO` is consulted only after the primary
+and fresh `CONT` panels agree on a non-policy top-prefix move. It receives the
+same worlds and coherent player roles and may only retain that proposal or
+fall back to the policy baseline; it never expands the shortlist or chooses a
+new move. The maintained default does not enable this until its locked
+whole-actor comparison passes.
+
 ## Playing, analysing, measuring
 
 ```

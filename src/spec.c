@@ -83,6 +83,8 @@ static void validate_rollout(const Agent *a, const char *label)
         (a->bounded_late_root == 0 || a->bounded_late_root == 1) &&
         isfinite(a->bounded_late_min) && a->bounded_late_min >= 0.0f &&
         a->bounded_late_min <= 1000.0f &&
+        (!a->veto_continuation_net ||
+         (a->net && a->continuation_net && a->policy_prefix_mode >= 2)) &&
         (!a->bounded_late_root ||
          (a->exact_terminal == 1 && a->no_belief &&
           a->deck2_replan_worlds == 0 && a->deck2_replan_cores == 0 &&
@@ -182,13 +184,19 @@ void spec_release(Agent *a)
     if (!a) return;
     const Net *root = a->net;
     const Net *continuation = a->continuation_net;
+    const Net *veto = a->veto_continuation_net;
+    if (a->owns_veto_continuation_net && veto &&
+        veto != continuation && veto != root)
+        free((void *)veto);
     if (a->owns_continuation_net && continuation && continuation != root)
         free((void *)continuation);
     if (a->owns_net && root) free((void *)root);
     a->net = NULL;
     a->continuation_net = NULL;
+    a->veto_continuation_net = NULL;
     a->owns_net = 0;
     a->owns_continuation_net = 0;
+    a->owns_veto_continuation_net = 0;
 }
 
 void spec_parse(const char *spec, Agent *a)
@@ -217,13 +225,21 @@ void spec_parse(const char *spec, Agent *a)
     }
     if (!strcmp(tok, "net") || !strcmp(tok, "mcts") || !strcmp(tok, "policy") ||
         !strcmp(tok, "rollout") || !strcmp(tok, "rolloutu") ||
-        !strcmp(tok, "rollout2") || !strcmp(tok, "rolloutu2")) {
+        !strcmp(tok, "rollout2") || !strcmp(tok, "rolloutu2") ||
+        !strcmp(tok, "rollout3") || !strcmp(tok, "rolloutu3")) {
         int is_mcts = !strcmp(tok, "mcts");
         int is_policy = !strcmp(tok, "policy");
         int is_rollout = !strcmp(tok, "rollout") || !strcmp(tok, "rolloutu") ||
-                         !strcmp(tok, "rollout2") || !strcmp(tok, "rolloutu2");
-        int is_two_net = !strcmp(tok, "rollout2") || !strcmp(tok, "rolloutu2");
-        int is_uniform = !strcmp(tok, "rolloutu") || !strcmp(tok, "rolloutu2");
+                         !strcmp(tok, "rollout2") || !strcmp(tok, "rolloutu2") ||
+                         !strcmp(tok, "rollout3") || !strcmp(tok, "rolloutu3");
+        int has_continuation_path =
+            !strcmp(tok, "rollout2") || !strcmp(tok, "rolloutu2") ||
+            !strcmp(tok, "rollout3") || !strcmp(tok, "rolloutu3");
+        int has_veto_path =
+            !strcmp(tok, "rollout3") || !strcmp(tok, "rolloutu3");
+        int is_uniform = !strcmp(tok, "rolloutu") ||
+                         !strcmp(tok, "rolloutu2") ||
+                         !strcmp(tok, "rolloutu3");
         char *path = strtok_r(NULL, ":", &save);
         if (!path) { fprintf(stderr, "agent '%s' needs a network path\n", tok); exit(1); }
         Net *n = load_net(path);
@@ -232,8 +248,9 @@ void spec_parse(const char *spec, Agent *a)
         a->owns_net = 1;
         char *v;
         if (is_rollout) {
-            if (is_two_net) {
-                char *continuation_path = strtok_r(NULL, ":", &save);
+            const char *continuation_path = path;
+            if (has_continuation_path) {
+                continuation_path = strtok_r(NULL, ":", &save);
                 if (!continuation_path) {
                     fprintf(stderr,
                             "agent '%s' needs a continuation network path\n",
@@ -243,6 +260,23 @@ void spec_parse(const char *spec, Agent *a)
                 a->continuation_net = strcmp(path, continuation_path) == 0
                     ? n : load_net(continuation_path);
                 a->owns_continuation_net = a->continuation_net != n;
+            }
+            if (has_veto_path) {
+                char *veto_path = strtok_r(NULL, ":", &save);
+                if (!veto_path) {
+                    fprintf(stderr,
+                            "agent '%s' needs a veto continuation network path\n",
+                            tok);
+                    exit(1);
+                }
+                if (strcmp(path, veto_path) == 0) {
+                    a->veto_continuation_net = n;
+                } else if (strcmp(continuation_path, veto_path) == 0) {
+                    a->veto_continuation_net = a->continuation_net;
+                } else {
+                    a->veto_continuation_net = load_net(veto_path);
+                    a->owns_veto_continuation_net = 1;
+                }
             }
             a->no_belief = is_uniform;
             parse_rollout_tail(save ? save : "", a, spec);

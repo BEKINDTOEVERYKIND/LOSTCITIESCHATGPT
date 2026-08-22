@@ -1960,6 +1960,8 @@ static void test_rollout_spec_tail(void)
     agent_default(&a, AG_ROLLOUT, NULL);
     CHECK(a.playout_prune == -1 && a.draw_root_deck_max == 0 &&
           a.draw_playout_deck_max == 0 &&
+          a.veto_continuation_net == NULL &&
+          !a.owns_veto_continuation_net &&
           a.prefix_confirm_k == 0.0f &&
           a.prefix_confirm_min == 0.0f &&
           a.confirm_temp == 0.0f &&
@@ -2032,6 +2034,74 @@ static void test_rollout_spec_tail(void)
           dual_alias.dets == 16 && dual_alias.root_width == 2,
           "rollout2 same-path checkpoint was not safely aliased");
     spec_release(&dual_alias);
+
+    const char *triple_tail =
+        "32:3:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:"
+        "32:1:0:0:0:0:0:0:3";
+    char triple_spec[512];
+    snprintf(triple_spec, sizeof triple_spec,
+             "rolloutu3:data/champion.bin:data/c8.bin:data/best.bin:%s",
+             triple_tail);
+    Agent triple;
+    spec_parse(triple_spec, &triple);
+    CHECK(triple.kind == AG_ROLLOUT && triple.no_belief &&
+          triple.net && triple.continuation_net &&
+          triple.veto_continuation_net &&
+          triple.net != triple.continuation_net &&
+          triple.net != triple.veto_continuation_net &&
+          triple.continuation_net != triple.veto_continuation_net &&
+          triple.owns_net && triple.owns_continuation_net &&
+          triple.owns_veto_continuation_net && triple.dets == 32 &&
+          triple.root_width == 3 && triple.policy_prefix_mode == 3,
+          "rolloutu3 did not parse three distinct checkpoint roles");
+    spec_release(&triple);
+    CHECK(!triple.net && !triple.continuation_net &&
+          !triple.veto_continuation_net && !triple.owns_net &&
+          !triple.owns_continuation_net &&
+          !triple.owns_veto_continuation_net,
+          "three-network Agent release did not clear every checkpoint");
+
+    const char *alias_specs[] = {
+        "rolloutu3:data/champion.bin:data/champion.bin:data/champion.bin:",
+        "rolloutu3:data/champion.bin:data/champion.bin:data/c8.bin:",
+        "rolloutu3:data/champion.bin:data/c8.bin:data/champion.bin:",
+        "rolloutu3:data/champion.bin:data/c8.bin:data/c8.bin:"
+    };
+    for (size_t i = 0; i < sizeof alias_specs / sizeof alias_specs[0]; i++) {
+        char alias_spec[512];
+        snprintf(alias_spec, sizeof alias_spec, "%s%s",
+                 alias_specs[i], triple_tail);
+        Agent alias;
+        spec_parse(alias_spec, &alias);
+        CHECK(alias.veto_continuation_net != NULL &&
+              alias.policy_prefix_mode == 3,
+              "rolloutu3 alias case %zu did not parse", i);
+        if (i == 0)
+            CHECK(alias.net == alias.continuation_net &&
+                  alias.net == alias.veto_continuation_net &&
+                  !alias.owns_continuation_net &&
+                  !alias.owns_veto_continuation_net,
+                  "all-equal triple checkpoint did not alias once");
+        else if (i == 1)
+            CHECK(alias.net == alias.continuation_net &&
+                  alias.net != alias.veto_continuation_net &&
+                  !alias.owns_continuation_net &&
+                  alias.owns_veto_continuation_net,
+                  "root/continuation alias ownership is unsafe");
+        else if (i == 2)
+            CHECK(alias.net != alias.continuation_net &&
+                  alias.net == alias.veto_continuation_net &&
+                  alias.owns_continuation_net &&
+                  !alias.owns_veto_continuation_net,
+                  "root/veto alias ownership is unsafe");
+        else
+            CHECK(alias.net != alias.continuation_net &&
+                  alias.continuation_net == alias.veto_continuation_net &&
+                  alias.owns_continuation_net &&
+                  !alias.owns_veto_continuation_net,
+                  "continuation/veto alias ownership is unsafe");
+        spec_release(&alias);
+    }
 
     Agent p;
     spec_parse("policy:data/champion.bin:0:20:16:12:4", &p);
@@ -3050,12 +3120,14 @@ static void test_dual_network_rollout(void)
 
     Net *root = malloc(sizeof *root);
     Net *play = malloc(sizeof *play);
+    Net *play_copy = malloc(sizeof *play_copy);
     Net *discard = malloc(sizeof *discard);
     Net *root_before = malloc(sizeof *root_before);
-    CHECK(root && play && discard && root_before,
+    CHECK(root && play && play_copy && discard && root_before,
           "dual-network sentinel allocation failed");
-    if (!root || !play || !discard || !root_before) {
-        free(root); free(play); free(discard); free(root_before);
+    if (!root || !play || !play_copy || !discard || !root_before) {
+        free(root); free(play); free(play_copy); free(discard);
+        free(root_before);
         return;
     }
     CHECK(net_load(root, "data/champion.bin") == 0,
@@ -3063,6 +3135,7 @@ static void test_dual_network_rollout(void)
     memcpy(root_before, root, sizeof *root);
     init_rollout_continuation_sentinel(play, 0);
     init_rollout_continuation_sentinel(discard, 1);
+    memcpy(play_copy, play, sizeof *play_copy);
 
     Agent play_actor;
     agent_default(&play_actor, AG_ROLLOUT, root);
@@ -3119,11 +3192,97 @@ static void test_dual_network_rollout(void)
     Rng trusted_rng;
     rng_seed(&trusted_rng, UINT64_C(0x5452555354454450));
     SearchStats trusted_stats;
-    (void)rollout_move(
+    Move trusted_move = rollout_move(
         &trusted_actor, &st, &trusted_rng, NULL, &trusted_stats);
     CHECK(trusted_stats.prefix_proposed > 0 &&
-          trusted_stats.prefix_confirm_worlds == 6,
-          "dual continuation did not exercise trusted-prefix confirmation");
+          trusted_stats.prefix_confirm_worlds == 6 &&
+          trusted_stats.prefix_confirmed,
+          "dual continuation did not produce a confirmed trusted-prefix "
+          "override (proposed %d, selected %d, agreement %d)",
+          trusted_stats.prefix_proposed,
+          trusted_stats.selection_reference,
+          trusted_stats.prefix_numerical_agreement);
+
+    /* An explicitly aliased veto controller is a true no-op: it must not pay
+     * for or report a duplicate panel, and every observable byte remains the
+     * same as the two-network actor. */
+    Agent alias_veto_actor = trusted_actor;
+    alias_veto_actor.veto_continuation_net = play;
+    Rng alias_veto_rng;
+    rng_seed(&alias_veto_rng, UINT64_C(0x5452555354454450));
+    SearchStats alias_veto_stats;
+    Move alias_veto_move = rollout_move(
+        &alias_veto_actor, &st, &alias_veto_rng, NULL, &alias_veto_stats);
+    CHECK(MOVE_PACK(alias_veto_move) == MOVE_PACK(trusted_move) &&
+          memcmp(&alias_veto_stats, &trusted_stats,
+                 sizeof trusted_stats) == 0 &&
+          memcmp(&alias_veto_rng, &trusted_rng, sizeof trusted_rng) == 0,
+          "continuation/veto pointer alias changed move, stats, or RNG");
+
+    /* A separately allocated byte-identical controller runs the independent
+     * panel on identical worlds.  Its evidence must exactly reproduce the
+     * primary fresh panel without consuming the caller's gameplay RNG. */
+    Agent agreeing_veto_actor = trusted_actor;
+    agreeing_veto_actor.veto_continuation_net = play_copy;
+    Rng agreeing_veto_rng;
+    rng_seed(&agreeing_veto_rng, UINT64_C(0x5452555354454450));
+    SearchStats agreeing_veto_stats;
+    Move agreeing_veto_move = rollout_move(
+        &agreeing_veto_actor, &st, &agreeing_veto_rng, NULL,
+        &agreeing_veto_stats);
+    int identical_veto_panel =
+        agreeing_veto_stats.prefix_veto_attempted &&
+        agreeing_veto_stats.prefix_veto_passed &&
+        agreeing_veto_stats.prefix_veto_worlds ==
+            agreeing_veto_stats.prefix_confirm_worlds;
+    for (int i = 0; i < agreeing_veto_stats.trusted_candidates; i++)
+        if (agreeing_veto_stats.prefix_veto_q[i] !=
+                agreeing_veto_stats.prefix_q[i] ||
+            agreeing_veto_stats.prefix_veto_se[i] !=
+                agreeing_veto_stats.prefix_se[i] ||
+            agreeing_veto_stats.prefix_veto_delta[i] !=
+                agreeing_veto_stats.prefix_delta[i] ||
+            agreeing_veto_stats.prefix_veto_dse[i] !=
+                agreeing_veto_stats.prefix_dse[i])
+            identical_veto_panel = 0;
+    CHECK(identical_veto_panel &&
+          MOVE_PACK(agreeing_veto_move) == MOVE_PACK(trusted_move) &&
+          memcmp(&agreeing_veto_rng, &trusted_rng, sizeof trusted_rng) == 0,
+          "byte-identical independent controller did not reproduce the "
+          "fresh panel on the same worlds");
+
+    /* A disagreeing controller may only cancel the proposal.  In particular,
+     * its own preferred alternative is never introduced into live play. */
+    Agent rejecting_veto_actor = trusted_actor;
+    rejecting_veto_actor.veto_continuation_net = discard;
+    Rng rejecting_veto_rng;
+    rng_seed(&rejecting_veto_rng, UINT64_C(0x5452555354454450));
+    SearchStats rejecting_veto_stats;
+    Move rejecting_veto_move = rollout_move(
+        &rejecting_veto_actor, &st, &rejecting_veto_rng, NULL,
+        &rejecting_veto_stats);
+    CHECK(rejecting_veto_stats.prefix_veto_attempted &&
+          !rejecting_veto_stats.prefix_veto_passed &&
+          !rejecting_veto_stats.prefix_confirmed &&
+          rejecting_veto_stats.selection_reference == 0 &&
+          MOVE_PACK(rejecting_veto_move) ==
+              MOVE_PACK(rejecting_veto_stats.mv[0]) &&
+          rejecting_veto_stats.n == trusted_stats.n &&
+          rejecting_veto_stats.trusted_candidates ==
+              trusted_stats.trusted_candidates &&
+          memcmp(&rejecting_veto_rng, &trusted_rng,
+                 sizeof trusted_rng) == 0,
+          "disagreeing veto did not fail safely to candidate zero "
+          "(attempted %d, passed %d, proposed %d, selected %d)",
+          rejecting_veto_stats.prefix_veto_attempted,
+          rejecting_veto_stats.prefix_veto_passed,
+          rejecting_veto_stats.prefix_proposed,
+          rejecting_veto_stats.selection_reference);
+    for (int i = 0; i < trusted_stats.n; i++)
+        CHECK(MOVE_PACK(rejecting_veto_stats.mv[i]) ==
+                  MOVE_PACK(trusted_stats.mv[i]) &&
+              rejecting_veto_stats.prior[i] == trusted_stats.prior[i],
+              "veto controller changed candidate %d or its root prior", i);
 
     Agent challenger_actor = play_actor;
     challenger_actor.dets = 256;
@@ -3178,6 +3337,7 @@ static void test_dual_network_rollout(void)
 
     free(root_before);
     free(discard);
+    free(play_copy);
     free(play);
     free(root);
 }

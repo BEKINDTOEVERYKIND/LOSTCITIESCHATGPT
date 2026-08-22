@@ -922,30 +922,56 @@ information states under an independent stronger oracle, followed by the same
 reciprocal full-actor gate, rather than promoting another controller-only
 aggregate.
 
+### Independent-controller veto experiment
+
+The next method attacks continuation-policy bias without letting a weaker
+controller play the game. `rollout3` / `rolloutu3` accept root, ordinary
+continuation, and veto checkpoints. The ordinary actor is unchanged through
+candidate generation, the primary 512-world comparison, and its fresh
+512-world champion confirmation. Only when both champion panels authorize a
+non-policy move does the third checkpoint evaluate the same top-policy prefix
+on the identical hidden worlds, player-specific suit roles, and move-keyed
+randomness. It may retain that already proposed move or send the actor back to
+candidate zero; it cannot add a candidate or introduce its own preferred move.
+
+The experimental veto checkpoint is
+`data/models/continuation_v2_o0_shared_soup.bin` (SHA-256
+`2d06a78eb9f088d36787fa559c529e5f6c6c674c45a8d067063deb8e06b15f3a`).
+It is the continuation-v2 objective-0/shared soup: useful as a differently
+trained second opinion, but explicitly not a promoted continuation policy.
+Parser ownership/aliasing, no-op compatibility, identical-world reproduction,
+disagreeing-controller fallback, gameplay-RNG preservation, analyzer/Q-pair
+telemetry, and three-checkpoint viewer provenance are regression-tested. The
+maintained champion remains unchanged until a fresh reciprocal whole-actor
+test clears the predeclared promotion gate.
+
 ## Remaining high-value work
 
-1. Build a frozen ply-14+ root-ranking corpus from live actor states, keep only
+1. Complete the fresh reciprocal whole-actor gate for the independent-
+   controller veto. Promote it only if match-score and margin lower bounds and
+   both actor orientations clear parity with zero capped rounds.
+2. Build a frozen ply-14+ root-ranking corpus from live actor states, keep only
    top-policy semantic action cores, and select continuation methods by paired
    regret under an independent stronger oracle. The reciprocal full actor must
    remain the only promotion endpoint.
-2. Give earlier-round MCTS one consistent utility. Final-round terminals are
+3. Give earlier-round MCTS one consistent utility. Final-round terminals are
    now exact, but rounds 0/1 still mix match-trained network leaves with
    current-round terminal margins. A separate round-margin value head or an
    explicit continuation through future deals is required.
-3. Replace current-round rollout utility in early rounds with either remaining
+4. Replace current-round rollout utility in early rounds with either remaining
    match simulation or a learned round-end continuation table.
-4. Train v6 with the frozen-opponent/KL path over several independent seeds,
+5. Train v6 with the frozen-opponent/KL path over several independent seeds,
    select on fixed validation deals,
    and report only once on a locked final set.
-5. Revisit learned-world search only together with a better continuation
+6. Revisit learned-world search only together with a better continuation
    policy or a separately validated root method. The corrected posterior beats
    the card-count prior on held-out metrics, but a direct flat-rollout ablation
    lost match score; the decision audit therefore remains uniform.
-6. Measure and report the 300-ply cap rate. Consider an explicit repetition or
+7. Measure and report the 300-ply cap rate. Consider an explicit repetition or
    adjudication rule for evaluation.
-7. Replace raw native C-struct persistence with a canonical endian-stable,
+8. Replace raw native C-struct persistence with a canonical endian-stable,
    checksummed parameter format.
-8. Make complete PPO checkpoint generation invariant to `--threads`. Match
+9. Make complete PPO checkpoint generation invariant to `--threads`. Match
    evaluation and trajectory suit-map selection are thread-stable, but PPO's
    worker-local gameplay/reservoir streams and floating gradient reduction
    still make fixed-seed training depend on the configured worker count; use

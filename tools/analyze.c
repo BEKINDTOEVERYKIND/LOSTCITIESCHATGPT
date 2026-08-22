@@ -180,6 +180,11 @@ static const char *search_status(const SearchStats *ss, Move recommended)
             return "selected_by_exact_terminal";
         return "skipped_policy_confidence";
     }
+    /* The veto panel is only reachable after the first fresh controller
+     * accepted the proposal.  prefix_confirmed reflects the final combined
+     * decision and is therefore cleared when this second controller rejects. */
+    if (ss->prefix_veto_attempted && !ss->prefix_veto_passed)
+        return "failed_controller_veto";
     if (ss->confirmed && ss->n > 0 &&
         !move_eq(ss->mv[0], recommended))
         return "supported_baseline_override";
@@ -248,6 +253,13 @@ static void j_search_rows(FILE *fp, const SearchStats *ss, Move played,
                     "\"coherent_delta_se\":%.3f,"
                     "\"coherent_numerical_agreement\":%s,"
                     "\"coherent_gate_pass\":%s,"
+                    "\"controller_veto_evaluated\":%s,"
+                    "\"controller_veto_q\":%.3f,"
+                    "\"controller_veto_q_se\":%.3f,"
+                    "\"controller_veto_delta_vs_baseline\":%.3f,"
+                    "\"controller_veto_delta_se\":%.3f,"
+                    "\"controller_veto_numerical_agreement\":%s,"
+                    "\"controller_veto_gate_pass\":%s,"
                     "\"confirmation_pass\":%s,"
                     "\"guard_rejected\":%s",
                 ss->q[k], ss->se[k], ss->delta[k], ss->dse[k],
@@ -276,6 +288,16 @@ static void j_search_rows(FILE *fp, const SearchStats *ss, Move played,
                     ? "true" : "false",
                 k == ss->prefix_proposed && ss->prefix_gate_passed
                     ? "true" : "false",
+                ss->prefix_veto_attempted &&
+                        k < ss->trusted_candidates
+                    ? "true" : "false",
+                ss->prefix_veto_q[k], ss->prefix_veto_se[k],
+                ss->prefix_veto_delta[k], ss->prefix_veto_dse[k],
+                k == ss->prefix_proposed &&
+                        ss->prefix_veto_numerical_agreement
+                    ? "true" : "false",
+                k == ss->prefix_proposed && ss->prefix_veto_gate_passed
+                    ? "true" : "false",
                 ss->csupported[k] ? "true" : "false",
                 ss->guard_rejected[k] ? "true" : "false");
         if (ss->late_resolver_used && k < 6)
@@ -286,6 +308,39 @@ static void j_search_rows(FILE *fp, const SearchStats *ss, Move played,
         fputc('}', fp);
     }
     fputc(']', fp);
+}
+
+static void j_controller_veto(FILE *fp, const Agent *a,
+                              const SearchStats *ss)
+{
+    int enabled = a && a->kind == AG_ROLLOUT &&
+        a->veto_continuation_net != NULL &&
+        a->veto_continuation_net != a->continuation_net;
+    const char *outcome = !enabled
+        ? "not_configured"
+        : (!ss->prefix_veto_attempted
+            ? "not_reached"
+            : (ss->prefix_veto_passed
+                ? "retained_confirmed_override"
+                : "rejected_confirmed_override"));
+    int proposed = ss->prefix_proposed;
+    double delta = proposed > 0 ? ss->prefix_veto_delta[proposed] : 0.0;
+    double dse = proposed > 0 ? ss->prefix_veto_dse[proposed] : 0.0;
+
+    fprintf(fp,
+            "{\"enabled\":%s,\"role\":\"veto_only\","
+            "\"may_introduce_move\":false,\"attempted\":%s,"
+            "\"worlds\":%d,\"proposed\":%d,"
+            "\"numerical_agreement\":%s,\"gate_passed\":%s,"
+            "\"passed\":%s,\"delta_vs_baseline\":%.3f,"
+            "\"delta_se\":%.3f,\"outcome\":\"%s\"}",
+            enabled ? "true" : "false",
+            ss->prefix_veto_attempted ? "true" : "false",
+            ss->prefix_veto_worlds, proposed,
+            ss->prefix_veto_numerical_agreement ? "true" : "false",
+            ss->prefix_veto_gate_passed ? "true" : "false",
+            ss->prefix_veto_passed ? "true" : "false",
+            delta, dse, outcome);
 }
 
 static const char *late_selection_reason(const SearchStats *ss)
@@ -806,6 +861,8 @@ int main(int argc, char **argv)
         j_late_resolver(
             pf, &actor_ss,
             actor.kind == AG_ROLLOUT && actor.bounded_late_root);
+        fputs(",\"controller_veto\":", pf);
+        j_controller_veto(pf, &actor, &actor_ss);
         fputc('}', pf);
 
         fprintf(pf, ",\"actor_value\":%.3f,"
@@ -993,6 +1050,8 @@ int main(int argc, char **argv)
                             : "random_symmetry_argmax")));
         fputs(",\"late_resolver\":", pf);
         j_late_resolver(pf, &ss, evaluator.bounded_late_root);
+        fputs(",\"controller_veto\":", pf);
+        j_controller_veto(pf, &evaluator, &ss);
         fputc('}', pf);
 
         /* the card that will be drawn: read before lc_apply */

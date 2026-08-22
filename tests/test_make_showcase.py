@@ -172,6 +172,31 @@ class ShowcaseProvenanceTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "continuation checkpoint"):
             showcase.actor_model_paths("rollout2:data/champion.bin")
 
+    def test_three_actor_paths_and_tail_boundary_are_unambiguous(
+        self,
+    ) -> None:
+        root, continuation, veto = showcase.actor_model_paths(
+            "rolloutu3:data/champion.bin:data/c8.bin:data/champion.bin:512:5"
+        )
+        self.assertEqual(root.resolve(), (ROOT / "data/champion.bin").resolve())
+        self.assertEqual(continuation.resolve(), (ROOT / "data/c8.bin").resolve())
+        self.assertEqual(veto.resolve(), (ROOT / "data/champion.bin").resolve())
+        self.assertEqual(
+            showcase.rollout_tail_start(
+                (
+                    "rolloutu3:data/champion.bin:data/c8.bin:"
+                    "data/champion.bin:512:5"
+                ).split(":")
+            ),
+            4,
+        )
+        with self.assertRaisesRegex(RuntimeError, "continuation checkpoint"):
+            showcase.actor_model_paths("rollout3:data/champion.bin")
+        with self.assertRaisesRegex(RuntimeError, "veto checkpoint"):
+            showcase.actor_model_paths(
+                "rollout3:data/champion.bin:data/c8.bin"
+            )
+
     def test_non_network_actor_cannot_claim_model_provenance(self) -> None:
         for spec in ("heur", "random", "policy:"):
             with self.subTest(spec=spec), self.assertRaises(RuntimeError):
@@ -296,6 +321,68 @@ class ShowcaseProvenanceTests(unittest.TestCase):
                 showcase.subprocess, "run", side_effect=analyzer_finished,
             ), self.assertRaisesRegex(
                 RuntimeError, "continuation checkpoint changed"
+            ):
+                showcase.main()
+            self.assertEqual(output.read_text(encoding="utf-8"), "keep\n")
+
+    def test_three_actor_hashes_and_protects_every_checkpoint(self) -> None:
+        tail = showcase.DEFAULT_ACTOR.split(":", 2)[2]
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            root = parent / "root.bin"
+            continuation = parent / "continuation.bin"
+            veto = parent / "veto.bin"
+            output = parent / "showcase.json"
+            root.write_bytes(b"root checkpoint")
+            continuation.write_bytes(b"continuation checkpoint")
+            veto.write_bytes(b"veto checkpoint")
+            actor = f"rolloutu3:{root}:{continuation}:{veto}:{tail}"
+            game = json.loads(self.analyzer_result().stdout)
+            game["meta"]["actor"] = actor
+            result = type("Result", (), {"stdout": json.dumps(game)})()
+            argv = [
+                "make_showcase.py", "--seed", "1", "--output", str(output),
+                "--actor", actor,
+            ]
+            with patch.object(sys, "argv", argv), patch.object(
+                showcase.subprocess, "run", return_value=result,
+            ):
+                showcase.main()
+
+            meta = json.loads(output.read_text(encoding="utf-8"))["meta"]
+            root_hash = hashlib.sha256(root.read_bytes()).hexdigest()
+            continuation_hash = hashlib.sha256(
+                continuation.read_bytes()
+            ).hexdigest()
+            veto_hash = hashlib.sha256(veto.read_bytes()).hexdigest()
+            self.assertEqual(meta["root_model_path"], str(root))
+            self.assertEqual(meta["root_model_sha256"], root_hash)
+            self.assertEqual(meta["continuation_model_path"], str(continuation))
+            self.assertEqual(
+                meta["continuation_model_sha256"], continuation_hash
+            )
+            self.assertEqual(meta["veto_model_path"], str(veto))
+            self.assertEqual(meta["veto_model_sha256"], veto_hash)
+            self.assertEqual(
+                meta["match_id"],
+                f"1-{root_hash}-{continuation_hash}-{veto_hash}",
+            )
+            self.assertIn("veto veto.bin", meta["actor_label"])
+            self.assertIn("conservative veto", meta["veto_model_role"])
+            self.assertEqual(meta["actor_worlds"], 512)
+            self.assertEqual(meta["actor_root_width"], 5)
+            self.assertEqual(meta["actor_search_from_round_ply"], 14)
+
+            output.write_text("keep\n", encoding="utf-8")
+
+            def analyzer_finished(*_args, **_kwargs):
+                veto.write_bytes(b"changed veto checkpoint")
+                return result
+
+            with patch.object(sys, "argv", argv), patch.object(
+                showcase.subprocess, "run", side_effect=analyzer_finished,
+            ), self.assertRaisesRegex(
+                RuntimeError, "veto checkpoint changed"
             ):
                 showcase.main()
             self.assertEqual(output.read_text(encoding="utf-8"), "keep\n")
@@ -716,6 +803,10 @@ class ShowcaseProvenanceTests(unittest.TestCase):
             "items.push(", viewer_text,
             "viewer references an undefined diagnostics accumulator",
         )
+        self.assertIn("failed_controller_veto", viewer_text)
+        self.assertIn("controller_veto_evaluated", viewer_text)
+        self.assertIn("This panel can cancel a move but can never introduce one.",
+                      viewer_text)
         match = re.search(
             r'<script type="application/json" id="game-data">(.*?)</script>',
             viewer_text,

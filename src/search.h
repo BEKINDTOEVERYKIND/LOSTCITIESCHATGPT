@@ -56,8 +56,13 @@ typedef struct {
     int trusted_prefix_override; /* selected a nonzero trusted-prefix leader   */
     int prefix_numerical_agreement; /* fresh panel repeated primary leader      */
     int prefix_gate_passed; /* configured paired evidence/effect gate passed   */
-    int prefix_confirmed; /* agreement and configured gate both passed          */
+    int prefix_confirmed; /* every required fresh/controller panel passed       */
     int prefix_confirm_worlds; /* balanced fixed-world panel size               */
+    int prefix_veto_attempted; /* independent continuation controller consulted */
+    int prefix_veto_worlds; /* same fixed-world panel under veto controller      */
+    int prefix_veto_numerical_agreement; /* veto repeated proposed leader       */
+    int prefix_veto_gate_passed; /* veto controller's paired gate passed         */
+    int prefix_veto_passed; /* veto retained the already confirmed proposal      */
     int metric_kind;        /* SEARCH_METRIC_* meaning of q[]               */
     int planner_turns;      /* own visible-card turns used by scheduler      */
     int planner_score;      /* best guaranteed current-hand score            */
@@ -138,6 +143,10 @@ typedef struct {
     double prefix_se[MAX_MOVES]; /* SE of coherent-panel objective mean          */
     double prefix_delta[MAX_MOVES]; /* fresh paired delta against candidate zero */
     double prefix_dse[MAX_MOVES]; /* SE of fresh paired delta                    */
+    double prefix_veto_q[MAX_MOVES]; /* independent-controller objective mean    */
+    double prefix_veto_se[MAX_MOVES]; /* SE of independent-controller mean       */
+    double prefix_veto_delta[MAX_MOVES]; /* paired delta against candidate zero   */
+    double prefix_veto_dse[MAX_MOVES]; /* SE of independent-controller delta      */
     uint8_t pqualified[MAX_MOVES]; /* passed the primary significance gates   */
     uint8_t csupported[MAX_MOVES]; /* candidate passed both independent gates */
     uint8_t guard_rejected[MAX_MOVES]; /* supported but blocked structural risk */

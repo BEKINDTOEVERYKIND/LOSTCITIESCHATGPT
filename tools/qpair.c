@@ -315,6 +315,11 @@ int main(int argc, char **argv)
         rng_seed(&erng, seed);
         SearchStats ss;
         Move selected = rollout_move(&evaluator, &st, &erng, NULL, &ss);
+        int primary_prefix_passed =
+            evaluator.prefix_confirm_k > 0.0f ||
+            evaluator.prefix_confirm_min > 0.0f
+                ? ss.prefix_gate_passed
+                : ss.prefix_numerical_agreement;
         printf("rollout evaluator: %s\n", evalspec);
         printf("worlds: %d/%d  exact terminal leaves: %llu"
                "  unfinished cap leaves: %llu"
@@ -327,7 +332,7 @@ int main(int argc, char **argv)
                "  raw_resolved: %s"
                "  confirmation: %d worlds, %s"
                "  prefix: %d trusted, proposed %d, selected %d"
-               "  prefix_check: %d worlds, %s\n",
+               "  prefix primary check: %d worlds, %s\n",
                ss.worlds, ss.max_worlds,
                (unsigned long long)ss.exact_terminal_leaves,
                (unsigned long long)ss.unfinished_cap_leaves,
@@ -349,7 +354,19 @@ int main(int argc, char **argv)
                ss.trusted_candidates, ss.prefix_proposed,
                ss.selection_reference,
                ss.prefix_confirm_worlds,
-               ss.prefix_confirmed ? "passed" : "not passed");
+               primary_prefix_passed ? "passed" : "not passed");
+        printf("controller veto: %s; role: veto only (cannot introduce a "
+               "move); attempted: %s; %d worlds; result: %s\n",
+               evaluator.veto_continuation_net &&
+                       evaluator.veto_continuation_net !=
+                           evaluator.continuation_net
+                   ? "configured" : "disabled",
+               ss.prefix_veto_attempted ? "yes" : "no",
+               ss.prefix_veto_worlds,
+               !ss.prefix_veto_attempted ? "not reached"
+                   : (ss.prefix_veto_passed
+                       ? "confirmed override retained"
+                       : "confirmed override rejected"));
         if (ss.late_resolver_attempted) {
             printf("bounded late resolver: %s; support %d; %d candidates; "
                    "H2 best %d value %+.3f delta %+.3f; "
@@ -390,6 +407,44 @@ int main(int argc, char **argv)
                    evaluator.prefix_confirm_min,
                    evaluator.prefix_confirm_k == 0.0f
                        ? ", disabled" : "");
+        }
+        if (ss.prefix_veto_attempted && ss.prefix_proposed > 0) {
+            int k = ss.prefix_proposed;
+            printf("controller-veto evidence: %+.2f +- %.2f vs baseline; "
+                   "numerical agreement: %s; paired gate: %s; "
+                   "final veto: %s\n",
+                   ss.prefix_veto_delta[k], ss.prefix_veto_dse[k],
+                   ss.prefix_veto_numerical_agreement ? "yes" : "no",
+                   ss.prefix_veto_gate_passed ? "passed" : "not passed",
+                   ss.prefix_veto_passed ? "passed" : "rejected");
+            int ntrusted = ss.trusted_candidates < ss.n
+                ? ss.trusted_candidates : ss.n;
+            int veto_best = 0;
+            for (int i = 1; i < ntrusted; i++)
+                if (ss.prefix_veto_q[i] > ss.prefix_veto_q[veto_best])
+                    veto_best = i;
+            printf("  %-16s %17s %17s %10s %8s\n",
+                   "veto candidate", "controller q", "delta vs base",
+                   "proposal", "leader");
+            for (int i = 0; i < ntrusted; i++) {
+                char card[8], move[20], draw[8];
+                lc_card_name(ss.mv[i].card, card);
+                if (ss.mv[i].draw == 0) {
+                    snprintf(draw, sizeof draw, "deck");
+                } else {
+                    static const char suit_ch[NSUIT + 1] = "YBWGR";
+                    snprintf(draw, sizeof draw, "%c",
+                             suit_ch[ss.mv[i].draw - 1]);
+                }
+                snprintf(move, sizeof move, "%s %c %s", card,
+                         ss.mv[i].discard ? 'd' : 'p', draw);
+                printf("  %-16s %+7.2f +- %-6.2f %+7.2f +- %-6.2f "
+                       "%10s %8s\n",
+                       move, ss.prefix_veto_q[i], ss.prefix_veto_se[i],
+                       ss.prefix_veto_delta[i], ss.prefix_veto_dse[i],
+                       i == ss.prefix_proposed ? "proposed" : "",
+                       i == veto_best ? "best" : "");
+            }
         }
         printf("%-16s %8s %17s %8s %17s %8s %9s %8s\n",
                "candidate", "prior", "delta vs ref", "p-pass",

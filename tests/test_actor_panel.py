@@ -16,6 +16,20 @@ TRANSPORT_ARENA = ROOT / "bin" / "arena"
 TRANSPORT_ROOT = ROOT / "data" / "champion.bin"
 
 
+def tracked_bytes(path: Path) -> bytes:
+    """Read the committed transport, even if a preceding build replaced it.
+
+    ``bin/arena`` is deliberately committed as the byte-locked evaluator for
+    the historical one-shot campaign.  CI also builds ``bin/arena`` with GCC,
+    Clang, and sanitizers before running this contract test, so inspecting the
+    working-tree executable accidentally tested the compiler that ran first
+    instead of the immutable Git transport.
+    """
+    relative = path.relative_to(ROOT).as_posix()
+    return subprocess.check_output(
+        ["git", "show", f"HEAD:{relative}"], cwd=ROOT)
+
+
 class LockedActorPanelTest(unittest.TestCase):
     def test_workflow_has_one_addendum_trigger_and_exact_locked_panels(self):
         text = WORKFLOW.read_text(encoding="utf-8")
@@ -51,13 +65,15 @@ class LockedActorPanelTest(unittest.TestCase):
             text)
         self.assertNotIn("make -C source", text)
         self.assertNotIn("path: source", text)
-        self.assertEqual(TRANSPORT_ARENA.stat().st_size, 362592)
-        self.assertEqual(TRANSPORT_ROOT.stat().st_size, 2823748)
+        arena_bytes = tracked_bytes(TRANSPORT_ARENA)
+        root_bytes = tracked_bytes(TRANSPORT_ROOT)
+        self.assertEqual(len(arena_bytes), 362592)
+        self.assertEqual(len(root_bytes), 2823748)
         self.assertEqual(
-            hashlib.sha256(TRANSPORT_ARENA.read_bytes()).hexdigest(),
+            hashlib.sha256(arena_bytes).hexdigest(),
             "a65f73871e04ed0e21f2bc9920a235cbb5d29950b35bb91df37ae9dcc8801efa")
         self.assertEqual(
-            hashlib.sha256(TRANSPORT_ROOT.read_bytes()).hexdigest(),
+            hashlib.sha256(root_bytes).hexdigest(),
             "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417")
 
     def _shard(self, directory: Path, orientation: str, start: int,

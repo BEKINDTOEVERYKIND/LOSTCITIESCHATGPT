@@ -24,8 +24,12 @@ typedef struct Agent {
     const Net *net;      /* root policy, value, belief, and shortlist      */
     const Net *continuation_net; /* post-root-candidate rollout policy;
                                     defaults to/aliases net                */
+    const Net *veto_continuation_net; /* optional independent controller used
+                                         only to veto an already confirmed
+                                         trusted-prefix override; NULL off */
     unsigned owns_net : 1; /* set only for checkpoints loaded by spec_parse */
     unsigned owns_continuation_net : 1;
+    unsigned owns_veto_continuation_net : 1;
     int draw_samples;   /* deck-draw samples per decision (AG_NET)         */
     float temp;         /* >0: sample instead of taking the best move      */
     float eps;          /* probability of a uniformly random legal move    */

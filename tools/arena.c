@@ -218,7 +218,9 @@ int main(int argc, char **argv)
         else {
             fprintf(stderr, "usage: %s -a SPEC -b SPEC [-n pairs] [-t threads] [-s seed] [-r rounds] [-q]\n"
                             "          [--pair-start N] [--raw-pairs FILE [--raw-only] [--provenance ID]]\n"
-                            "  SPEC = random | heur | policy:... | rolloutu:... | rolloutu2:ROOT:CONT:... | net:... | mcts:...\n"
+                            "  SPEC = random | heur | policy:... | rolloutu:... |\n"
+                            "         rolloutu2:ROOT:CONT:... | rolloutu3:ROOT:CONT:VETO:... |\n"
+                            "         net:... | mcts:...\n"
                             "  See src/spec.h for the complete positional tails.\n",
                     argv[0]);
             return 1;

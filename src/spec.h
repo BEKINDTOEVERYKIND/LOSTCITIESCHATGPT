@@ -127,6 +127,16 @@
  *                                       a root candidate uses CONT_PATH)
  *   rolloutu2:ROOT_PATH:CONT_PATH[...] (same two-network actor with uniform
  *                                       hidden-world sampling)
+ *   rollout3:ROOT_PATH:CONT_PATH:VETO_PATH[...]
+ *                                      (the existing primary/fresh panels use
+ *                                       CONT_PATH; after both authorize a
+ *                                       top-policy-prefix override, VETO_PATH
+ *                                       must independently choose that same
+ *                                       leader on the identical fresh worlds
+ *                                       or the actor retains its baseline)
+ *   rolloutu3:ROOT_PATH:CONT_PATH:VETO_PATH[...]
+ *                                      (same veto-only third controller with
+ *                                       uniform hidden-world sampling)
  *   mcts:PATH[:dets[:sims[:root_width[:node_width[:symmetries]]]]]
  *                                      (symmetry averaging is root-only)
  */

@@ -650,11 +650,17 @@ int main(int argc, char **argv)
             const Net *loaded_root = gen.net;
             int shared_continuation =
                 !gen.continuation_net || gen.continuation_net == loaded_root;
+            int veto_shared_root =
+                loaded_root && gen.veto_continuation_net == loaded_root;
             gen.net = net;
             gen.owns_net = 0;
             if (shared_continuation) {
                 gen.continuation_net = net;
                 gen.owns_continuation_net = 0;
+            }
+            if (veto_shared_root) {
+                gen.veto_continuation_net = net;
+                gen.owns_veto_continuation_net = 0;
             }
             free((void *)loaded_root);
         }
@@ -707,7 +713,8 @@ int main(int argc, char **argv)
                added, seen, rp.n,
                ga / gdone, gp / gdone);
         fflush(stdout);
-        if (gen.owns_net || gen.owns_continuation_net)
+        if (gen.owns_net || gen.owns_continuation_net ||
+            gen.owns_veto_continuation_net)
             spec_release(&gen);
         free(jobs); free(th);
 

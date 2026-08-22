@@ -29,8 +29,20 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 SUITS = "YBWGR"
 DEFAULT_SEED = 0xA7710B311EF
-ROLLOUT_KINDS = {"rollout", "rolloutu", "rollout2", "rolloutu2"}
+ROLLOUT_KINDS = {
+    "rollout",
+    "rolloutu",
+    "rollout2",
+    "rolloutu2",
+    "rollout3",
+    "rolloutu3",
+}
 TWO_NETWORK_ROLLOUT_KINDS = {"rollout2", "rolloutu2"}
+THREE_NETWORK_ROLLOUT_KINDS = {"rollout3", "rolloutu3"}
+MULTI_NETWORK_ROLLOUT_KINDS = {
+    *TWO_NETWORK_ROLLOUT_KINDS,
+    *THREE_NETWORK_ROLLOUT_KINDS,
+}
 
 
 class ViewError(ValueError):
@@ -206,10 +218,15 @@ def validate_actor_prefix(
     kind = fields[0]
     if len(fields) < 2 or not fields[1]:
         raise ViewError("source actor spec does not identify its checkpoint")
-    dual_network_actor = kind in TWO_NETWORK_ROLLOUT_KINDS
-    if dual_network_actor and (len(fields) < 3 or not fields[2]):
+    multi_network_actor = kind in MULTI_NETWORK_ROLLOUT_KINDS
+    three_network_actor = kind in THREE_NETWORK_ROLLOUT_KINDS
+    if multi_network_actor and (len(fields) < 3 or not fields[2]):
         raise ViewError(
             "source actor spec does not identify its continuation checkpoint"
+        )
+    if three_network_actor and (len(fields) < 4 or not fields[3]):
+        raise ViewError(
+            "source actor spec does not identify its veto checkpoint"
         )
     source_net_path = Path(fields[1])
     if not source_net_path.is_absolute():
@@ -260,7 +277,10 @@ def validate_actor_prefix(
                     "models only unmodified argmax actions"
                 )
         elif kind in ROLLOUT_KINDS:
-            tail_start = 3 if dual_network_actor else 2
+            if three_network_actor:
+                tail_start = 4
+            else:
+                tail_start = 3 if multi_network_actor else 2
 
             def rollout_numeric(
                 tail_index: int, default: float, label: str
