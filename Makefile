@@ -18,6 +18,7 @@ all: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_role_coherence \
 	$(BIN)/bench $(BIN)/probe $(BIN)/rl $(BIN)/ladder $(BIN)/play \
 	$(BIN)/showgame $(BIN)/dumpfeat $(BIN)/analyze $(BIN)/searchcmp \
 	$(BIN)/qpair $(BIN)/mine $(BIN)/robust_distill $(BIN)/symmetrize \
+	$(BIN)/net_average \
 	$(BIN)/history_belief $(BIN)/planprobe $(BIN)/planarena \
 	$(BIN)/belief_eval $(BIN)/test_belief_eval $(BIN)/continuation_arena \
 	$(DATA)/champion.bin
@@ -64,6 +65,7 @@ test: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_role_coherence \
 	$(BIN)/test_late_resolver $(BIN)/test_rl_support \
 	$(BIN)/test_belief_eval \
 	$(BIN)/belief_eval $(BIN)/rl $(BIN)/arena $(BIN)/continuation_arena \
+	$(BIN)/net_average \
 	$(DATA)/champion.bin
 	./$(BIN)/test_engine
 	./$(BIN)/test_runtime
@@ -76,6 +78,7 @@ test: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_role_coherence \
 	python3 -m unittest tests/test_make_showcase.py
 	python3 -m unittest tests/test_merge_arena.py
 	python3 -m unittest tests/test_continuation_arena.py
+	python3 -m unittest tests/test_net_average.py
 
 audit-test: $(BIN)/qpair $(DATA)/champion.bin
 	python3 tools/audit_regression.py
@@ -145,6 +148,11 @@ $(BIN)/test_belief_eval: tests/test_belief_eval.c $(CORE) $(HDRS) | $(BIN)
 $(BIN)/symmetrize: tools/symmetrize.c $(SRC)/net.c $(SRC)/features.c \
 	$(SRC)/lc.c $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
+
+$(BIN)/net_average: tools/net_average.c $(SRC)/net.c $(SRC)/features.c \
+	$(SRC)/lc.c $(HDRS) | $(BIN)
+	$(CC) $(CFLAGS) -fno-fast-math -ffp-contract=off \
+		-o $@ $(filter %.c,$^) $(LDFLAGS)
 
 $(DATA)/champion.bin: $(DATA)/c8.bin $(BIN)/symmetrize
 	./$(BIN)/symmetrize $< $@

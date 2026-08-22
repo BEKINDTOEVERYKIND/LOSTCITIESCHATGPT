@@ -273,6 +273,7 @@ tools/belief_eval.c frozen held-out exact-K belief metrics and card-count prior
 tools/history_belief.py actor-aware offline hand posterior from scrubbed history
 tools/planarena.c   isolated mirrored evaluation of the visible-hand scheduler
 tools/robust_distill.c conservative confirmed-correction residual trainer
+tools/net_average.c deterministic equal-weight checkpoint model soups
 tools/mine_duel_states.py replay-validated external-corpus state proposer
 tools/referee.py    numpy port of engine+net, verified to ~1e-6 against the C
 tools/dumpfeat.c    parity reference dumper for the referee
@@ -917,6 +918,27 @@ checkpoint must be qualified specifically in the dual-network rollout
 continuation role. Match evaluation and trajectory suit-map selection are
 thread-stable, but complete PPO training is not yet checkpoint-identical when
 `--threads` changes; keep the worker count fixed across training comparisons.
+
+To form a predeclared equal-weight checkpoint soup without changing any input:
+
+```sh
+./bin/net_average data/continuation-soup.bin \
+    results/family-a.bin results/family-b.bin results/family-c.bin
+```
+
+The utility loads parameters raw through `net_load` (no symmetry projection),
+rejects malformed or non-finite checkpoints, and averages every parameter
+using binary64 accumulation before one binary32 rounding. Inputs are sorted by
+loaded-model FNV, then collision-proof full model bytes, with canonical path as
+the identical-model tie break. Together with strict floating-point compilation,
+this makes output bytes invariant to command-line input permutation. Every
+parameter whose input bits all match is copied exactly, preserving shared
+signed zeros and subnormals; therefore identical current-format inputs produce
+an exact checkpoint copy. Direct, canonical, symlink, and hard-link output
+aliases are rejected, and `net_save` writes a synchronized same-directory
+temporary file before atomic installation. Printed provenance records canonical
+inputs, sizes, exact SHA-256 file hashes, explicitly non-cryptographic loaded
+model FNVs, the numeric contract, and the saved output hashes.
 
 Dual actors use `rollout2:ROOT:CONT:...` or
 `rolloutu2:ROOT:CONT:...`; the remaining positional tail is unchanged from the
