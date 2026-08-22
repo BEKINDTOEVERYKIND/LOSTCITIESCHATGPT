@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "precommitted_continuation_soup_full_actor_execution",
+  "status": "component_gate_passed_actor_specs_bound_before_full_actor_efficacy",
+  "bound_utc": "2026-08-22T13:59:40Z",
+  "locked_campaign": {
+    "plan_path": "data/experiments/locked_continuation_soup_v1_plan.json",
+    "plan_sha256": "5b34f3cac29f4f2e4a4acb713c8c979450a6a1226cf24ad13d91dd30460fc709",
+    "candidate_execution_path": "data/experiments/locked_continuation_soup_v1_execution.json",
+    "candidate_execution_sha256": "2cd54b8357c359758c6b42a22677acd16675a345d1a99439e2c358f043417baa",
+    "candidate_sha256": "e88c97912165165f200e7e1ebe9705971916c93083fa0049d63aa6eeba1adb8d"
+  },
+  "completed_component_evidence": {
+    "operational_control": {
+      "seed": "202608249901",
+      "pairs": 200,
+      "margin": 0.0,
+      "margin_se": 0.0,
+      "score": 0.5,
+      "score_se": 0.0,
+      "wins": 198,
+      "losses": 198,
+      "draws": 4,
+      "caps": 0,
+      "raw_sha256": "48c2c0d623ee87cb2ae16180be46898752f15664c4ab8e78e0747f4948757f47",
+      "passed": true
+    },
+    "fresh_continuation_screen": {
+      "seed": "202608240201",
+      "pairs": 6000,
+      "margin": 0.416666667,
+      "margin_se": 0.138962844,
+      "margin_one_sided_95_lower_bound": 0.188072787,
+      "score": 0.506125,
+      "score_se": 0.001925593,
+      "score_one_sided_95_lower_bound": 0.5029574,
+      "wins": 6017,
+      "losses": 5870,
+      "draws": 113,
+      "caps": 0,
+      "raw_sha256": "b25c74597300d85c06f174aa2b9e077235757777132c41c68cb718e4164def39",
+      "rounds": [
+        {"round":0,"pairs":2000,"margin":0.59125,"margin_se":0.23918456,"score":0.5035,"score_se":0.003191625,"non_harm_gate_passed":true},
+        {"round":1,"pairs":2000,"margin":0.6265,"margin_se":0.240188403,"score":0.509,"score_se":0.003450065,"non_harm_gate_passed":true},
+        {"round":2,"pairs":2000,"margin":0.03225,"margin_se":0.242575945,"score":0.505875,"score_se":0.003359354,"non_harm_gate_passed":true}
+      ],
+      "aggregate_gate_passed": true,
+      "all_round_safety_gates_passed": true
+    }
+  },
+  "authoritative_role_result": {
+    "path": "data/experiments/role_coherent_result.json",
+    "sha256": "9ae1caa83b9a2ffef715a6c90c3987e386795a00cd92bd19f000f8d2ca1811fb",
+    "remote_commit": "0ef28fcd6892359201dfaffcb2bd99ec8006564a",
+    "workflow_run": "https://github.com/BEKINDTOEVERYKIND/LOSTCITIESCHATGPT/actions/runs/32571592557",
+    "status": "complete_valid_gate_passed",
+    "mechanical_rule_applied": "The role gate passed, so select the plan's mode-4 playout and mode-3 trusted-prefix tail."
+  },
+  "bound_actor_tail": "512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+  "actors": {
+    "candidate": "rolloutu2:data/champion.bin:results/continuation-soup-v1/soup.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+    "baseline": "rolloutu2:data/champion.bin:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+    "only_difference": "The candidate uses the bound soup checkpoint for every post-candidate continuation policy decision; root policy/value/belief/shortlist and all search settings are identical."
+  },
+  "safety_screen": {
+    "pairs_per_orientation": 200,
+    "rounds": 3,
+    "threads": 4,
+    "pair_start": 0,
+    "arena_sha256": "a65f73871e04ed0e21f2bc9920a235cbb5d29950b35bb91df37ae9dcc8801efa",
+    "root_sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+    "candidate_first_seed": "202608240301",
+    "baseline_first_seed": "202608240302",
+    "provenance": "soupv1_actor_plan5b34f3_exec2cd54b_role9ae1ca_sourcebd4858_rootaf2b2c_soupe88c97_arenaa65f73",
+    "candidate_first_command": "./bin/arena -a CANDIDATE -b BASELINE -n 200 -t 4 -r 3 -s 202608240301 --pair-start 0 --raw-pairs results/continuation-soup-v1/actor-screen-candidate-first.jsonl --provenance PROVENANCE -q",
+    "baseline_first_command": "./bin/arena -a BASELINE -b CANDIDATE -n 200 -t 4 -r 3 -s 202608240302 --pair-start 0 --raw-pairs results/continuation-soup-v1/actor-screen-baseline-first.jsonl --provenance PROVENANCE -q",
+    "inspection_rule": "Run and validate both orientations before inspecting either efficacy result.",
+    "gate": [
+      "equal-weight reciprocal combined candidate score >= 0.5",
+      "equal-weight reciprocal combined candidate margin > 0",
+      "candidate score in each orientation after inversion >= 0.475",
+      "zero caps, malformed rows, missing pairs, or provenance errors"
+    ],
+    "stop_rule": "Failure burns both seeds and stops this soup campaign before the final panel."
+  },
+  "final_gate_binding": "If and only if the safety screen passes, use the unchanged final seeds, shard ranges, actor specs, and promotion requirements in the locked plan. No efficacy result is available at this binding.",
+  "results": null
+}
