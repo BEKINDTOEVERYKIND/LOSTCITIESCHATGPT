@@ -50,6 +50,10 @@ typedef struct {
     uint8_t persp;
     uint8_t actor;    /* 1 when persp is the player who moved             */
     uint8_t continuation_role; /* conditional dead-discard support applies */
+    /* Suit relabelling from st's owner-role coordinates to the other
+     * player's independently fixed role.  Used only in continuation mode to
+     * reconstruct the exact centralized critic pair during optimization. */
+    uint8_t other_role_perm[NSUIT];
 } RLSample;
 
 typedef struct {
@@ -77,6 +81,10 @@ typedef struct {
     int rounds;
     int trajectory_symmetries; /* 0 off; otherwise one fixed group member */
     int continuation_start; /* 0 ordinary PPO; currently 14 when enabled */
+    int continuation_objective; /* deployed rollout objective: legacy 0 or 2 */
+    int continuation_independent_roles; /* one fixed suit map per player */
+    int continuation_role_group;
+    uint32_t *continuation_role_pair_count;
     int continuation_rounds;
     int continuation_baseline_roots;
     int continuation_challenger_roots;
@@ -111,6 +119,10 @@ static _Thread_local float chain_v[2][CHAIN_MAX];
 static _Thread_local uint16_t chain_mv[CHAIN_MAX];
 static _Thread_local float chain_p[CHAIN_MAX];
 static _Thread_local uint8_t chain_actor[CHAIN_MAX];
+/* Continuation mode may give the two policy roles independent, temporally
+ * coherent suit mappings.  Keep one stored view per perspective so actor,
+ * critic, and PPO reconstruction all use that player's deployed role. */
+static _Thread_local State continuation_chain[2][CHAIN_MAX];
 
 static uint64_t mix64(uint64_t x)
 {
@@ -119,6 +131,75 @@ static uint64_t mix64(uint64_t x)
     x ^= x >> 27;
     x *= UINT64_C(0x94D049BB133111EB);
     return x ^ (x >> 31);
+}
+
+/* Select the fixed suit role(s) used for one continuation trajectory/tail.
+ * The disabled path is deliberately the historical trajectory helper so an
+ * explicit `shared` configuration remains byte-for-byte compatible.  The
+ * independent path mirrors rollout mode 4's balanced ordered-product walk:
+ * over every n*n consecutive trajectory ids, each ordered player-role pair
+ * occurs exactly once.  Offsets are seed-derived but worker-independent. */
+static int continuation_role_permutations(
+    int symmetries, uint64_t seed, uint64_t trajectory, int independent,
+    uint8_t perm[2][NSUIT], int selected[2])
+{
+    if (!perm) return 0;
+    if (!independent) {
+        if (!trajectory_suit_permutation(
+                symmetries, seed, trajectory, perm[0]))
+            return 0;
+        memcpy(perm[1], perm[0], NSUIT);
+        if (selected) selected[0] = selected[1] = -1;
+        return 1;
+    }
+    if (symmetries != 5 && symmetries != 10 &&
+        symmetries != 20 && symmetries != 120)
+        return 0;
+
+    uint8_t group[120][NSUIT];
+    int n = suit_permutations(symmetries, group);
+    if (n != symmetries) return 0;
+    uint64_t schedule_seed = mix64(
+        seed ^ UINT64_C(0xA0761D6478BD642F));
+    int fixed_offset = (int)(schedule_seed % (uint64_t)n);
+    int other_offset = (int)(rotl64(schedule_seed, 31) % (uint64_t)n);
+    uint64_t row = trajectory % (uint64_t)n;
+    uint64_t block = (trajectory / (uint64_t)n) % (uint64_t)n;
+    int first = (fixed_offset + (int)row) % n;
+    int other = (other_offset + (int)block + (int)row) % n;
+    memcpy(perm[0], group[first], NSUIT);
+    memcpy(perm[1], group[other], NSUIT);
+    if (selected) {
+        selected[0] = first;
+        selected[1] = other;
+    }
+    return 1;
+}
+
+/* Compose original->owner and original->other suit maps into owner->other. */
+static int continuation_role_permutation_valid(const uint8_t perm[NSUIT])
+{
+    if (!perm) return 0;
+    uint8_t seen = 0;
+    for (int s = 0; s < NSUIT; s++) {
+        if (perm[s] >= NSUIT || (seen & (uint8_t)(1u << perm[s])))
+            return 0;
+        seen |= (uint8_t)(1u << perm[s]);
+    }
+    return 1;
+}
+
+static int continuation_relative_role_permutation(
+    const uint8_t owner[NSUIT], const uint8_t other[NSUIT],
+    uint8_t relative[NSUIT])
+{
+    if (!relative || !continuation_role_permutation_valid(owner) ||
+        !continuation_role_permutation_valid(other))
+        return 0;
+    for (int s = 0; s < NSUIT; s++) {
+        relative[owner[s]] = other[s];
+    }
+    return 1;
 }
 
 static uint64_t net_byte_fingerprint(const Net *net)
@@ -542,20 +623,25 @@ static void *gen_continuation_worker(void *arg)
     float pr[MAX_MOVES], behavior[MAX_MOVES];
 
     for (int g = j->thread; g < j->games; g += j->nthread) {
-        uint8_t trajectory_perm[NSUIT];
-        if (!trajectory_suit_permutation(j->trajectory_symmetries, j->seed,
-                                         (uint64_t)g, trajectory_perm)) {
-            fprintf(stderr, "invalid continuation trajectory suit group\n");
-            exit(EXIT_FAILURE);
-        }
         int augment = j->trajectory_symmetries > 0;
-        if (augment) {
-            uint64_t code = 0;
-            for (int s = 0; s < NSUIT; s++)
-                code = code * NSUIT + trajectory_perm[s];
-            j->augmentation_fingerprint ^=
-                mix64((uint64_t)g * UINT64_C(0xD6E8FEB86659FD93)
-                      ^ code ^ UINT64_C(0x8EBC6AF09C88C6E3));
+        uint8_t shared_role_perm[2][NSUIT];
+        if (!j->continuation_independent_roles) {
+            if (!continuation_role_permutations(
+                    j->trajectory_symmetries, j->seed, (uint64_t)g, 0,
+                    shared_role_perm, NULL)) {
+                fprintf(stderr,
+                        "invalid continuation shared suit configuration\n");
+                exit(EXIT_FAILURE);
+            }
+            /* Preserve continuation-v1's exact per-match fingerprint. */
+            if (augment) {
+                uint64_t code = 0;
+                for (int s = 0; s < NSUIT; s++)
+                    code = code * NSUIT + shared_role_perm[0][s];
+                j->augmentation_fingerprint ^=
+                    mix64((uint64_t)g * UINT64_C(0xD6E8FEB86659FD93)
+                          ^ code ^ UINT64_C(0x8EBC6AF09C88C6E3));
+            }
         }
 
         int cum[2] = { 0, 0 };
@@ -598,6 +684,57 @@ static void *gen_continuation_worker(void *arg)
             }
 
             const int root_player = real.turn;
+            uint8_t role_perm[2][NSUIT];
+            if (j->continuation_independent_roles) {
+                uint8_t scheduled[2][NSUIT];
+                int selected_role[2];
+                uint64_t trajectory = (uint64_t)g * (uint64_t)j->rounds
+                                    + (uint64_t)rd;
+                if (!continuation_role_permutations(
+                        j->trajectory_symmetries, j->seed, trajectory, 1,
+                        scheduled, selected_role)) {
+                    fprintf(stderr,
+                            "invalid continuation independent role schedule\n");
+                    exit(EXIT_FAILURE);
+                }
+                if (!j->continuation_role_pair_count ||
+                    j->continuation_role_group !=
+                        j->trajectory_symmetries ||
+                    selected_role[0] < 0 || selected_role[1] < 0) {
+                    fprintf(stderr,
+                            "continuation role diagnostics are not "
+                            "initialized\n");
+                    exit(EXIT_FAILURE);
+                }
+                size_t role_cell =
+                    (size_t)selected_role[0] *
+                        (size_t)j->continuation_role_group
+                    + (size_t)selected_role[1];
+                if (j->continuation_role_pair_count[role_cell] ==
+                    UINT32_MAX) {
+                    fprintf(stderr,
+                            "continuation role diagnostic counter overflow\n");
+                    exit(EXIT_FAILURE);
+                }
+                j->continuation_role_pair_count[role_cell]++;
+                /* Match deployed mode 4: the first product coordinate is the
+                 * root player's role; the second belongs to its opponent. */
+                memcpy(role_perm[root_player], scheduled[0], NSUIT);
+                memcpy(role_perm[root_player ^ 1], scheduled[1], NSUIT);
+                uint64_t code[2] = { 0, 0 };
+                for (int p = 0; p < 2; p++)
+                    for (int s = 0; s < NSUIT; s++)
+                        code[p] = code[p] * NSUIT + role_perm[p][s];
+                j->augmentation_fingerprint ^=
+                    mix64((trajectory + 1) *
+                              UINT64_C(0xD6E8FEB86659FD93)
+                          ^ code[root_player]
+                          ^ rotl64(code[root_player ^ 1], 17)
+                          ^ ((uint64_t)root_player << 47)
+                          ^ UINT64_C(0x8EBC6AF09C88C6E3));
+            } else {
+                memcpy(role_perm, shared_role_perm, sizeof role_perm);
+            }
             State root_view;
             agent_information_view(&real, root_player, &root_view);
             int nroot = policy_probs_sym_plan(
@@ -662,7 +799,8 @@ static void *gen_continuation_worker(void *arg)
                 if (world.deck_left == 1) {
                     int n = lc_moves(&world, mv);
                     int exact = rollout_exact_terminal_choice(
-                        &world, mv, NULL, n, 0, NULL);
+                        &world, mv, NULL, n, j->continuation_objective,
+                        NULL);
                     if (exact < 0) {
                         fprintf(stderr,
                                 "continuation exact deck-one solver failed\n");
@@ -685,9 +823,10 @@ static void *gen_continuation_worker(void *arg)
                     const Move *forced_mv = mv;
                     if (augment) {
                         State forced_view;
+                        const uint8_t *turn_perm = role_perm[world.turn];
                         n = continuation_trajectory_policy_probs_plan(
                             j->net, &learner_plan, &world,
-                            trajectory_perm, j->temp,
+                            turn_perm, j->temp,
                             &forced_view, mv, engine_mv, pr, behavior);
                         forced_mv = engine_mv;
                     } else {
@@ -720,17 +859,22 @@ static void *gen_continuation_worker(void *arg)
                     exit(EXIT_FAILURE);
                 }
 
-                if (augment)
-                    lc_permute_suits(&world, &chain[T], trajectory_perm);
-                else
-                    chain[T] = world;
+                for (int p = 0; p < 2; p++) {
+                    if (augment)
+                        lc_permute_suits(
+                            &world, &continuation_chain[p][T], role_perm[p]);
+                    else
+                        continuation_chain[p][T] = world;
+                }
                 int n;
                 Move played, stored_played;
                 if (augment) {
+                    int actor = world.turn;
                     n = continuation_trajectory_policy_probs_plan(
                         j->net, &learner_plan, &world,
-                        trajectory_perm, j->temp,
-                        &chain[T], mv, engine_mv, pr, behavior);
+                        role_perm[actor], j->temp,
+                        &continuation_chain[actor][T], mv, engine_mv,
+                        pr, behavior);
                     if (n <= 0) {
                         fprintf(stderr,
                                 "continuation trajectory policy has no legal move\n");
@@ -771,7 +915,7 @@ static void *gen_continuation_worker(void *arg)
                 }
                 chain_actor[T] = 1;
                 chain_mv[T] = MOVE_PACK(stored_played);
-                int actor_ply = chain[T].nply;
+                int actor_ply = world.nply;
                 if (j->continuation_min_actor_ply == 0 ||
                     actor_ply < j->continuation_min_actor_ply)
                     j->continuation_min_actor_ply = actor_ply;
@@ -784,27 +928,41 @@ static void *gen_continuation_worker(void *arg)
                 exit(EXIT_FAILURE);
             }
 
-            /* The root audit's initial objective is mode 0: completed round
-             * margin from each player's perspective.  Continuation mode
-             * requires lambda=1, so the value is only an action-independent
-             * advantage baseline and cannot change this terminal target. */
+            /* Reconstruct each player's critic in the same fixed suit role
+             * used by that player's continuation policy.  Mode 2 changes
+             * only real round index 2 to the deployed final-match hybrid;
+             * rollout_terminal_objective itself preserves round-margin
+             * semantics in rounds 0 and 1.  Continuation mode requires
+             * lambda=1, so the critic remains only an action-independent
+             * advantage baseline and cannot alter the terminal target. */
             for (int t = 0; t < T; t++) {
-                float v0 = net_value_state_sym(j->net, &chain[t], 0, 1);
-                float v1 = net_value_state_sym(j->net, &chain[t], 1, 1);
+                float v0 = net_value_state_sym(
+                    j->net, &continuation_chain[0][t], 0, 1);
+                float v1 = net_value_state_sym(
+                    j->net, &continuation_chain[1][t], 1, 1);
                 chain_v[0][t] = 0.5f * (v0 - v1);
                 chain_v[1][t] = -chain_v[0][t];
             }
             for (int p = 0; p < 2; p++) {
-                float G = (float)rollout_terminal_objective(&world, p, 0);
+                float G = (float)rollout_terminal_objective(
+                    &world, p, j->continuation_objective);
+                uint8_t other_role_perm[NSUIT];
+                if (!continuation_relative_role_permutation(
+                        role_perm[p], role_perm[p ^ 1], other_role_perm)) {
+                    fprintf(stderr,
+                            "invalid continuation relative role mapping\n");
+                    exit(EXIT_FAILURE);
+                }
                 for (int t = T - 1; t >= 0; t--) {
                     size_t slot = reservoir_slot(j, &reservoir_rng);
                     if (slot == SIZE_MAX) continue;
                     RLSample *s = &j->out[slot];
-                    s->st = chain[t];
+                    s->st = continuation_chain[p][t];
                     s->persp = (uint8_t)p;
                     s->vtarget = G;
                     s->continuation_role = 1;
-                    if (chain[t].turn == p) {
+                    memcpy(s->other_role_perm, other_role_perm, NSUIT);
+                    if (continuation_chain[p][t].turn == p) {
                         s->actor = 1;
                         s->chosen = chain_mv[t];
                         s->oldp = chain_p[t];
@@ -874,7 +1032,22 @@ static void *opt_worker(void *arg)
         net_trunk(t->net, &f, &act);
         float dcenter = 0.0f;
         if (!t->belief_only) {
-            feat_extract(&s->st, s->persp ^ 1, &of);
+            const State *other_role_state = &s->st;
+            State reconstructed_other_role;
+            if (s->continuation_role) {
+                if (!continuation_role_permutation_valid(
+                        s->other_role_perm)) {
+                    fprintf(stderr,
+                            "continuation PPO sample has invalid relative "
+                            "role mapping\n");
+                    exit(EXIT_FAILURE);
+                }
+                lc_permute_suits(
+                    &s->st, &reconstructed_other_role,
+                    s->other_role_perm);
+                other_role_state = &reconstructed_other_role;
+            }
+            feat_extract(other_role_state, s->persp ^ 1, &of);
             net_trunk(t->net, &of, &oact);
 
             float vp = net_value_act(t->net, &act);
@@ -1099,7 +1272,12 @@ int main(int argc, char **argv)
     int v6_only = 0, belief_only = 0;
     int rounds = MATCH_ROUNDS, trajectory_symmetries = 0;
     int continuation_start = 0;
+    int continuation_objective = 0;
+    int continuation_independent_roles = 0;
+    int continuation_objective_explicit = 0;
+    int continuation_roles_explicit = 0;
     int bw_explicit = 0, eval_explicit = 0, lambda_explicit = 0;
+    int winbonus_explicit = 0, mw_explicit = 0;
     uint64_t seed = 7, eval_seed = 20260727ULL;
 
     for (int i = 1; i < argc; i++) {
@@ -1128,12 +1306,18 @@ int main(int argc, char **argv)
         else if (ARG("--vcoef")) vcoef = (float)atof(argv[++i]);
         else if (ARG("--ent")) entcoef = (float)atof(argv[++i]);
         else if (ARG("--temp")) temp = (float)atof(argv[++i]);
-        else if (ARG("--winbonus")) winbonus = (float)atof(argv[++i]);
+        else if (ARG("--winbonus")) {
+            winbonus = (float)atof(argv[++i]);
+            winbonus_explicit = 1;
+        }
         else if (ARG("--bw")) {
             bw = (float)atof(argv[++i]);
             bw_explicit = 1;
         }
-        else if (ARG("--mw")) mw = (float)atof(argv[++i]);
+        else if (ARG("--mw")) {
+            mw = (float)atof(argv[++i]);
+            mw_explicit = 1;
+        }
         else if (ARG("--rounds")) rounds = atoi(argv[++i]);
         else if (ARG("--wd")) wd = (float)atof(argv[++i]);
         else if (ARG("--eval")) {
@@ -1153,6 +1337,29 @@ int main(int argc, char **argv)
         }
         else if (ARG("--continuation-start"))
             continuation_start = atoi(argv[++i]);
+        else if (!strcmp(k, "--continuation-objective")) {
+            if (++i >= argc ||
+                (strcmp(argv[i], "0") != 0 && strcmp(argv[i], "2") != 0)) {
+                fprintf(stderr,
+                        "--continuation-objective must be exactly 0 or 2\n");
+                return 1;
+            }
+            continuation_objective = argv[i][0] - '0';
+            continuation_objective_explicit = 1;
+        }
+        else if (!strcmp(k, "--continuation-role-mappings")) {
+            if (++i >= argc ||
+                (strcmp(argv[i], "shared") != 0 &&
+                 strcmp(argv[i], "independent") != 0)) {
+                fprintf(stderr,
+                        "--continuation-role-mappings must be exactly "
+                        "shared or independent\n");
+                return 1;
+            }
+            continuation_independent_roles =
+                strcmp(argv[i], "independent") == 0;
+            continuation_roles_explicit = 1;
+        }
         else if (!strcmp(k, "--v6-only")) v6_only = 1;
         else if (!strcmp(k, "--belief-only")) belief_only = 1;
         else { fprintf(stderr, "unknown option %s\n", k); return 1; }
@@ -1205,10 +1412,45 @@ int main(int argc, char **argv)
                     "checkpoint as a rollout2 actor\n");
             return 1;
         }
-    } else if (continuation_root_path) {
-        fprintf(stderr,
-                "--continuation-root requires --continuation-start 14\n");
-        return 1;
+        if (winbonus_explicit || mw_explicit) {
+            fprintf(stderr,
+                    "continuation-only PPO does not use --winbonus or --mw; "
+                    "configure its terminal return with "
+                    "--continuation-objective 0 or 2\n");
+            return 1;
+        }
+        if (continuation_objective == 2 && rounds != MATCH_ROUNDS) {
+            fprintf(stderr,
+                    "--continuation-objective 2 requires --rounds %d so "
+                    "the final-round target is present\n",
+                    MATCH_ROUNDS);
+            return 1;
+        }
+        if (continuation_independent_roles &&
+            trajectory_symmetries <= 1) {
+            fprintf(stderr,
+                    "independent continuation role mappings require "
+                    "--trajectory-symmetries 5, 10, 20, or 120\n");
+            return 1;
+        }
+    } else {
+        if (continuation_root_path) {
+            fprintf(stderr,
+                    "--continuation-root requires --continuation-start 14\n");
+            return 1;
+        }
+        if (continuation_objective_explicit) {
+            fprintf(stderr,
+                    "--continuation-objective requires "
+                    "--continuation-start 14\n");
+            return 1;
+        }
+        if (continuation_roles_explicit) {
+            fprintf(stderr,
+                    "--continuation-role-mappings requires "
+                    "--continuation-start 14\n");
+            return 1;
+        }
     }
     if (!(temp > 0.0f) || !lc_float_isfinite(temp)) {
         fprintf(stderr, "--temp must be finite and greater than zero\n");
@@ -1317,17 +1559,31 @@ int main(int argc, char **argv)
     if (!buf) { fprintf(stderr, "sample buffer allocation failed\n"); return 1; }
     int *order = (int *)malloc(sizeof(int) * cap);
 
-    printf("ppo: %d iters x %d matches of %d round(s), batch %d, %d epochs, lr %.1e, "
-           "lambda %.2f, ent %.4f, winbonus %.0f, margin weight %.2f, KL %.4f%s\n",
-           iters, games, rounds, batch, epochs, lr, lambda, entcoef, winbonus,
-           mw, klcoef, v6_only ? ", v6-only" : "");
+    if (continuation_start > 0)
+        printf("ppo: %d iters x %d matches of %d round(s), batch %d, %d "
+               "epochs, lr %.1e, lambda %.2f, ent %.4f, continuation "
+               "objective %d, KL %.4f%s\n",
+               iters, games, rounds, batch, epochs, lr, lambda, entcoef,
+               continuation_objective, klcoef,
+               v6_only ? ", v6-only" : "");
+    else
+        printf("ppo: %d iters x %d matches of %d round(s), batch %d, %d "
+               "epochs, lr %.1e, lambda %.2f, ent %.4f, winbonus %.0f, "
+               "margin weight %.2f, KL %.4f%s\n",
+               iters, games, rounds, batch, epochs, lr, lambda, entcoef,
+               winbonus, mw, klcoef, v6_only ? ", v6-only" : "");
     if (gen_opponent_ptr)
         printf("     opponent population: %.1f%% %s, %.1f%% live self-play\n",
                100.0f * opponent_mix, gen_opponent_spec,
                100.0f * (1.0f - opponent_mix));
-    if (trajectory_symmetries > 0)
+    if (trajectory_symmetries > 0 &&
+        !(continuation_start > 0 && continuation_independent_roles))
         printf("     trajectory suit augmentation: exact group %d, one fixed "
                "mapping per match\n", trajectory_symmetries);
+    if (continuation_start > 0 && continuation_independent_roles)
+        printf("     continuation suit roles: independent ordered-product "
+               "group %d, one fixed mapping per player per round tail\n",
+               trajectory_symmetries);
     if (belief_only)
         printf("     optimizer: belief head only (trunk, policy and value frozen)\n");
     if (continuation_start > 0)
@@ -1335,9 +1591,17 @@ int main(int argc, char **argv)
                "plies "
                "0..13, production root at ply 14 (20-way, width 5, floor "
                "%.2f), 50%% baseline / 50%% admitted challenger, uniform "
-               "worlds, objective mode 0\n"
+               "worlds, objective mode %d (%s); suit roles %s\n"
                "     immutable champion fingerprint: %016llx\n",
                continuation_root_path, CONTINUATION_ROOT_FLOOR,
+               continuation_objective,
+               continuation_objective == 2
+                   ? "rounds 0/1 margin; round 2 "
+                     "0.05*final-margin+50*result"
+                   : "round margin in every round",
+               continuation_independent_roles
+                   ? "independent per-player ordered product"
+                   : "shared legacy mapping",
                (unsigned long long)champion_fingerprint);
     fflush(stdout);
 
@@ -1348,6 +1612,17 @@ int main(int argc, char **argv)
 
         GenJob *jobs = (GenJob *)calloc((size_t)nthread, sizeof(GenJob));
         pthread_t *th = (pthread_t *)calloc((size_t)nthread, sizeof(pthread_t));
+        size_t role_cells = continuation_independent_roles
+            ? (size_t)trajectory_symmetries *
+              (size_t)trajectory_symmetries : 0;
+        uint32_t *role_counts = role_cells > 0
+            ? (uint32_t *)calloc(
+                (size_t)nthread * role_cells, sizeof(uint32_t)) : NULL;
+        if (!jobs || !th || (role_cells > 0 && !role_counts)) {
+            fprintf(stderr, "generation diagnostic allocation failed\n");
+            free(jobs); free(th); free(role_counts);
+            return 1;
+        }
         size_t per = cap / (size_t)nthread;
         for (int i = 0; i < nthread; i++) {
             jobs[i].net = frozen;
@@ -1366,6 +1641,12 @@ int main(int argc, char **argv)
             jobs[i].rounds = rounds;
             jobs[i].trajectory_symmetries = trajectory_symmetries;
             jobs[i].continuation_start = continuation_start;
+            jobs[i].continuation_objective = continuation_objective;
+            jobs[i].continuation_independent_roles =
+                continuation_independent_roles;
+            jobs[i].continuation_role_group = trajectory_symmetries;
+            jobs[i].continuation_role_pair_count = role_cells > 0
+                ? role_counts + (size_t)i * role_cells : NULL;
         }
         void *(*generator)(void *) = continuation_start > 0
                                    ? gen_continuation_worker : gen_worker;
@@ -1392,6 +1673,10 @@ int main(int argc, char **argv)
         int continuation_min_actor_ply = 0;
         uint64_t augmentation_fingerprint = 0;
         uint64_t continuation_fingerprint = 0;
+        uint64_t role_pair_min = 0, role_pair_max = 0;
+        uint64_t role_first_min = 0, role_first_max = 0;
+        uint64_t role_other_min = 0, role_other_max = 0;
+        uint64_t role_tail_count = 0;
         int learner_seat_games[2] = {0, 0};
         for (int i = 0; i < nthread; i++) {
             plies += jobs[i].plies; absm += jobs[i].absmargin; pts += jobs[i].score_sum;
@@ -1420,7 +1705,57 @@ int main(int argc, char **argv)
             seen += jobs[i].nseen;
             gdone += jobs[i].done;
         }
-        free(jobs); free(th);
+        if (continuation_independent_roles) {
+            uint64_t first_marginal[120] = { 0 };
+            uint64_t other_marginal[120] = { 0 };
+            int group = trajectory_symmetries;
+            role_pair_min = UINT64_MAX;
+            for (int first = 0; first < group; first++) {
+                for (int other = 0; other < group; other++) {
+                    size_t cell = (size_t)first * (size_t)group
+                                + (size_t)other;
+                    uint64_t count = 0;
+                    for (int i = 0; i < nthread; i++)
+                        count += role_counts[(size_t)i * role_cells + cell];
+                    if (count < role_pair_min) role_pair_min = count;
+                    if (count > role_pair_max) role_pair_max = count;
+                    first_marginal[first] += count;
+                    other_marginal[other] += count;
+                    role_tail_count += count;
+                }
+            }
+            role_first_min = role_other_min = UINT64_MAX;
+            for (int k = 0; k < group; k++) {
+                if (first_marginal[k] < role_first_min)
+                    role_first_min = first_marginal[k];
+                if (first_marginal[k] > role_first_max)
+                    role_first_max = first_marginal[k];
+                if (other_marginal[k] < role_other_min)
+                    role_other_min = other_marginal[k];
+                if (other_marginal[k] > role_other_max)
+                    role_other_max = other_marginal[k];
+            }
+            if (role_tail_count != (uint64_t)continuation_rounds ||
+                role_pair_max > role_pair_min + UINT64_C(1) ||
+                role_first_max > role_first_min + UINT64_C(1) ||
+                role_other_max > role_other_min + UINT64_C(1)) {
+                fprintf(stderr,
+                        "continuation role product diagnostics failed: "
+                        "tails %llu/%d pair %llu..%llu marginals "
+                        "%llu..%llu/%llu..%llu\n",
+                        (unsigned long long)role_tail_count,
+                        continuation_rounds,
+                        (unsigned long long)role_pair_min,
+                        (unsigned long long)role_pair_max,
+                        (unsigned long long)role_first_min,
+                        (unsigned long long)role_first_max,
+                        (unsigned long long)role_other_min,
+                        (unsigned long long)role_other_max);
+                free(jobs); free(th); free(role_counts);
+                return 1;
+            }
+        }
+        free(jobs); free(th); free(role_counts);
 
         /* standardise advantages */
         double am = 0, av = 0;
@@ -1457,6 +1792,18 @@ int main(int argc, char **argv)
                    continuation_cycle_forces,
                    continuation_cap_forces,
                    (unsigned long long)continuation_fingerprint);
+        if (continuation_independent_roles)
+            printf("         continuation role product group %d: tails "
+                   "%llu; pair-count %llu..%llu; root/opponent marginals "
+                   "%llu..%llu/%llu..%llu\n",
+                   trajectory_symmetries,
+                   (unsigned long long)role_tail_count,
+                   (unsigned long long)role_pair_min,
+                   (unsigned long long)role_pair_max,
+                   (unsigned long long)role_first_min,
+                   (unsigned long long)role_first_max,
+                   (unsigned long long)role_other_min,
+                   (unsigned long long)role_other_max);
         if (seen > n)
             printf("         reservoir retained %zu/%zu generated samples (%.1f%%)\n",
                    n, seen, 100.0 * (double)n / (double)seen);

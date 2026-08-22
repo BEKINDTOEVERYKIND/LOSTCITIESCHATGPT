@@ -128,6 +128,8 @@ static void test_continuation_support_and_gradients(void)
     sample.persp = st.turn;
     sample.actor = 1;
     sample.continuation_role = 1;
+    for (int s = 0; s < NSUIT; s++)
+        sample.other_role_perm[s] = (uint8_t)s;
     sample.chosen = MOVE_PACK(mv[chosen]);
     sample.oldp = behavior[chosen];
     sample.adv = 1.0f;
@@ -242,9 +244,163 @@ static void test_continuation_support_and_gradients(void)
     free(grad);
 }
 
+static int role_group_index(uint8_t group[120][NSUIT], int n,
+                            const uint8_t perm[NSUIT])
+{
+    for (int i = 0; i < n; i++)
+        if (memcmp(group[i], perm, NSUIT) == 0) return i;
+    return -1;
+}
+
+static void test_continuation_role_schedule(void)
+{
+    enum { N = 20 };
+    uint8_t group[120][NSUIT];
+    CHECK(suit_permutations(N, group) == N,
+          "could not construct affine role group");
+
+    int pair_count[N][N] = { { 0 } };
+    for (uint64_t trajectory = 0; trajectory < N * N; trajectory++) {
+        uint8_t first[2][NSUIT], repeated[2][NSUIT];
+        int selected[2], repeated_selected[2];
+        CHECK(continuation_role_permutations(
+                  N, UINT64_C(20260825), trajectory, 1, first, selected),
+              "independent role schedule rejected trajectory %llu",
+              (unsigned long long)trajectory);
+        CHECK(continuation_role_permutations(
+                  N, UINT64_C(20260825), trajectory, 1, repeated,
+                  repeated_selected) &&
+              memcmp(first, repeated, sizeof first) == 0 &&
+              memcmp(selected, repeated_selected, sizeof selected) == 0,
+              "independent role schedule was not deterministic at %llu",
+              (unsigned long long)trajectory);
+        int p0 = role_group_index(group, N, first[0]);
+        int p1 = role_group_index(group, N, first[1]);
+        CHECK(p0 >= 0 && p1 >= 0,
+              "independent role left the requested group at %llu",
+              (unsigned long long)trajectory);
+        if (p0 >= 0 && p1 >= 0) pair_count[p0][p1]++;
+    }
+    for (int p0 = 0; p0 < N; p0++)
+        for (int p1 = 0; p1 < N; p1++)
+            CHECK(pair_count[p0][p1] == 1,
+                  "ordered role pair %d/%d appeared %d times, expected one",
+                  p0, p1, pair_count[p0][p1]);
+
+    /* The opt-out must call the historical selector exactly; this is the
+     * compatibility contract for continuation-v1 and ordinary PPO. */
+    for (uint64_t trajectory = 0; trajectory < 64; trajectory++) {
+        uint8_t expected[NSUIT], shared[2][NSUIT];
+        CHECK(trajectory_suit_permutation(
+                  N, UINT64_C(99173), trajectory, expected),
+              "legacy trajectory selector rejected %llu",
+              (unsigned long long)trajectory);
+        CHECK(continuation_role_permutations(
+                  N, UINT64_C(99173), trajectory, 0, shared, NULL),
+              "shared role selector rejected %llu",
+              (unsigned long long)trajectory);
+        CHECK(memcmp(shared[0], expected, NSUIT) == 0 &&
+              memcmp(shared[1], expected, NSUIT) == 0,
+              "shared role selector changed legacy mapping at %llu",
+              (unsigned long long)trajectory);
+    }
+    uint8_t invalid[2][NSUIT];
+    CHECK(!continuation_role_permutations(
+              1, UINT64_C(7), UINT64_C(0), 1, invalid, NULL),
+          "independent identity role configuration did not fail closed");
+
+    /* The five-byte relative map stored in each sample must reconstruct the
+     * other role exactly, including private hands, deck order, and piles. */
+    uint8_t roles[2][NSUIT], relative[NSUIT];
+    CHECK(continuation_role_permutations(
+              N, UINT64_C(20260825), UINT64_C(137), 1, roles, NULL),
+          "could not construct relative-role fixture");
+    CHECK(continuation_relative_role_permutation(
+              roles[0], roles[1], relative),
+          "could not compose relative role mapping");
+    uint8_t deck[NCARD];
+    for (int c = 0; c < NCARD; c++) deck[c] = (uint8_t)c;
+    State canonical, owner_view, other_view, reconstructed;
+    lc_deal_from_deck(&canonical, deck);
+    lc_permute_suits(&canonical, &owner_view, roles[0]);
+    lc_permute_suits(&canonical, &other_view, roles[1]);
+    lc_permute_suits(&owner_view, &reconstructed, relative);
+    CHECK(memcmp(&other_view, &reconstructed, sizeof other_view) == 0,
+          "relative role mapping did not reconstruct the other critic view");
+    CHECK(continuation_relative_role_permutation(
+              roles[1], roles[0], relative),
+          "could not compose reverse relative role mapping");
+    lc_permute_suits(&other_view, &reconstructed, relative);
+    CHECK(memcmp(&owner_view, &reconstructed, sizeof owner_view) == 0,
+          "reverse relative role mapping did not reconstruct owner view");
+}
+
+static void test_continuation_objective_contract(void)
+{
+    State terminal;
+    memset(&terminal, 0, sizeof terminal);
+    terminal.over = 1;
+    terminal.round = MATCH_ROUNDS - 1;
+    terminal.cum[0] = 30;
+    terminal.cum[1] = 50;
+    terminal.exp_n[0][0] = 1;
+    terminal.exp_sum[0][0] = 30;
+    CHECK(lc_score(&terminal, 0) - lc_score(&terminal, 1) == 10,
+          "objective fixture has wrong round margin");
+    CHECK(rollout_terminal_objective(&terminal, 0, 0) == 10.0,
+          "legacy continuation objective changed");
+    CHECK(fabs(rollout_terminal_objective(&terminal, 0, 2) + 50.5) < 1e-12,
+          "final-round hybrid target did not include cumulative context");
+    terminal.round = 0;
+    CHECK(rollout_terminal_objective(&terminal, 0, 2) == 10.0,
+          "hybrid objective changed round-zero margin semantics");
+    terminal.round = 1;
+    CHECK(rollout_terminal_objective(&terminal, 0, 2) == 10.0,
+          "hybrid objective changed round-one margin semantics");
+
+    /* Passing mode 2 through the exact deck-one solver must use the same
+     * terminal formula as PPO.  The maximizing action remains the same
+     * because both objectives are monotone in round margin, but the returned
+     * target must retain final-match context. */
+    State deck_one;
+    memset(&deck_one, 0, sizeof deck_one);
+    deck_one.round = MATCH_ROUNDS - 1;
+    deck_one.turn = 0;
+    deck_one.cum[0] = 5;
+    deck_one.cum[1] = 0;
+    deck_one.deck_left = 1;
+    deck_one.deck_pos = 0;
+    deck_one.deck[0] = CARD_MAKE(4, 3);
+    int c0 = CARD_MAKE(0, 3);
+    int c1 = CARD_MAKE(1, 11);
+    deck_one.hand[0] = (UINT64_C(1) << c0) | (UINT64_C(1) << c1);
+    deck_one.hand_n[0] = 2;
+    Move mv[MAX_MOVES];
+    int n = lc_moves(&deck_one, mv);
+    double q0 = 0.0, q2 = 0.0;
+    int best0 = rollout_exact_terminal_choice(
+        &deck_one, mv, NULL, n, 0, &q0);
+    int best2 = rollout_exact_terminal_choice(
+        &deck_one, mv, NULL, n, 2, &q2);
+    CHECK(best0 >= 0 && best2 == best0,
+          "deck-one objective modes produced an invalid/inconsistent choice");
+    if (best2 >= 0) {
+        State chosen = deck_one;
+        lc_apply(&chosen, mv[best2]);
+        CHECK(q0 == rollout_terminal_objective(&chosen, 0, 0),
+              "deck-one legacy target disagrees with terminal objective");
+        CHECK(q2 == rollout_terminal_objective(&chosen, 0, 2),
+              "deck-one hybrid target disagrees with PPO terminal formula");
+        CHECK(q2 != q0,
+              "deck-one fixture failed to expose final-match target context");
+    }
+}
+
 int main(void)
 {
     test_continuation_support_and_gradients();
+    test_continuation_role_schedule();
+    test_continuation_objective_contract();
     if (failures == 0) {
         puts("continuation PPO support tests passed");
         return 0;

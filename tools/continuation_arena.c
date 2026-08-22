@@ -12,9 +12,11 @@
  *   - candidate and baseline continuation checkpoints play the two clones
  *     with their controller seats swapped.
  *
- * A fixed suit mapping belongs to each player seat and is reused in both
- * legs.  Across every ten consecutive pair indices the two seats cover the
- * complete 20-member affine group exactly once.  All gameplay decisions see
+ * A fixed suit mapping belongs to each player role and is reused in both
+ * controller-swap legs.  The legacy default preserves the original adjacent
+ * seat-balanced screen.  The opt-in independent schedule matches deployed
+ * rollout mode 4: mappings are root-player-relative and every complete 20x20
+ * block covers the ordered product exactly once.  All gameplay decisions see
  * agent_information_view(), never the referee's hidden hand/deck.  The exact
  * one-card solver and production cap-reserve deck forcing are preserved.
  *
@@ -40,7 +42,10 @@
 enum {
     ROOT_PLY = 14,
     ROOT_SYMMETRIES = 20,
-    ROOT_WIDTH = 5
+    ROOT_WIDTH = 5,
+    ROLE_MAPPING_LEGACY = 0,
+    ROLE_MAPPING_SHARED = 1,
+    ROLE_MAPPING_INDEPENDENT = 2
 };
 
 static const float ROOT_FLOOR = 0.02f;
@@ -52,10 +57,15 @@ typedef struct {
     int admitted;
     int picked;
     uint16_t root_move;
+    int cumulative_before[2];
     int player_mapping[2];
     int candidate_seat[2];
     int score[2][2];
-    int margin[2];
+    int margin[2]; /* candidate round margin (legacy field name internally) */
+    double objective_target[2];
+    int final_match_margin[2]; /* defined only for real round index 2 */
+    int final_match_result[2]; /* signed -1/0/1, round 2 only */
+    double hybrid_target[2];   /* exact mode-2 target, round 2 only */
     int tail_plies[2];
     int capped[2];
     int exact_moves[2];
@@ -75,14 +85,31 @@ typedef struct {
     uint64_t seed;
     int pairs;
     int target_round;
+    int objective;
+    int role_mapping_mode;
     int thread;
     int nthread;
     atomic_int *failed;
 } Job;
 
 typedef struct {
+    uint64_t pairs;
+    double round_margin;
+    double round_margin_se;
+    double objective_target;
+    double objective_target_se;
+    double final_match_margin;
+    double final_match_margin_se;
+    double match_score;
+    double match_score_se;
+    uint64_t match_wins, match_losses, match_draws;
+} RoundSummary;
+
+typedef struct {
     double margin;
     double margin_se;
+    double objective;
+    double objective_se;
     double score;
     double score_se;
     double candidate_points;
@@ -90,6 +117,7 @@ typedef struct {
     uint64_t wins, losses, draws;
     uint64_t caps, exact_moves, cap_forces, cycle_forces;
     uint64_t baseline_roots, challenger_roots, singleton_roots;
+    RoundSummary round[MATCH_ROUNDS];
 } Summary;
 
 static uint64_t mix64(uint64_t x)
@@ -125,6 +153,57 @@ static int parse_int_range(const char *s, int low, int high, int *out)
     return 1;
 }
 
+static const char *role_mapping_name(int mode)
+{
+    if (mode == ROLE_MAPPING_SHARED) return "shared";
+    if (mode == ROLE_MAPPING_INDEPENDENT) return "independent";
+    return "legacy-seat-balanced";
+}
+
+static int assign_player_mappings(
+    uint64_t seed, uint64_t trajectory, int root_player, int mode,
+    uint8_t group[120][NSUIT], int player_mapping[2],
+    uint8_t perm[2][NSUIT])
+{
+    if (root_player < 0 || root_player > 1 ||
+        (mode != ROLE_MAPPING_LEGACY && mode != ROLE_MAPPING_SHARED &&
+         mode != ROLE_MAPPING_INDEPENDENT))
+        return 0;
+    uint64_t schedule_seed = mix64(
+        seed ^ UINT64_C(0xA4093822299F31D0));
+    int fixed_offset = (int)(schedule_seed % ROOT_SYMMETRIES);
+    int index[2];
+    if (mode == ROLE_MAPPING_LEGACY) {
+        for (int seat = 0; seat < 2; seat++)
+            index[seat] = (fixed_offset
+                         + (int)((trajectory % UINT64_C(10)) * UINT64_C(2))
+                         + seat) % ROOT_SYMMETRIES;
+    } else if (mode == ROLE_MAPPING_SHARED) {
+        int shared = (fixed_offset
+                    + (int)(trajectory % ROOT_SYMMETRIES))
+                   % ROOT_SYMMETRIES;
+        index[0] = index[1] = shared;
+    } else {
+        int other_offset =
+            (int)(rotl64(schedule_seed, 31) % ROOT_SYMMETRIES);
+        int fixed = (fixed_offset
+                   + (int)(trajectory % ROOT_SYMMETRIES))
+                  % ROOT_SYMMETRIES;
+        int other =
+            (other_offset
+             + (int)((trajectory / ROOT_SYMMETRIES) % ROOT_SYMMETRIES)
+             + (int)(trajectory % ROOT_SYMMETRIES))
+            % ROOT_SYMMETRIES;
+        index[root_player] = fixed;
+        index[root_player ^ 1] = other;
+    }
+    for (int seat = 0; seat < 2; seat++) {
+        player_mapping[seat] = index[seat];
+        memcpy(perm[seat], group[index[seat]], NSUIT);
+    }
+    return 1;
+}
+
 static void shuffled_deck(uint64_t seed, uint64_t pair, int round,
                           uint8_t deck[NCARD])
 {
@@ -145,7 +224,8 @@ static void shuffled_deck(uint64_t seed, uint64_t pair, int round,
 /* Return a move index ranked only from the mover's information state. */
 static int greedy_index(const Net *net, const NetEvalPlan *plan,
                         const State *complete, const uint8_t *fixed_perm,
-                        int exact20, int prune, Move *mv, float *prob, int *exact,
+                        int exact20, int prune, int objective,
+                        Move *mv, float *prob, int *exact,
                         RolloutLateCycleHistory *cycle_history,
                         int *cap_force, int *cycle_force)
 {
@@ -155,7 +235,7 @@ static int greedy_index(const Net *net, const NetEvalPlan *plan,
     if (complete->deck_left == 1) {
         n = lc_moves(&view, mv);
         int selected = rollout_exact_terminal_choice(
-            &view, mv, NULL, n, 0, NULL);
+            &view, mv, NULL, n, objective, NULL);
         if (selected >= 0) {
             if (exact) (*exact)++;
             return selected;
@@ -195,13 +275,13 @@ static int greedy_index(const Net *net, const NetEvalPlan *plan,
 }
 
 static int play_champion_round(const Net *root, const NetEvalPlan *plan,
-                               State *st)
+                               State *st, int objective)
 {
     Move mv[MAX_MOVES];
     float prob[MAX_MOVES];
     while (!st->over) {
         int best = greedy_index(
-            root, plan, st, NULL, 1, 0, mv, prob, NULL,
+            root, plan, st, NULL, 1, 0, objective, mv, prob, NULL,
             NULL, NULL, NULL);
         if (best < 0) return 0;
         lc_apply(st, mv[best]);
@@ -212,8 +292,8 @@ static int play_champion_round(const Net *root, const NetEvalPlan *plan,
 static int play_tail(const State *start, int candidate_seat,
                      const Net *candidate, const NetEvalPlan *candidate_plan,
                      const Net *baseline, const NetEvalPlan *baseline_plan,
-                     const uint8_t perm[2][NSUIT], ContinuationPair *row,
-                     int leg)
+                     uint8_t perm[2][NSUIT], ContinuationPair *row,
+                     int leg, int objective)
 {
     State st = *start;
     Move mv[MAX_MOVES];
@@ -228,7 +308,8 @@ static int play_tail(const State *start, int candidate_seat,
         const NetEvalPlan *plan = p == candidate_seat
             ? candidate_plan : baseline_plan;
         int best = greedy_index(
-            net, plan, &st, perm[p], 0, 1, mv, prob, &exact,
+            net, plan, &st, perm[p], 0, 1, objective,
+            mv, prob, &exact,
             &cycle_history, &cap_force, &cycle_force);
         if (best < 0) return 0;
         lc_apply(&st, mv[best]);
@@ -238,6 +319,18 @@ static int play_tail(const State *start, int candidate_seat,
     row->score[leg][1] = lc_score(&st, 1);
     row->margin[leg] = row->score[leg][candidate_seat]
                      - row->score[leg][candidate_seat ^ 1];
+    row->objective_target[leg] = rollout_terminal_objective(
+        &st, candidate_seat, objective);
+    if (st.round == MATCH_ROUNDS - 1) {
+        row->final_match_margin[leg] =
+            (int)st.cum[candidate_seat]
+          - (int)st.cum[candidate_seat ^ 1] + row->margin[leg];
+        row->final_match_result[leg] =
+            (row->final_match_margin[leg] > 0)
+          - (row->final_match_margin[leg] < 0);
+        row->hybrid_target[leg] = rollout_terminal_objective(
+            &st, candidate_seat, 2);
+    }
     row->tail_plies[leg] = (int)st.nply - first_ply;
     row->capped[leg] = st.deck_left > 0;
     row->exact_moves[leg] = exact;
@@ -265,7 +358,9 @@ static int evaluate_pair(const Job *j, uint64_t absolute,
         context.turn = (uint8_t)(round & 1);
         context.cum[0] = (int16_t)cum[0];
         context.cum[1] = (int16_t)cum[1];
-        if (!play_champion_round(j->root, j->root_plan, &context)) return 0;
+        if (!play_champion_round(
+                j->root, j->root_plan, &context, j->objective))
+            return 0;
         cum[0] += lc_score(&context, 0);
         cum[1] += lc_score(&context, 1);
     }
@@ -278,12 +373,14 @@ static int evaluate_pair(const Job *j, uint64_t absolute,
     real.turn = (uint8_t)(target & 1);
     real.cum[0] = (int16_t)cum[0];
     real.cum[1] = (int16_t)cum[1];
+    row->cumulative_before[0] = cum[0];
+    row->cumulative_before[1] = cum[1];
 
     Move mv[MAX_MOVES];
     float prob[MAX_MOVES];
     while (!real.over && real.nply < ROOT_PLY) {
         int best = greedy_index(
-            j->root, j->root_plan, &real, NULL, 1, 0,
+            j->root, j->root_plan, &real, NULL, 1, 0, j->objective,
             mv, prob, NULL, NULL, NULL, NULL);
         if (best < 0) return 0;
         lc_apply(&real, mv[best]);
@@ -327,19 +424,17 @@ static int evaluate_pair(const Job *j, uint64_t absolute,
     int ngroup = suit_permutations(ROOT_SYMMETRIES, group);
     if (ngroup != ROOT_SYMMETRIES) return 0;
     uint8_t perm[2][NSUIT];
-    int offset = (int)(mix64(j->seed ^ UINT64_C(0xA4093822299F31D0))
-                       % ROOT_SYMMETRIES);
-    for (int seat = 0; seat < 2; seat++) {
-        int k = (offset + (int)((absolute % 10) * 2) + seat)
-              % ROOT_SYMMETRIES;
-        row->player_mapping[seat] = k;
-        memcpy(perm[seat], group[k], NSUIT);
-    }
+    if (!assign_player_mappings(
+            j->seed, absolute, p, j->role_mapping_mode, group,
+            row->player_mapping, perm))
+        return 0;
 
     return play_tail(&post, p, j->candidate, j->candidate_plan,
-                     j->baseline, j->baseline_plan, perm, row, 0)
+                     j->baseline, j->baseline_plan, perm, row, 0,
+                     j->objective)
         && play_tail(&post, p ^ 1, j->candidate, j->candidate_plan,
-                     j->baseline, j->baseline_plan, perm, row, 1);
+                     j->baseline, j->baseline_plan, perm, row, 1,
+                     j->objective);
 }
 
 static void *worker(void *arg)
@@ -365,11 +460,28 @@ static void summarize(const ContinuationPair *rows, int pairs, Summary *out)
 {
     memset(out, 0, sizeof(*out));
     double margin_sum = 0.0, margin_sumsq = 0.0;
+    double configured_sum = 0.0, configured_sumsq = 0.0;
     double score_sum = 0.0, score_sumsq = 0.0;
     double candidate_points = 0.0, baseline_points = 0.0;
+    double round_margin_sum[MATCH_ROUNDS] = { 0 };
+    double round_margin_sumsq[MATCH_ROUNDS] = { 0 };
+    double objective_sum[MATCH_ROUNDS] = { 0 };
+    double objective_sumsq[MATCH_ROUNDS] = { 0 };
+    double final_margin_sum[MATCH_ROUNDS] = { 0 };
+    double final_margin_sumsq[MATCH_ROUNDS] = { 0 };
+    double match_score_sum[MATCH_ROUNDS] = { 0 };
+    double match_score_sumsq[MATCH_ROUNDS] = { 0 };
     for (int i = 0; i < pairs; i++) {
+        int round = rows[i].round;
+        if (round < 0 || round >= MATCH_ROUNDS) continue;
+        RoundSummary *rs = &out->round[round];
+        rs->pairs++;
         double pair_margin = (double)rows[i].margin[0] + rows[i].margin[1];
+        double pair_objective = rows[i].objective_target[0]
+                              + rows[i].objective_target[1];
         double pair_score = 0.0;
+        double pair_final_margin = 0.0;
+        double pair_match_score = 0.0;
         for (int leg = 0; leg < 2; leg++) {
             int seat = rows[i].candidate_seat[leg];
             candidate_points += rows[i].score[leg][seat];
@@ -379,6 +491,15 @@ static void summarize(const ContinuationPair *rows, int pairs, Summary *out)
             if (s == 1.0) out->wins++;
             else if (s == 0.0) out->losses++;
             else out->draws++;
+            if (round == MATCH_ROUNDS - 1) {
+                int result = rows[i].final_match_result[leg];
+                double ms = result > 0 ? 1.0 : (result == 0 ? 0.5 : 0.0);
+                pair_final_margin += rows[i].final_match_margin[leg];
+                pair_match_score += ms;
+                if (result > 0) rs->match_wins++;
+                else if (result < 0) rs->match_losses++;
+                else rs->match_draws++;
+            }
             out->caps += (uint64_t)rows[i].capped[leg];
             out->exact_moves += (uint64_t)rows[i].exact_moves[leg];
             out->cap_forces += (uint64_t)rows[i].cap_forces[leg];
@@ -386,14 +507,28 @@ static void summarize(const ContinuationPair *rows, int pairs, Summary *out)
         }
         margin_sum += pair_margin;
         margin_sumsq += pair_margin * pair_margin;
+        configured_sum += pair_objective;
+        configured_sumsq += pair_objective * pair_objective;
         score_sum += pair_score;
         score_sumsq += pair_score * pair_score;
+        round_margin_sum[round] += pair_margin;
+        round_margin_sumsq[round] += pair_margin * pair_margin;
+        objective_sum[round] += pair_objective;
+        objective_sumsq[round] += pair_objective * pair_objective;
+        if (round == MATCH_ROUNDS - 1) {
+            final_margin_sum[round] += pair_final_margin;
+            final_margin_sumsq[round] +=
+                pair_final_margin * pair_final_margin;
+            match_score_sum[round] += pair_match_score;
+            match_score_sumsq[round] += pair_match_score * pair_match_score;
+        }
         if (rows[i].picked == 0) {
             out->baseline_roots++;
             if (rows[i].admitted == 1) out->singleton_roots++;
         } else out->challenger_roots++;
     }
     out->margin = margin_sum / (2.0 * pairs);
+    out->objective = configured_sum / (2.0 * pairs);
     out->score = score_sum / (2.0 * pairs);
     out->candidate_points = candidate_points / (2.0 * pairs);
     out->baseline_points = baseline_points / (2.0 * pairs);
@@ -402,10 +537,55 @@ static void summarize(const ContinuationPair *rows, int pairs, Summary *out)
                   / (pairs - 1);
         double sv = (score_sumsq - score_sum * score_sum / pairs)
                   / (pairs - 1);
+        double ov =
+            (configured_sumsq - configured_sum * configured_sum / pairs)
+            / (pairs - 1);
         if (mv < 0.0) mv = 0.0;
         if (sv < 0.0) sv = 0.0;
+        if (ov < 0.0) ov = 0.0;
         out->margin_se = sqrt(mv / pairs) / 2.0;
+        out->objective_se = sqrt(ov / pairs) / 2.0;
         out->score_se = sqrt(sv / pairs) / 2.0;
+    }
+    for (int round = 0; round < MATCH_ROUNDS; round++) {
+        RoundSummary *rs = &out->round[round];
+        if (rs->pairs == 0) continue;
+        double n = (double)rs->pairs;
+        rs->round_margin = round_margin_sum[round] / (2.0 * n);
+        rs->objective_target = objective_sum[round] / (2.0 * n);
+        if (round == MATCH_ROUNDS - 1) {
+            rs->final_match_margin = final_margin_sum[round] / (2.0 * n);
+            rs->match_score = match_score_sum[round] / (2.0 * n);
+        }
+        if (rs->pairs > 1) {
+            double rmv =
+                (round_margin_sumsq[round]
+                 - round_margin_sum[round] * round_margin_sum[round] / n)
+                / (n - 1.0);
+            double ov =
+                (objective_sumsq[round]
+                 - objective_sum[round] * objective_sum[round] / n)
+                / (n - 1.0);
+            if (rmv < 0.0) rmv = 0.0;
+            if (ov < 0.0) ov = 0.0;
+            rs->round_margin_se = sqrt(rmv / n) / 2.0;
+            rs->objective_target_se = sqrt(ov / n) / 2.0;
+            if (round == MATCH_ROUNDS - 1) {
+                double fmv =
+                    (final_margin_sumsq[round]
+                     - final_margin_sum[round] *
+                       final_margin_sum[round] / n)
+                    / (n - 1.0);
+                double msv =
+                    (match_score_sumsq[round]
+                     - match_score_sum[round] * match_score_sum[round] / n)
+                    / (n - 1.0);
+                if (fmv < 0.0) fmv = 0.0;
+                if (msv < 0.0) msv = 0.0;
+                rs->final_match_margin_se = sqrt(fmv / n) / 2.0;
+                rs->match_score_se = sqrt(msv / n) / 2.0;
+            }
+        }
     }
 }
 
@@ -429,9 +609,64 @@ static void json_string(FILE *f, const char *s)
     fputc('"', f);
 }
 
+static void write_summary_json(FILE *f, const Summary *summary,
+                               int objective, int target_round,
+                               const char *record)
+{
+    fputs("{\"record\":", f);
+    json_string(f, record);
+    fprintf(f, ",\"continuation_objective\":%d,"
+               "\"configured_objective_aggregate_comparable\":%s,"
+               "\"configured_objective_per_leg\":",
+            objective,
+            objective == 2 && target_round < 0 ? "false" : "true");
+    if (objective == 2 && target_round < 0)
+        fputs("null,\"configured_objective_pair_clustered_se\":null,",
+              f);
+    else
+        fprintf(f, "%.17g,\"configured_objective_pair_clustered_se\":"
+                   "%.17g,", summary->objective, summary->objective_se);
+    fputs("\"rounds\":[", f);
+    for (int round = 0; round < MATCH_ROUNDS; round++) {
+        const RoundSummary *rs = &summary->round[round];
+        if (round) fputc(',', f);
+        fprintf(f,
+                "{\"round\":%d,\"pairs\":%llu,"
+                "\"selection_semantics\":",
+                round, (unsigned long long)rs->pairs);
+        json_string(f, round == MATCH_ROUNDS - 1 && objective == 2
+                         ? "final_match_hybrid"
+                         : "round_margin");
+        fprintf(f,
+                ",\"round_margin_per_leg\":%.17g,"
+                "\"round_margin_pair_clustered_se\":%.17g,"
+                "\"configured_objective_per_leg\":%.17g,"
+                "\"configured_objective_pair_clustered_se\":%.17g",
+                rs->round_margin, rs->round_margin_se,
+                rs->objective_target, rs->objective_target_se);
+        if (round == MATCH_ROUNDS - 1) {
+            fprintf(f,
+                    ",\"final_match_margin_per_leg\":%.17g,"
+                    "\"final_match_margin_pair_clustered_se\":%.17g,"
+                    "\"match_score\":%.17g,"
+                    "\"match_score_pair_clustered_se\":%.17g,"
+                    "\"match_wins\":%llu,\"match_losses\":%llu,"
+                    "\"match_draws\":%llu",
+                    rs->final_match_margin, rs->final_match_margin_se,
+                    rs->match_score, rs->match_score_se,
+                    (unsigned long long)rs->match_wins,
+                    (unsigned long long)rs->match_losses,
+                    (unsigned long long)rs->match_draws);
+        }
+        fputc('}', f);
+    }
+    fputs("]}", f);
+}
+
 static int write_raw(const char *path, const ContinuationPair *rows,
                      int pairs, uint64_t pair_start, uint64_t seed,
-                     int target_round, const char *root_path,
+                     int target_round, int objective, int role_mapping_mode,
+                     const Summary *summary, const char *root_path,
                      const char *candidate_path, const char *baseline_path,
                      const char *provenance)
 {
@@ -452,7 +687,7 @@ static int write_raw(const char *path, const ContinuationPair *rows,
         close(fd); unlink(tmp); free(tmp);
         return 0;
     }
-    fputs("{\"record\":\"meta\",\"schema\":1,"
+    fputs("{\"record\":\"meta\",\"schema\":2,"
           "\"evidence_scope\":\"candidate_screen_only_not_promotion\","
           "\"seed\":", f);
     fprintf(f, "\"%llu\",\"pair_start\":\"%llu\",\"pair_count\":%d,"
@@ -460,6 +695,13 @@ static int write_raw(const char *path, const ContinuationPair *rows,
             (unsigned long long)seed, (unsigned long long)pair_start, pairs);
     if (target_round < 0) fputs("\"cycle_0_1_2\"", f);
     else fprintf(f, "%d", target_round);
+    fprintf(f, ",\"continuation_objective\":%d,"
+               "\"round_0_1_semantics\":\"round_margin\","
+               "\"round_2_mode_2_semantics\":"
+               "\"0.05*final_match_margin+50*signed_match_result\","
+               "\"role_mapping_mode\":",
+            objective);
+    json_string(f, role_mapping_name(role_mapping_mode));
     fputs(",\"root_checkpoint\":", f); json_string(f, root_path);
     fputs(",\"candidate_checkpoint\":", f); json_string(f, candidate_path);
     fputs(",\"baseline_checkpoint\":", f); json_string(f, baseline_path);
@@ -480,25 +722,54 @@ static int write_raw(const char *path, const ContinuationPair *rows,
             "{\"record\":\"pair\",\"index\":\"%llu\","
             "\"round\":%d,\"root_player\":%d,\"admitted\":%d,"
             "\"picked\":%d,\"root_move\":%u,"
+            "\"cum_before\":[%d,%d],"
+            "\"cumulative_before\":[%d,%d],"
             "\"player_mapping\":[%d,%d],"
+            "\"root_role_mapping\":%d,"
+            "\"opponent_role_mapping\":%d,"
             "\"candidate_seat\":[%d,%d],"
             "\"score_by_seat\":[[%d,%d],[%d,%d]],"
-            "\"candidate_margin\":[%d,%d],\"tail_plies\":[%d,%d],"
-            "\"capped\":[%d,%d],\"exact_moves\":[%d,%d],"
-            "\"cap_forces\":[%d,%d],\"cycle_forces\":[%d,%d]}\n",
+            "\"candidate_margin\":[%d,%d],"
+            "\"candidate_round_margin\":[%d,%d],"
+            "\"candidate_objective_target\":[%.17g,%.17g],",
             (unsigned long long)r->index, r->round, r->root_player,
             r->admitted, r->picked, (unsigned)r->root_move,
+            r->cumulative_before[0], r->cumulative_before[1],
+            r->cumulative_before[0], r->cumulative_before[1],
             r->player_mapping[0], r->player_mapping[1],
+            r->player_mapping[r->root_player],
+            r->player_mapping[r->root_player ^ 1],
             r->candidate_seat[0], r->candidate_seat[1],
             r->score[0][0], r->score[0][1],
             r->score[1][0], r->score[1][1],
             r->margin[0], r->margin[1],
+            r->margin[0], r->margin[1],
+            r->objective_target[0], r->objective_target[1]);
+        if (r->round == MATCH_ROUNDS - 1) {
+            fprintf(f,
+                    "\"candidate_final_match_margin\":[%d,%d],"
+                    "\"candidate_final_match_result\":[%d,%d],"
+                    "\"candidate_hybrid_target\":[%.17g,%.17g],",
+                    r->final_match_margin[0], r->final_match_margin[1],
+                    r->final_match_result[0], r->final_match_result[1],
+                    r->hybrid_target[0], r->hybrid_target[1]);
+        } else {
+            fputs("\"candidate_final_match_margin\":null,"
+                  "\"candidate_final_match_result\":null,"
+                  "\"candidate_hybrid_target\":null,", f);
+        }
+        fprintf(f,
+            "\"tail_plies\":[%d,%d],"
+            "\"capped\":[%d,%d],\"exact_moves\":[%d,%d],"
+            "\"cap_forces\":[%d,%d],\"cycle_forces\":[%d,%d]}\n",
             r->tail_plies[0], r->tail_plies[1],
             r->capped[0], r->capped[1],
             r->exact_moves[0], r->exact_moves[1],
             r->cap_forces[0], r->cap_forces[1],
             r->cycle_forces[0], r->cycle_forces[1]);
     }
+    write_summary_json(f, summary, objective, target_round, "summary");
+    fputc('\n', f);
     fprintf(f, "{\"record\":\"complete\",\"pairs\":%d}\n", pairs);
     int failed = ferror(f) || fflush(f) != 0 || fsync(fd) != 0;
     if (fclose(f) != 0) failed = 1;
@@ -518,13 +789,17 @@ static void usage(const char *argv0)
         "usage: %s -a CANDIDATE [-r ROOT] [-b BASELINE] [-n pairs] "
         "[-t threads] [-s seed]\n"
         "          [--pair-start N] [--target-round 0|1|2] [-q]\n"
+        "          [--continuation-objective 0|2]\n"
+        "          [--continuation-role-mappings legacy|shared|independent]\n"
         "          [--raw-pairs FILE --provenance ID [--raw-only]]\n"
         "  Fast continuation-role candidate screen only; never promotion "
         "evidence.\n"
         "  ROOT and BASELINE default to data/champion.bin.  Without "
         "--target-round,\n"
         "  absolute pair indices cycle through genuine round-0/1/2 match "
-        "contexts.\n",
+        "contexts.  Objective 2 preserves round margin in rounds 0/1 and\n"
+        "  uses the final-match hybrid only in round 2.  Independent role\n"
+        "  mappings follow deployed mode-4 ordered-product scheduling.\n",
         argv0);
 }
 
@@ -536,6 +811,7 @@ int main(int argc, char **argv)
     const char *raw_path = NULL;
     const char *provenance = NULL;
     int pairs = 500, nthread = 4, target_round = -1;
+    int objective = 0, role_mapping_mode = ROLE_MAPPING_LEGACY;
     int quiet = 0, raw_only = 0;
     uint64_t seed = UINT64_C(20260822), pair_start = 0;
 
@@ -566,6 +842,33 @@ int main(int argc, char **argv)
             if (!parse_int_range(argv[++i], 0, MATCH_ROUNDS - 1,
                                  &target_round)) {
                 fprintf(stderr, "invalid target round\n"); return 1;
+            }
+        } else if (!strcmp(argv[i], "--continuation-objective")) {
+            if (++i >= argc ||
+                (strcmp(argv[i], "0") != 0 && strcmp(argv[i], "2") != 0)) {
+                fprintf(stderr,
+                        "--continuation-objective must be exactly 0 or 2\n");
+                return 1;
+            }
+            objective = argv[i][0] - '0';
+        } else if (!strcmp(argv[i], "--continuation-role-mappings")) {
+            if (++i >= argc) {
+                fprintf(stderr,
+                        "--continuation-role-mappings must be exactly "
+                        "legacy, shared, or independent\n");
+                return 1;
+            }
+            if (!strcmp(argv[i], "legacy"))
+                role_mapping_mode = ROLE_MAPPING_LEGACY;
+            else if (!strcmp(argv[i], "shared"))
+                role_mapping_mode = ROLE_MAPPING_SHARED;
+            else if (!strcmp(argv[i], "independent"))
+                role_mapping_mode = ROLE_MAPPING_INDEPENDENT;
+            else {
+                fprintf(stderr,
+                        "--continuation-role-mappings must be exactly "
+                        "legacy, shared, or independent\n");
+                return 1;
             }
         } else if (!strcmp(argv[i], "--raw-pairs") && i + 1 < argc)
             raw_path = argv[++i];
@@ -628,6 +931,8 @@ int main(int argc, char **argv)
             .baseline_plan = &baseline_plan,
             .rows = rows, .pair_start = pair_start, .seed = seed,
             .pairs = pairs, .target_round = target_round,
+            .objective = objective,
+            .role_mapping_mode = role_mapping_mode,
             .thread = t, .nthread = nthread, .failed = &failed
         };
         if (pthread_create(&threads[t], NULL, worker, &jobs[t]) != 0) {
@@ -651,6 +956,7 @@ int main(int argc, char **argv)
     summarize(rows, pairs, &summary);
     if (raw_path && !write_raw(
             raw_path, rows, pairs, pair_start, seed, target_round,
+            objective, role_mapping_mode, &summary,
             root_path, candidate_path, baseline_path, provenance)) {
         free(rows); free(jobs); free(threads);
         free(root); free(candidate); free(baseline);
@@ -672,14 +978,52 @@ int main(int argc, char **argv)
                    candidate_path, baseline_path, root_path);
             printf("  %d paired tails (%d legs), post-root controller swap\n",
                    pairs, 2 * pairs);
+            printf("  objective mode %d; role mappings %s\n",
+                   objective, role_mapping_name(role_mapping_mode));
             printf("  round margin/leg %+.3f  (pair-clustered SE %.3f)\n",
                    summary.margin, summary.margin_se);
-            printf("  W/L/D %llu/%llu/%llu   round score %.2f%% "
-                   "(pair-clustered SE %.2f%%)\n",
-                   (unsigned long long)summary.wins,
-                   (unsigned long long)summary.losses,
-                   (unsigned long long)summary.draws,
-                   100.0 * summary.score, 100.0 * summary.score_se);
+            if (objective == 2 && target_round < 0)
+                puts("  configured objective aggregate omitted: round "
+                     "margin and final-match hybrid are different units");
+            else
+                printf("  configured objective/leg %+.3f "
+                       "(pair-clustered SE %.3f)\n",
+                       summary.objective, summary.objective_se);
+            if (objective == 0) {
+                printf("  W/L/D %llu/%llu/%llu   round score %.2f%% "
+                       "(pair-clustered SE %.2f%%)\n",
+                       (unsigned long long)summary.wins,
+                       (unsigned long long)summary.losses,
+                       (unsigned long long)summary.draws,
+                       100.0 * summary.score, 100.0 * summary.score_se);
+            } else {
+                for (int round = 0; round < MATCH_ROUNDS; round++) {
+                    const RoundSummary *rs = &summary.round[round];
+                    if (rs->pairs == 0) continue;
+                    if (round < MATCH_ROUNDS - 1) {
+                        printf("  round %d: %llu pairs, round margin/leg "
+                               "%+.3f (SE %.3f)\n",
+                               round, (unsigned long long)rs->pairs,
+                               rs->round_margin, rs->round_margin_se);
+                    } else {
+                        printf("  round 2: %llu pairs, hybrid target/leg "
+                               "%+.3f (SE %.3f), final match margin/leg "
+                               "%+.3f (SE %.3f)\n",
+                               (unsigned long long)rs->pairs,
+                               rs->objective_target,
+                               rs->objective_target_se,
+                               rs->final_match_margin,
+                               rs->final_match_margin_se);
+                        printf("           match W/L/D %llu/%llu/%llu, "
+                               "score %.2f%% (SE %.2f%%)\n",
+                               (unsigned long long)rs->match_wins,
+                               (unsigned long long)rs->match_losses,
+                               (unsigned long long)rs->match_draws,
+                               100.0 * rs->match_score,
+                               100.0 * rs->match_score_se);
+                    }
+                }
+            }
             printf("  round points/leg %.2f vs %.2f\n",
                    summary.candidate_points, summary.baseline_points);
             printf("  roots baseline/challenger/singleton %llu/%llu/%llu\n",

@@ -884,6 +884,9 @@ default actor.
 # PPO learns only later decisions in uniformly sampled hidden worlds.
 ./bin/rl --init data/champion.bin --continuation-start 14 \
          --continuation-root data/champion.bin \
+         --continuation-objective 2 \
+         --continuation-role-mappings independent \
+         --trajectory-symmetries 20 \
          --anchor data/champion.bin --kl 0.5 --lambda 1 \
          --rounds 3 --games 1000 \
          --out data/continuation-candidate.bin
@@ -910,14 +913,52 @@ behavior, PPO, and entropy mass, while the full-legal anchor KL can still
 protect their logits. The shared semantic late-cycle tracker and cap-reserve
 rule force the conditionally best deck draw without an actor row, ensuring
 completion through the real deck rule; an unfinished capped round is rejected.
-Continuation mode defaults to and requires `--lambda 1` exactly. Its target is
-therefore always the production audit's mode-0 completed-round margin, with the
-value head serving only as an action-independent advantage baseline. Belief
-loss and standalone-policy evaluation default off because the eventual
-checkpoint must be qualified specifically in the dual-network rollout
-continuation role. Match evaluation and trajectory suit-map selection are
-thread-stable, but complete PPO training is not yet checkpoint-identical when
-`--threads` changes; keep the worker count fixed across training comparisons.
+Continuation mode defaults to and requires `--lambda 1` exactly. The legacy
+default `--continuation-objective 0` retains completed-round margin in every
+round. Mode 2 preserves that exact target in rounds 0 and 1, then uses
+`0.05 * final match margin + 50 * signed match result` in real round index 2,
+the same hybrid deployed by rollout mode 2. The configured objective is used
+both by the exact deck-one solver and every terminal PPO target; `--winbonus`
+and `--mw` are rejected in continuation mode rather than being silently
+ignored. The value head remains only an action-independent advantage baseline.
+
+The legacy default `--continuation-role-mappings shared` fixes one suit mapping
+for both players across a match. `independent` requires a nontrivial exact
+`--trajectory-symmetries` group and matches deployed role-coherent rollout:
+each player receives an independently assigned fixed mapping for the complete
+round tail, assigned root-player first and stratified over the ordered product
+group.
+Actor rows and both halves of the centralized critic are stored/reconstructed
+in their own role coordinates. Belief loss and standalone-policy evaluation
+default off because the eventual checkpoint must be qualified specifically in
+the dual-network rollout continuation role. Match evaluation and trajectory
+suit-map selection are thread-stable, but complete PPO training is not yet
+checkpoint-identical when `--threads` changes; keep the worker count fixed
+across training comparisons.
+
+Screen an objective-2, role-coherent continuation checkpoint with the same
+semantics and retain self-describing pair evidence:
+
+```sh
+./bin/continuation_arena -a data/continuation-candidate.bin \
+    -r data/champion.bin -b data/champion.bin \
+    --continuation-objective 2 \
+    --continuation-role-mappings independent \
+    --raw-pairs results/continuation-v2.jsonl \
+    --provenance LOCKED_EXPERIMENT_ID --raw-only
+```
+
+Raw schema 2 records cumulative score before the target round, round margin,
+the configured target, and—only for round 2—final-match margin/result and the
+exact hybrid target. Its pair-clustered summary keeps rounds 0/1 as
+round-margin strata and reports round-2 hybrid value plus match score. When a
+file cycles across all three rounds under objective 2, the incomparable mixed
+aggregate is emitted as `null`; selectors must consume the per-round strata.
+Rows expose both physical-seat mappings and explicit root/opponent role IDs.
+The
+default `legacy` arena mapping and eight-number `-q` output remain available
+only for reproducibility of older screens; new role-coherent screens should
+bind `independent` and select from the raw summary.
 
 To form a predeclared equal-weight checkpoint soup without changing any input:
 

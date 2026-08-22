@@ -14,6 +14,7 @@ CORE    := $(SRC)/lc.c $(SRC)/features.c $(SRC)/net.c $(SRC)/heuristic.c \
 
 all: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_role_coherence \
 	$(BIN)/test_late_resolver $(BIN)/test_rl_support \
+	$(BIN)/test_continuation_arena_support \
 	$(BIN)/arena $(BIN)/train \
 	$(BIN)/bench $(BIN)/probe $(BIN)/rl $(BIN)/ladder $(BIN)/play \
 	$(BIN)/showgame $(BIN)/dumpfeat $(BIN)/analyze $(BIN)/searchcmp \
@@ -49,6 +50,14 @@ $(BIN)/test_rl_support: tests/test_rl_support.c tools/rl.c $(CORE) $(HDRS) | $(B
 	$(CC) $(CFLAGS) -o $@ \
 		$(filter-out tools/rl.c,$(filter %.c,$^)) $(LDFLAGS)
 
+# White-box continuation-screen tests verify the exact legacy/shared/product
+# role schedules without spending games on a 400-tail integration fixture.
+$(BIN)/test_continuation_arena_support: \
+	tests/test_continuation_arena_support.c tools/continuation_arena.c \
+	$(CORE) $(HDRS) | $(BIN)
+	$(CC) $(CFLAGS) -o $@ \
+		$(filter-out tools/continuation_arena.c,$(filter %.c,$^)) $(LDFLAGS)
+
 $(BIN)/arena: tools/arena.c $(CORE) $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
 
@@ -63,6 +72,7 @@ $(BIN)/bench: tools/bench.c $(CORE) $(HDRS) | $(BIN)
 
 test: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_role_coherence \
 	$(BIN)/test_late_resolver $(BIN)/test_rl_support \
+	$(BIN)/test_continuation_arena_support \
 	$(BIN)/test_belief_eval \
 	$(BIN)/belief_eval $(BIN)/rl $(BIN)/arena $(BIN)/continuation_arena \
 	$(BIN)/net_average \
@@ -72,6 +82,7 @@ test: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_role_coherence \
 	./$(BIN)/test_role_coherence
 	./$(BIN)/test_late_resolver
 	./$(BIN)/test_rl_support
+	./$(BIN)/test_continuation_arena_support
 	./$(BIN)/test_belief_eval
 	python3 -m unittest tests/test_rl_population.py
 	python3 -m unittest tests/test_belief_eval.py

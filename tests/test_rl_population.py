@@ -74,7 +74,11 @@ class PopulationTrainingTest(unittest.TestCase):
 
             repeated = command.copy()
             repeated[repeated.index(str(first))] = str(second)
-            repeated.extend(["--lambda", "1"])
+            repeated.extend([
+                "--lambda", "1",
+                "--continuation-objective", "0",
+                "--continuation-role-mappings", "shared",
+            ])
             second_run = subprocess.run(
                 repeated, cwd=ROOT, text=True, capture_output=True, check=True
             )
@@ -153,6 +157,62 @@ class PopulationTrainingTest(unittest.TestCase):
                 check=True,
             )
             self.assertEqual(implicit.read_bytes(), explicit.read_bytes())
+
+    def test_independent_continuation_role_diagnostics_are_thread_stable(
+        self,
+    ) -> None:
+        source = ROOT / "data" / "champion.bin"
+        with tempfile.TemporaryDirectory(prefix="lc-rl-role-product-") as tmp:
+            first = Path(tmp) / "one-thread.bin"
+            second = Path(tmp) / "two-thread.bin"
+            command = [
+                str(ROOT / "bin" / "rl"),
+                "--init", str(source),
+                "--out", str(first),
+                "--continuation-start", "14",
+                "--continuation-root", str(source),
+                "--continuation-objective", "2",
+                "--continuation-role-mappings", "independent",
+                "--trajectory-symmetries", "5",
+                "--iters", "1",
+                "--games", "4",
+                "--rounds", "3",
+                "--threads", "1",
+                # Exercise generation and all fail-closed diagnostics without
+                # performing an optimizer update.
+                "--epochs", "0",
+                "--batch", "1",
+                "--seed", "20260825",
+            ]
+            one = subprocess.run(
+                command, cwd=ROOT, text=True, capture_output=True, check=True
+            )
+            two_command = command.copy()
+            two_command[two_command.index(str(first))] = str(second)
+            two_command[two_command.index("--threads") + 1] = "2"
+            two = subprocess.run(
+                two_command, cwd=ROOT, text=True, capture_output=True,
+                check=True,
+            )
+            pattern = (
+                r"continuation role product group 5: tails (\d+); "
+                r"pair-count (\d+)\.\.(\d+); root/opponent marginals "
+                r"(\d+)\.\.(\d+)/(\d+)\.\.(\d+)"
+            )
+            one_roles = re.search(pattern, one.stdout)
+            two_roles = re.search(pattern, two.stdout)
+            self.assertIsNotNone(one_roles, one.stdout)
+            self.assertIsNotNone(two_roles, two.stdout)
+            self.assertEqual(one_roles.groups(),
+                             ("12", "0", "1", "2", "3", "2", "3"))
+            self.assertEqual(one_roles.groups(), two_roles.groups())
+            for label in ("augmentation fingerprint", "fingerprint"):
+                one_hashes = re.findall(fr"{label} ([0-9a-f]{{16}})",
+                                        one.stdout)
+                two_hashes = re.findall(fr"{label} ([0-9a-f]{{16}})",
+                                        two.stdout)
+                self.assertEqual(one_hashes, two_hashes)
+            self.assertEqual(first.read_bytes(), second.read_bytes())
 
     def test_continuation_root_is_loaded_byte_exact(self) -> None:
         source = ROOT / "data" / "champion.bin"
@@ -559,6 +619,18 @@ class PopulationTrainingTest(unittest.TestCase):
              "--lambda must be finite and between zero and one"),
             (["--lambda", "1.1"],
              "--lambda must be finite and between zero and one"),
+            (["--continuation-objective", "1"],
+             "--continuation-objective must be exactly 0 or 2"),
+            (["--continuation-objective", "3"],
+             "--continuation-objective must be exactly 0 or 2"),
+            (["--continuation-objective", "-1"],
+             "--continuation-objective must be exactly 0 or 2"),
+            (["--continuation-objective", "nan"],
+             "--continuation-objective must be exactly 0 or 2"),
+            (["--continuation-objective", "two"],
+             "--continuation-objective must be exactly 0 or 2"),
+            (["--continuation-role-mappings", "random"],
+             "--continuation-role-mappings must be exactly"),
         ]
         for args, error in cases:
             with self.subTest(args=args):
@@ -571,6 +643,37 @@ class PopulationTrainingTest(unittest.TestCase):
                 )
                 self.assertNotEqual(run.returncode, 0)
                 self.assertIn(error, run.stderr)
+
+        continuation_only_cases = [
+            (["--continuation-objective", "0"],
+             "--continuation-objective requires --continuation-start 14"),
+            (["--continuation-role-mappings", "shared"],
+             "--continuation-role-mappings requires --continuation-start 14"),
+        ]
+        for args, error in continuation_only_cases:
+            with self.subTest(args=args):
+                run = subprocess.run(
+                    [str(ROOT / "bin" / "rl"), "--init", str(source),
+                     "--eval", "0", *args],
+                    cwd=ROOT,
+                    text=True,
+                    capture_output=True,
+                )
+                self.assertNotEqual(run.returncode, 0)
+                self.assertIn(error, run.stderr)
+
+        for option in ("--continuation-objective",
+                       "--continuation-role-mappings"):
+            with self.subTest(missing_value=option):
+                run = subprocess.run(
+                    [str(ROOT / "bin" / "rl"), "--init", str(source),
+                     option],
+                    cwd=ROOT,
+                    text=True,
+                    capture_output=True,
+                )
+                self.assertNotEqual(run.returncode, 0)
+                self.assertIn(f"{option} must be exactly", run.stderr)
 
         continuation = subprocess.run(
             [
@@ -586,6 +689,62 @@ class PopulationTrainingTest(unittest.TestCase):
         )
         self.assertNotEqual(continuation.returncode, 0)
         self.assertIn("requires --lambda 1 exactly", continuation.stderr)
+
+        locked_continuation_cases = [
+            (["--continuation-objective", "2", "--rounds", "1"],
+             "--continuation-objective 2 requires --rounds 3"),
+            (["--continuation-objective", "2", "--rounds", "2"],
+             "--continuation-objective 2 requires --rounds 3"),
+            (["--continuation-role-mappings", "independent",
+              "--trajectory-symmetries", "0"],
+             "independent continuation role mappings require"),
+            (["--continuation-role-mappings", "independent",
+              "--trajectory-symmetries", "1"],
+             "independent continuation role mappings require"),
+            (["--continuation-role-mappings", "independent",
+              "--trajectory-symmetries", "3"],
+             "--trajectory-symmetries must be"),
+            (["--winbonus", "50"],
+             "continuation-only PPO does not use --winbonus or --mw"),
+            (["--mw", "0.05"],
+             "continuation-only PPO does not use --winbonus or --mw"),
+        ]
+        for args, error in locked_continuation_cases:
+            with self.subTest(args=args):
+                run = subprocess.run(
+                    [str(ROOT / "bin" / "rl"), "--init", str(source),
+                     "--continuation-start", "14",
+                     "--continuation-root", str(source), *args],
+                    cwd=ROOT,
+                    text=True,
+                    capture_output=True,
+                )
+                self.assertNotEqual(run.returncode, 0)
+                self.assertIn(error, run.stderr)
+
+        valid = subprocess.run(
+            [
+                str(ROOT / "bin" / "rl"),
+                "--init", str(source),
+                "--continuation-start", "14",
+                "--continuation-root", str(source),
+                "--continuation-objective", "2",
+                "--continuation-role-mappings", "independent",
+                "--trajectory-symmetries", "20",
+                "--rounds", "3",
+                "--iters", "0",
+                "--games", "1",
+                "--threads", "1",
+                "--batch", "1",
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        self.assertIn("continuation objective 2", valid.stdout)
+        self.assertIn("independent ordered-product group 20", valid.stdout)
+        self.assertIn("rounds 0/1 margin; round 2", valid.stdout)
 
 
 if __name__ == "__main__":
