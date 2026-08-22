@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "continuation_soup_v1_locked_actor_result",
+  "status": "rejected_at_predeclared_safety_gate",
+  "workflow": {
+    "run_id": 32579664049,
+    "url": "https://github.com/BEKINDTOEVERYKIND/LOSTCITIESCHATGPT/actions/runs/32579664049",
+    "launch_commit": "c8be0b00d305ac1821d6e582a3f4b940bed95fb4",
+    "repair_parent_commit": "d327814c8c06b15debcfc1241cf893ce0dc0ab3a",
+    "execution_addendum_sha256": "1a4fbbe89cf1e7b18fc0f54dc684e9dc2c29863f3fe5609d3c8cb61c88ff5344",
+    "conclusion": "success"
+  },
+  "evidence": {
+    "artifact_id": 9477775297,
+    "artifact_name": "continuation-soup-v1-safety-final-evidence",
+    "artifact_size_bytes": 37594,
+    "artifact_zip_sha256": "a62e3226cf9c19526036919755232f140ea71db102d2dfef451b61865cbfd4cf",
+    "structural_validation_sha256": "71b5a9470daa3307845d6cc1e4480c56965eef4b104af96a2b22938949663890",
+    "candidate_first_merge_sha256": "64a5dce791b786e88a594821ab7294db497e056b00b3f55bfa7de6eff341df8f",
+    "baseline_first_merge_sha256": "e482ff768b6c20227c79a547c9d45605e5c81f0caa7b731c56ecf43b2de0a799",
+    "reciprocal_sha256": "e058a0c3e471df9bde47fbb818c60d569c779532883d6381285156e1d9b051de",
+    "safety_decision_sha256": "f5acd782e27caa0540d27b5d4b3789528a781447cac9617a4a6a2c2326dc9441",
+    "manifest_sha256": "d43096cbd213b4d4495d7ff360392086b35b507662b82b74dc27ea4e6c77052a"
+  },
+  "locked_inputs": {
+    "root_model_sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+    "candidate_model_sha256": "e88c97912165165f200e7e1ebe9705971916c93083fa0049d63aa6eeba1adb8d",
+    "arena_sha256": "a65f73871e04ed0e21f2bc9920a235cbb5d29950b35bb91df37ae9dcc8801efa",
+    "candidate": "rolloutu2:data/champion.bin:results/continuation-soup-v1/soup.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+    "baseline": "rolloutu2:data/champion.bin:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
+  },
+  "panel": {
+    "pairs_per_orientation": 200,
+    "matches_total": 800,
+    "candidate_first_seed": "202608240301",
+    "baseline_first_seed": "202608240302",
+    "shards_per_orientation": 10,
+    "pairs_per_shard": 20,
+    "all_shards_structurally_valid": true,
+    "capped_rounds": 0
+  },
+  "candidate_result": {
+    "wins": 388,
+    "losses": 409,
+    "draws": 3,
+    "match_score": 0.486875,
+    "match_score_pair_clustered_se": 0.013918776294729129,
+    "match_score_one_sided_95_lower_bound": 0.46397861299517057,
+    "margin_per_match": -2.57625,
+    "margin_pair_clustered_se": 1.660155805165474,
+    "margin_one_sided_95_lower_bound": -5.307206299497205,
+    "orientation_match_scores": [0.495, 0.47875]
+  },
+  "orientation_results": {
+    "candidate_first": {
+      "matches": 400,
+      "wins": 197,
+      "losses": 201,
+      "draws": 2,
+      "match_score": 0.495,
+      "margin_per_match": -2.065
+    },
+    "baseline_first_inverted_to_candidate": {
+      "matches": 400,
+      "wins": 191,
+      "losses": 208,
+      "draws": 1,
+      "match_score": 0.47875,
+      "margin_per_match": -3.0875
+    }
+  },
+  "safety_gate": {
+    "raw_inputs_validated": true,
+    "zero_capped_rounds": true,
+    "combined_match_score_at_least_half": false,
+    "combined_margin_strictly_positive": false,
+    "candidate_first_match_score_at_least_0_475": true,
+    "baseline_first_inverted_match_score_at_least_0_475": true,
+    "passed": false
+  },
+  "disposition": {
+    "locked_final_executed": false,
+    "candidate_promoted": false,
+    "maintained_continuation_checkpoint": "data/champion.bin",
+    "reason": "The complete valid safety panel was below baseline on both match score and point margin, so the workflow skipped the locked final without consuming its seeds."
+  }
+}
