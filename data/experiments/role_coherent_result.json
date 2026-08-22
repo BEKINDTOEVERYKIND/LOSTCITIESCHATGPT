@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "completed_role_coherent_distributed_result",
+  "status": "complete_valid_gate_passed",
+  "completed_utc": "2026-08-22T13:43:14Z",
+  "workflow": {
+    "run_id": 32571592557,
+    "url": "https://github.com/BEKINDTOEVERYKIND/LOSTCITIESCHATGPT/actions/runs/32571592557",
+    "head_sha": "2a9e096b97b3b5117564423a45d92106406695e7",
+    "jobs_completed_successfully": 22
+  },
+  "locked_inputs": {
+    "plan_path": "data/experiments/locked_role_coherent_plan.json",
+    "plan_sha256": "656ac8ca91ecc9b0b4fb901216a2a7fdb85226a3c9a049df2a6e33bfce8024b1",
+    "execution_path": "data/experiments/locked_role_coherent_execution.json",
+    "execution_sha256": "3d196bc017dd480686874bab4d2afeb2bed1c1fdfac4d9e578b6e37d907ca320",
+    "parent_result_sha256": "ea9d170a007c95b43a4580ac9235a93ee52cd722feafb5706d9830b357d339e3",
+    "source_commit": "08f9e1a5218e03c399b257b852efe20b0089c7b0",
+    "arena_sha256": "a0cda590f597656c96808649407fda61c6c8fc4e1b3c8812a5d3d02e80157cb5",
+    "model_sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417"
+  },
+  "evidence": {
+    "artifact_id": 9476695882,
+    "artifact_name": "role-coherent-final-evidence",
+    "path": "data/experiments/role_coherent_final_evidence.zip",
+    "size_bytes": 61270,
+    "sha256": "5b0fc3a99749ea2fb748617155071ddd5fe9909bf1ddd8d7430b6a679f2d2906",
+    "reciprocal_result_sha256": "9312ad6f78b43085bb3f4706b55c2379e785870525d169f2e3077b51a90d0d55",
+    "candidate_first_merge_sha256": "ae0a93fbd3291f24743b535b1226aa3f08c61e97508d7f3298be733bd3b23590",
+    "baseline_first_merge_sha256": "f4122413d95d3bb561b8714000e5e34ad099a5399549fae882e698ac3677625d",
+    "raw_shards": 20,
+    "raw_pairs_per_orientation": 1000,
+    "all_artifact_and_shard_hashes_verified": true,
+    "all_raw_inputs_reopened_and_exactly_remerged": true,
+    "gaps_overlaps_or_malformed_rows": 0,
+    "capped_rounds": 0
+  },
+  "candidate": {
+    "spec": "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+    "change": "Role-coherent player mappings in sampled trajectories and the trusted-prefix confirmation panel"
+  },
+  "baseline": {
+    "spec": "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:2:20:0:0:20:1:0:512:1:0:0:0:0:0:0:2:1:0:0:0:0:0:0:1"
+  },
+  "reciprocal_blocks": [
+    {
+      "orientation": "candidate_first",
+      "pairs": 1000,
+      "candidate_match_score": 0.51675,
+      "candidate_match_score_se": 0.00861575119584292,
+      "candidate_margin_per_game": 2.273,
+      "candidate_margin_se": 1.0577664396457473,
+      "wins": 1030,
+      "losses": 963,
+      "draws": 7
+    },
+    {
+      "orientation": "baseline_first_inverted_to_candidate",
+      "pairs": 1000,
+      "candidate_match_score": 0.52,
+      "candidate_match_score_se": 0.008841842465130114,
+      "candidate_margin_per_game": 3.215,
+      "candidate_margin_se": 1.072296178345374,
+      "wins": 1034,
+      "losses": 954,
+      "draws": 12
+    }
+  ],
+  "combined_candidate_result": {
+    "estimator": "Equal-weight reciprocal blocks with the baseline-first block inverted",
+    "pairs": 2000,
+    "games": 4000,
+    "match_score": 0.518375,
+    "match_score_pair_clustered_se": 0.006172709025356024,
+    "match_score_one_sided_95_lower_bound": 0.5082208936532894,
+    "margin_per_game": 2.744,
+    "margin_pair_clustered_se": 0.7531083811336411,
+    "wins": 2064,
+    "losses": 1917,
+    "draws": 19
+  },
+  "decision": {
+    "promotion_gate_passed": true,
+    "mechanically_selected_tail": "512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+    "interpretation": "The role-coherent rollout family clears the locked match-score lower bound, wins both reciprocal orientations, has positive combined margin, and is operationally valid. It replaces the incoherent mode-2 tail in subsequent precommitted tests."
+  }
+}
