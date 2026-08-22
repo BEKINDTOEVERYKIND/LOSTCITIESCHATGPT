@@ -77,6 +77,7 @@ test: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_role_coherence \
 	python3 -m unittest tests/test_belief_eval.py
 	python3 -m unittest tests/test_make_showcase.py
 	python3 -m unittest tests/test_merge_arena.py
+	python3 -m unittest tests/test_actor_panel.py
 	python3 -m unittest tests/test_continuation_arena.py
 	python3 -m unittest tests/test_net_average.py
 
