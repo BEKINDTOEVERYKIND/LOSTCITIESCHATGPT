@@ -1,37 +1,63 @@
 {
-  "schema": 2,
+  "schema": 3,
   "experiment": "match-value-factorial-development-panel",
-  "status": "blocked_pending_world800_winner_and_prebuild_manifest",
+  "status": "blocked_pending_add_only_world800_binding",
   "base_commit": null,
-  "scope": "development_only_not_promotion_evidence",
+  "scope": "development_then_reserved_final_only",
   "objective": "test whether controller-bound full-match utility improves three-round match score, whether raw policy evaluation or isotonic optimal-value regularization is safer, and whether the table should act from ply 0 or ply 14",
   "artifact_build": {
-    "command_template": "./bin/build_match_value --model ${WINNER_MODEL} --out results/match-value/winner-o0-16000-isotonic.lcmv --raw-out results/match-value/winner-o0-16000-raw.lcmv --samples 16000 --threads 8 --seed 7331001",
+    "command_template": "./bin/build_match_value --model data/champion.bin --out tables/winner-o0-16000-isotonic.lcmv --raw-out tables/winner-o0-16000-raw.lcmv --samples 16000 --threads 8 --seed 7331001 --playout-symmetries 20",
+    "compiler": {
+      "executable": "gcc",
+      "semantic_version_command": "gcc -dumpfullversion -dumpversion",
+      "required_semantic_version": "13.3.0",
+      "build_info_records": [
+        "gcc --version first line",
+        "uname -a",
+        "ImageOS",
+        "ImageVersion",
+        "RUNNER_OS",
+        "RUNNER_ARCH"
+      ]
+    },
+    "samples": 16000,
+    "threads": 8,
+    "seed": 7331001,
     "transition_round_simulations": 9632000,
     "required_role_balance": "complete 20x20 product cycles",
     "required_controller_abi": 1,
     "variants_share_identical_transition_histograms": true
   },
-  "prebuild_manifest_required_before_table_build": {
-    "status": "not_written_until_current_world800_campaign_finishes",
+  "add_only_execution_binding_required_before_table_build": {
+    "path": "data/experiments/locked_match_value_variant_execution.json",
+    "template_path": "data/experiments/locked_match_value_variant_execution.template.json",
+    "status": "intentionally_absent_until_current_world800_campaign_finishes",
     "must_freeze": [
       "current remote commit after all accepted patches",
       "winning model path and SHA-256",
-      "compiler identity, version, target architecture, optimization flags, floating-point flags, and expected match-value build-profile word",
+      "gcc executable plus required semantic version 13.3.0 obtained with the exact command gcc -dumpfullversion -dumpversion, target architecture, optimization flags, floating-point flags, and expected match-value build-profile word",
       "source commit and hashes of match-value/controller source files",
       "deterministic table-build command, seed, samples, role schedule, and output paths"
     ],
-    "rule": "do not build either table until this manifest exists; table generation itself is not an efficacy test"
+    "rule": "the sole launch commit must add only the execution binding, must name the independently committed authoritative world800 result, and must exist before either table is built; table generation itself is not an efficacy test"
   },
-  "pre_efficacy_execution_addendum_required_after_table_build": {
-    "status": "not_written",
+  "pre_efficacy_generated_build_manifest": {
+    "status": "generated_and_hashed_by_the_locked_workflow_after_the_single_table_build_and_before_any_match",
     "must_freeze": [
       "raw and isotonic table paths, SHA-256 values, payload fingerprints, and maximum projection adjustments",
-      "winning rollout world cap and complete actor strings",
-      "compiler identity, optimization flags, source commit, source hashes, and observed match-value build-profile word",
-      "all match commands, development seeds, reciprocal orientations, pair counts, shard matrix, and mechanical selection rules"
+      "winning rollout world cap and complete mechanically constructed actor strings",
+      "required compiler semantic version and version-query command, observed full compiler package banner, uname, GitHub runner ImageOS/ImageVersion/RUNNER_OS/RUNNER_ARCH fields, optimization flags, source commit, source hashes, and observed match-value build-profile word",
+      "the predeclared match commands, development and reserved-final seeds, reciprocal orientations, pair counts, shard matrices, and mechanical rules"
     ],
-    "rule": "do not run a single efficacy match until this post-build addendum exists and verifies both deterministic artifacts against the prebuild manifest"
+    "rule": "do not run a single efficacy match until this no-clobber manifest exists, verifies both artifacts against the add-only prebuild binding, and is included in the immutable transported evaluator"
+  },
+  "execution_protocol": {
+    "workflow": ".github/workflows/match-value-variant.yml",
+    "launch": "one non-forced, first-attempt push adding only data/experiments/locked_match_value_variant_execution.json",
+    "compile_and_build": "compile one arena and one table builder from the sole parent tree; invoke the table builder exactly once to emit the raw and isotonic pair from shared transition histograms",
+    "inspection_firewall": "each efficacy matrix job emits raw rows only; the downstream job first requires every expected shard and sidecar for the complete stage before any reciprocal merge, gate, or selection",
+    "conditional_path": "stage 1 mechanically selects one of R14/P14/R0/P0; stage 2 evaluates only it; the reserved final matrix runs automatically only if the exact stage-2 development gate passes",
+    "promotion_behavior": "the workflow uploads a promotion recommendation and all evidence but never edits a branch, checkpoint, default actor, or repository file"
   },
   "invariants": {
     "rounds": 3,
@@ -68,25 +94,25 @@
   "factorial_candidates": {
     "R14": {
       "objective": 3,
-      "table": "results/match-value/winner-o0-16000-raw.lcmv",
+      "table": "tables/winner-o0-16000-raw.lcmv",
       "isotonic_projected": false,
       "phase": {"ply_lo": 14, "ply_hi": 0}
     },
     "P14": {
       "objective": 3,
-      "table": "results/match-value/winner-o0-16000-isotonic.lcmv",
+      "table": "tables/winner-o0-16000-isotonic.lcmv",
       "isotonic_projected": true,
       "phase": {"ply_lo": 14, "ply_hi": 0}
     },
     "R0": {
       "objective": 3,
-      "table": "results/match-value/winner-o0-16000-raw.lcmv",
+      "table": "tables/winner-o0-16000-raw.lcmv",
       "isotonic_projected": false,
       "phase": {"ply_lo": 0, "ply_hi": 0}
     },
     "P0": {
       "objective": 3,
-      "table": "results/match-value/winner-o0-16000-isotonic.lcmv",
+      "table": "tables/winner-o0-16000-isotonic.lcmv",
       "isotonic_projected": true,
       "phase": {"ply_lo": 0, "ply_hi": 0}
     }
@@ -139,10 +165,10 @@
     ],
     "total_mirrored_pairs": 1000,
     "pass_rule": "combined equal-weight reciprocal match score is above 50%, each reciprocal block is above 50%, combined equal-weight margin is positive, capped rounds are zero, and every raw-pair and artifact validation check passes",
-    "interpretation": "development evidence only; passing permits definition of a new disjoint locked final test but does not promote the actor"
+    "interpretation": "development evidence only; passing activates the already bound disjoint final reservation but does not promote the actor"
   },
   "locked_final_test_reservation": {
-    "status": "reserved_not_executable_until_stage_2_passes_and_a_separate_execution_addendum_is_committed",
+    "status": "reserved_in_the_add_only_execution_binding_and_executable_only_if_stage_2_passes",
     "reciprocal_blocks": [
       {
         "candidate_position": "agent_a",
@@ -160,17 +186,18 @@
       }
     ],
     "total_mirrored_pairs": 5000,
-    "promotion_gate": "combined pair-clustered 90% lower confidence bound is above 50%, point estimate is above 50%, each reciprocal block is above 50%, combined equal-weight margin is positive, capped rounds are zero, and all exact integrity checks pass",
-    "failure_behavior": "retain the authoritative world800 winner"
+    "promotion_gate": "combined pair-clustered 95% one-sided lower confidence bound (the lower endpoint of the equivalent 90% two-sided confidence interval, using z=1.645) is above 50%, point estimate is above 50%, each reciprocal block is above 50%, combined equal-weight margin is positive, capped rounds are zero, and all exact integrity checks pass",
+    "failure_behavior": "retain the authoritative world800 winner; no repository promotion is performed by the workflow"
   },
   "attribution_caveat": "objective 3 changes both early-round Bellman continuation utility and final-round utility from pure margin to the declared hybrid match utility; a strength result establishes the complete actor's effect, not isolated causality for the Bellman table. Objective 2 is a future attribution control, not part of this preregistered strength panel.",
   "forbidden": [
     "inspecting or acting on partial efficacy results",
     "using any existing locked efficacy seed",
-    "changing an actor, table, phase, world cap, seed, shard count, or selection rule after the pre-efficacy addendum",
+    "changing an actor, table, phase, world cap, seed, shard count, or selection rule after the add-only execution binding or generated pre-efficacy manifest",
     "screening arbitrary practical-effect thresholds for an inactive parameter",
     "describing MCTS as table-aware",
     "promoting from stage 1 or stage 2",
-    "executing the locked final reservation before its separate addendum is committed"
+    "executing the locked final reservation without the add-only execution binding or before the exact stage-2 gate passes",
+    "automatically editing or promoting any model, actor default, branch, or repository file from workflow results"
   ]
 }

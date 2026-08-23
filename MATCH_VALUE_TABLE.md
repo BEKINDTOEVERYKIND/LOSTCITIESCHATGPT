@@ -186,21 +186,38 @@ separate MCTS adapter plus parity tests against rollout at completed-round
 leaves, followed by an efficacy plan whose seeds are locked before results are
 observed.
 
-The development panel is deliberately blocked until the current world-count
-campaign chooses its winner. Before building, a prebuild manifest must freeze
-the then-current remote commit, winner model and hash, compiler profile, and
-the deterministic table command and seed. Generation then supplies the table
-hashes and projection diagnostics; before any efficacy match, a second
-execution addendum must freeze those hashes, rollout worlds, complete actors,
-matrix, commands, and development seeds. This two-step record avoids the
-circular requirement to know an artifact hash before building the artifact.
+The campaign workflow is deliberately inert until the current world-count
+campaign chooses its winner and that authoritative result is committed.  Its
+sole launch is a later, non-forced commit adding only
+`locked_match_value_variant_execution.json`; the checked-in `.template.json`
+cannot trigger it.  That binding freezes the parent source and source-file
+hashes, winner model/actor/world cap, GCC semantic version 13.3.0 as reported
+by the exact `gcc -dumpfullversion -dumpversion` command, and the build profile. The
+observed full compiler package banner, `uname -a`, and GitHub runner image/OS/
+architecture fields remain recorded and hash-bound in `BUILD_INFO.txt` without
+making a package-revision banner an availability gate. The binding also freezes the single
+deterministic paired-table command, and the complete predeclared evaluation
+plan before either table exists.  One builder invocation then emits both raw
+and isotonic artifacts from the same transition histograms.  A no-clobber
+post-build manifest records their hashes, payload fingerprints, projection
+diagnostics, and mechanically constructed actors before the first efficacy
+match.  This split avoids pretending an unknown table hash can be committed
+before generation while leaving no result-dependent choice unfrozen.
+
 The preregistered panel tests the real 2x2 interaction: raw versus projected
 values crossed with all-ply versus ply-14 use. Each candidate is compared with
 the unchanged baseline in reciprocal agent-order blocks so parser or harness
-position cannot masquerade as strength. A mechanical screen and larger
-development confirmation record every mirrored-pair row. Only a passing
-development result permits the already reserved, disjoint locked final seeds
-to be activated by a separate committed execution addendum.
+position cannot masquerade as strength.  No job computes an efficacy estimate
+until every raw shard and sidecar in that stage has completed and structurally
+validated.  Stage one mechanically selects exactly one of R14/P14/R0/P0;
+stage two evaluates only that actor.  Only an exact stage-two pass activates
+the already bound, disjoint reciprocal final seeds.  The workflow archives a
+final gate decision and all raw evidence but never changes a checkpoint,
+default actor, branch, or repository file automatically.
+
+The reserved final score gate uses `z=1.645`: this is a 95% one-sided lower
+confidence bound, equivalently the lower endpoint of a 90% two-sided confidence
+interval. It is not a 90% one-sided bound.
 
 Objective 3 also changes final-round leaves from pure margin to the declared
 hybrid match utility. The panel therefore measures the strength of the whole

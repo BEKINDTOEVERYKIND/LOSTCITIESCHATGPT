@@ -1,0 +1,817 @@
+name: Locked match-value variant campaign
+
+# Deliberately inert when published.  The sole permitted launch is a later,
+# non-forced commit adding only the execution binding after world800 has an
+# independently committed authoritative result.
+on:
+  push:
+    branches:
+      - agent/correctness-and-policy-upgrade
+    paths:
+      - data/experiments/locked_match_value_variant_execution.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: locked-match-value-variant-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PLAN_PATH: data/experiments/match_value_variant_plan.json
+  EXECUTION_PATH: data/experiments/locked_match_value_variant_execution.json
+  WORLD_RESULT_PATH: data/experiments/world800_result.json
+  WORKFLOW_PATH: .github/workflows/match-value-variant.yml
+  COMPILER_EXECUTABLE: gcc
+  COMPILER_SEMANTIC_VERSION_COMMAND: 'gcc -dumpfullversion -dumpversion'
+  REQUIRED_COMPILER_SEMANTIC_VERSION: '13.3.0'
+  BUILD_CFLAGS: '-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11'
+  BUILD_LDFLAGS: '-lm -pthread'
+  BUILD_PROFILE_HEX: '0030d23b'
+  MODEL_SHA: af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417
+  MODEL_SIZE: '2823748'
+  STAGE1_CANDIDATE_SEED: '202608290101'
+  STAGE1_BASELINE_SEED: '202608290102'
+  STAGE2_CANDIDATE_SEED: '202608290201'
+  STAGE2_BASELINE_SEED: '202608290202'
+  FINAL_CANDIDATE_SEED: '202608300101'
+  FINAL_BASELINE_SEED: '202608300102'
+
+jobs:
+  preflight_and_tables:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    outputs:
+      execution_sha: ${{ steps.bind.outputs.execution_sha }}
+      plan_sha: ${{ steps.bind.outputs.plan_sha }}
+      source_commit: ${{ steps.guard.outputs.source_commit }}
+      source_tree: ${{ steps.guard.outputs.source_tree }}
+      transport_manifest_sha: ${{ steps.bind.outputs.transport_manifest_sha }}
+      post_build_manifest_sha: ${{ steps.bind.outputs.post_build_manifest_sha }}
+      arena_sha: ${{ steps.bind.outputs.arena_sha }}
+      world_cap: ${{ steps.actors.outputs.world_cap }}
+      baseline: ${{ steps.actors.outputs.baseline }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          path: campaign
+
+      - name: Fail closed unless this is the unique addendum-only launch
+        id: guard
+        working-directory: campaign
+        env:
+          EVENT_BEFORE: ${{ github.event.before }}
+          EVENT_AFTER: ${{ github.event.after }}
+          EVENT_FORCED: ${{ github.event.forced }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = push
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$GITHUB_REF" = refs/heads/agent/correctness-and-policy-upgrade
+          test "$EVENT_FORCED" = false
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$EVENT_AFTER" = "$GITHUB_SHA"
+          test "$(git rev-list --parents -n 1 HEAD | wc -w)" -eq 2
+          SOURCE_COMMIT="$(git rev-parse HEAD^)"
+          SOURCE_TREE="$(git rev-parse 'HEAD^^{tree}')"
+          test "$EVENT_BEFORE" = "$SOURCE_COMMIT"
+          test -f "$EXECUTION_PATH"
+          test "$(git diff-tree --no-commit-id --name-only -r HEAD)" = \
+            "$EXECUTION_PATH"
+          test "$(git diff-tree --no-commit-id --name-status -r HEAD)" = \
+            "$(printf 'A\t%s' "$EXECUTION_PATH")"
+          if git cat-file -e "HEAD^:$EXECUTION_PATH" 2>/dev/null; then
+            echo "execution binding existed before the launch commit" >&2
+            exit 1
+          fi
+          test "$(git rev-list --all --count -- "$EXECUTION_PATH")" = 1
+          test -f "$WORLD_RESULT_PATH"
+          git cat-file -e "HEAD^:$WORLD_RESULT_PATH"
+          python3 tools/match_value_campaign.py guard-execution \
+            --root . --execution "$EXECUTION_PATH" \
+            --source-commit "$SOURCE_COMMIT" --source-tree "$SOURCE_TREE" \
+            --output locked-execution-validation.json
+          echo "source_commit=$SOURCE_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "source_tree=$SOURCE_TREE" >> "$GITHUB_OUTPUT"
+
+      - name: Materialize only the bound parent source
+        run: |
+          set -euo pipefail
+          mkdir source
+          git -C campaign archive HEAD^ | tar -x -C source
+          test ! -e "source/$EXECUTION_PATH"
+          test "$(git -C campaign rev-parse HEAD^)" = \
+            "${{ steps.guard.outputs.source_commit }}"
+          test "$(git -C campaign rev-parse 'HEAD^^{tree}')" = \
+            "${{ steps.guard.outputs.source_tree }}"
+          test "$(sha256sum source/data/champion.bin | cut -d' ' -f1)" = \
+            "$MODEL_SHA"
+          test "$(stat -c %s source/data/champion.bin)" = "$MODEL_SIZE"
+
+      - name: Compile one evaluator and one table builder
+        run: |
+          set -euo pipefail
+          test "$COMPILER_EXECUTABLE" = gcc
+          test "$COMPILER_SEMANTIC_VERSION_COMMAND" = \
+            "gcc -dumpfullversion -dumpversion"
+          test "$(gcc -dumpfullversion -dumpversion)" = \
+            "$REQUIRED_COMPILER_SEMANTIC_VERSION"
+          test ! -e source/bin/arena
+          test ! -e source/bin/build_match_value
+          make -C source -j2 CC="$COMPILER_EXECUTABLE" \
+            CFLAGS="$BUILD_CFLAGS" LDFLAGS="$BUILD_LDFLAGS" \
+            bin/arena bin/build_match_value
+          test -x source/bin/arena
+          test -x source/bin/build_match_value
+
+      - name: Build the raw and isotonic tables from one transition corpus
+        run: |
+          set -euo pipefail
+          mkdir -p transport/bin transport/data transport/tables \
+            transport/tools transport/bindings
+          cp source/bin/arena transport/bin/arena
+          cp source/bin/build_match_value transport/bin/build_match_value
+          cp source/data/champion.bin transport/data/champion.bin
+          (cd transport && /usr/bin/time \
+            -f 'wall_s=%e user_s=%U sys_s=%S max_rss_kb=%M exit=%x' \
+            -o table-build.time \
+            ./bin/build_match_value \
+              --model data/champion.bin \
+              --out tables/winner-o0-16000-isotonic.lcmv \
+              --raw-out tables/winner-o0-16000-raw.lcmv \
+              --samples 16000 --threads 8 --seed 7331001 \
+              --playout-symmetries 20 \
+              2>&1 | tee table-build.log)
+          test "$(grep -c '^match-value table:' transport/table-build.log)" = 2
+          test "$(grep -c 'samples=16000 seed=7331001' transport/table-build.log)" = 2
+          test "$(grep -c 'abi=1 build=0030d23b' transport/table-build.log)" = 2
+          test "$(grep -c 'role_cycle=400 role_balance=complete' transport/table-build.log)" = 2
+          test "$(grep -c 'variant=isotonic' transport/table-build.log)" = 1
+          test "$(grep -c 'variant=raw' transport/table-build.log)" = 1
+
+      - name: Validate, identify, and freeze all playing actors
+        id: actors
+        run: |
+          set -euo pipefail
+          WINNER_ACTOR="$(python3 - <<'PY'
+          import json
+          print(json.load(open(
+              'campaign/data/experiments/locked_match_value_variant_execution.json',
+              encoding='utf-8'))['authoritative_world800_result']['selected_actor'])
+          PY
+          )"
+          WORLD_CAP="$(python3 - <<'PY'
+          import json
+          print(json.load(open(
+              'campaign/data/experiments/locked_match_value_variant_execution.json',
+              encoding='utf-8'))['authoritative_world800_result']['selected_world_cap'])
+          PY
+          )"
+          python3 source/tools/match_value_campaign.py table-manifest \
+            --raw transport/tables/winner-o0-16000-raw.lcmv \
+            --projected transport/tables/winner-o0-16000-isotonic.lcmv \
+            --output transport/bindings/table-manifest.json
+          python3 source/tools/match_value_campaign.py actors \
+            --baseline "$WINNER_ACTOR" --world-cap "$WORLD_CAP" \
+            --raw-path tables/winner-o0-16000-raw.lcmv \
+            --projected-path tables/winner-o0-16000-isotonic.lcmv \
+            --output transport/bindings/actors.json
+          test "$(python3 - <<'PY'
+          import json
+          value=json.load(open('transport/bindings/table-manifest.json'))
+          print(value['raw']['controller']['build_profile_hex'])
+          PY
+          )" = "$BUILD_PROFILE_HEX"
+          echo "world_cap=$WORLD_CAP" >> "$GITHUB_OUTPUT"
+          echo "baseline=$WINNER_ACTOR" >> "$GITHUB_OUTPUT"
+
+      - name: Create the no-clobber pre-efficacy build manifest
+        run: |
+          set -euo pipefail
+          test -n "${ImageOS:-}"
+          test -n "${ImageVersion:-}"
+          test -n "${RUNNER_OS:-}"
+          test -n "${RUNNER_ARCH:-}"
+          {
+            echo "launch_commit=$GITHUB_SHA"
+            echo "source_parent_commit=${{ steps.guard.outputs.source_commit }}"
+            echo "source_parent_tree=${{ steps.guard.outputs.source_tree }}"
+            echo "compiler_executable=$COMPILER_EXECUTABLE"
+            echo "compiler_semantic_version_command=$COMPILER_SEMANTIC_VERSION_COMMAND"
+            echo "compiler_semantic_version=$(gcc -dumpfullversion -dumpversion)"
+            echo "compiler_banner=$(gcc --version | head -1)"
+            echo "runner_image_os=$ImageOS"
+            echo "runner_image_version=$ImageVersion"
+            echo "runner_os=$RUNNER_OS"
+            echo "runner_arch=$RUNNER_ARCH"
+            echo "uname=$(uname -a)"
+            echo "cflags=$BUILD_CFLAGS"
+            echo "ldflags=$BUILD_LDFLAGS"
+            echo "build_profile=$BUILD_PROFILE_HEX"
+            echo "table_command=build_match_value --samples 16000 --threads 8 --seed 7331001 --playout-symmetries 20 --paired-raw-and-isotonic"
+            sha256sum transport/bin/arena \
+              transport/bin/build_match_value transport/data/champion.bin \
+              transport/tables/*.lcmv
+          } > transport/BUILD_INFO.txt
+          python3 source/tools/match_value_campaign.py post-build-manifest \
+            --root campaign --execution "campaign/$EXECUTION_PATH" \
+            --tables transport/bindings/table-manifest.json \
+            --actors transport/bindings/actors.json \
+            --builder-log transport/table-build.log \
+            --build-info transport/BUILD_INFO.txt \
+            --source-commit "${{ steps.guard.outputs.source_commit }}" \
+            --source-tree "${{ steps.guard.outputs.source_tree }}" \
+            --output transport/bindings/post-build-manifest.json
+
+      - name: Bind the immutable compile-once transport
+        id: bind
+        run: |
+          set -euo pipefail
+          cp source/tools/merge_arena.py transport/tools/merge_arena.py
+          cp source/tools/validate_actor_shards.py \
+            transport/tools/validate_actor_shards.py
+          cp source/tools/gate_actor_panel.py transport/tools/gate_actor_panel.py
+          cp source/tools/match_value_campaign.py \
+            transport/tools/match_value_campaign.py
+          cp "source/$PLAN_PATH" transport/bindings/plan.json
+          cp "source/$WORKFLOW_PATH" transport/bindings/workflow.yml
+          cp "campaign/$EXECUTION_PATH" transport/bindings/execution.json
+          cp "source/$WORLD_RESULT_PATH" \
+            transport/bindings/world800-result.json
+          chmod 755 transport/bin/* transport/tools/*.py
+          (cd transport && { find bin data tables tools bindings -type f -print0; \
+            printf '%s\0' BUILD_INFO.txt table-build.log table-build.time; } | \
+            sort -z | xargs -0 sha256sum > SHA256SUMS.txt)
+          (cd transport && sha256sum -c SHA256SUMS.txt)
+          PLAN_SHA="$(sha256sum source/$PLAN_PATH | cut -d' ' -f1)"
+          EXECUTION_SHA="$(sha256sum campaign/$EXECUTION_PATH | cut -d' ' -f1)"
+          POST_SHA="$(sha256sum transport/bindings/post-build-manifest.json | cut -d' ' -f1)"
+          ARENA_SHA="$(sha256sum transport/bin/arena | cut -d' ' -f1)"
+          TRANSPORT_SHA="$(sha256sum transport/SHA256SUMS.txt | cut -d' ' -f1)"
+          echo "plan_sha=$PLAN_SHA" >> "$GITHUB_OUTPUT"
+          echo "execution_sha=$EXECUTION_SHA" >> "$GITHUB_OUTPUT"
+          echo "post_build_manifest_sha=$POST_SHA" >> "$GITHUB_OUTPUT"
+          echo "arena_sha=$ARENA_SHA" >> "$GITHUB_OUTPUT"
+          echo "transport_manifest_sha=$TRANSPORT_SHA" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: match-value-compile-once-transport
+          path: transport
+          if-no-files-found: error
+          retention-days: 30
+
+  stage1_evaluate:
+    if: ${{ github.run_attempt == 1 && needs.preflight_and_tables.result == 'success' }}
+    needs: preflight_and_tables
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 16
+      matrix:
+        variant: [R14, P14, R0, P0]
+        orientation: [candidate-first, baseline-first]
+        start: [0, 100]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: match-value-compile-once-transport
+          path: transport
+
+      - name: Verify and install source-free evaluator transport
+        run: |
+          set -euo pipefail
+          test "$(sha256sum transport/SHA256SUMS.txt | cut -d' ' -f1)" = \
+            "${{ needs.preflight_and_tables.outputs.transport_manifest_sha }}"
+          (cd transport && sha256sum -c SHA256SUMS.txt)
+          mkdir -p run/bin run/data run/tables raw
+          cp transport/bin/arena run/bin/arena
+          cp transport/data/champion.bin run/data/champion.bin
+          cp transport/tables/*.lcmv run/tables/
+          chmod 755 run/bin/arena
+          test "$(sha256sum run/bin/arena | cut -d' ' -f1)" = \
+            "${{ needs.preflight_and_tables.outputs.arena_sha }}"
+          test "$(sha256sum run/data/champion.bin | cut -d' ' -f1)" = "$MODEL_SHA"
+
+      - name: Emit one immutable raw stage-1 shard
+        env:
+          VARIANT: ${{ matrix.variant }}
+          ORIENTATION: ${{ matrix.orientation }}
+          START: ${{ matrix.start }}
+        run: |
+          set -euo pipefail
+          CANDIDATE="$(python3 - "$VARIANT" <<'PY'
+          import json, sys
+          print(json.load(open('transport/bindings/actors.json'))['actors'][sys.argv[1]])
+          PY
+          )"
+          BASELINE="$(python3 - <<'PY'
+          import json
+          print(json.load(open('transport/bindings/actors.json'))['actors']['legacy'])
+          PY
+          )"
+          TABLE_SHA="$(python3 - "$VARIANT" <<'PY'
+          import json, sys
+          value=json.load(open('transport/bindings/table-manifest.json'))
+          print(value['projected' if sys.argv[1].startswith('P') else 'raw']['sha256'])
+          PY
+          )"
+          PROVENANCE="stage=match_value_stage1;variant=$VARIANT;plan=${{ needs.preflight_and_tables.outputs.plan_sha }};execution=${{ needs.preflight_and_tables.outputs.execution_sha }};post_build=${{ needs.preflight_and_tables.outputs.post_build_manifest_sha }};source=${{ needs.preflight_and_tables.outputs.source_commit }};arena=${{ needs.preflight_and_tables.outputs.arena_sha }};model=$MODEL_SHA;table=$TABLE_SHA;worlds=${{ needs.preflight_and_tables.outputs.world_cap }};threads=4"
+          if test "$ORIENTATION" = candidate-first; then
+            AGENT_A="$CANDIDATE"; AGENT_B="$BASELINE"
+            SEED="$STAGE1_CANDIDATE_SEED"
+          else
+            AGENT_A="$BASELINE"; AGENT_B="$CANDIDATE"
+            SEED="$STAGE1_BASELINE_SEED"
+          fi
+          STEM="$ORIENTATION-$START"
+          (cd run && /usr/bin/time \
+            -f 'wall_s=%e user_s=%U sys_s=%S max_rss_kb=%M exit=%x' \
+            -o "../raw/$STEM.time" \
+            ./bin/arena -a "$AGENT_A" -b "$AGENT_B" \
+              -n 100 -t 4 -s "$SEED" -r 3 --pair-start "$START" \
+              --raw-pairs "../raw/$STEM.jsonl" --raw-only \
+              --provenance "$PROVENANCE")
+          sha256sum "raw/$STEM.jsonl" > "raw/$STEM.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: match-value-stage1-${{ matrix.variant }}-${{ matrix.orientation }}-${{ matrix.start }}
+          path: raw
+          if-no-files-found: error
+          retention-days: 30
+
+  stage1_select:
+    if: ${{ github.run_attempt == 1 && needs.stage1_evaluate.result == 'success' }}
+    needs: [preflight_and_tables, stage1_evaluate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      selected_variant: ${{ steps.select.outputs.selected_variant }}
+      selected_actor: ${{ steps.select.outputs.selected_actor }}
+      selection_sha: ${{ steps.select.outputs.selection_sha }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: match-value-compile-once-transport
+          path: transport
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: match-value-stage1-*
+          path: downloads
+
+      - name: Require every stage-1 shard before the first efficacy parse
+        run: |
+          set -euo pipefail
+          test "$(sha256sum transport/SHA256SUMS.txt | cut -d' ' -f1)" = \
+            "${{ needs.preflight_and_tables.outputs.transport_manifest_sha }}"
+          (cd transport && sha256sum -c SHA256SUMS.txt)
+          mkdir merged
+          for VARIANT in R14 P14 R0 P0; do
+            mkdir -p "panels/$VARIANT"
+            for ORIENTATION in candidate-first baseline-first; do
+              for START in 0 100; do
+                STEM="$ORIENTATION-$START"
+                SOURCE="downloads/match-value-stage1-$VARIANT-$ORIENTATION-$START"
+                test -d "$SOURCE"
+                for SUFFIX in jsonl sha256 time; do
+                  MATCHES="$(find "$SOURCE" -type f -name "$STEM.$SUFFIX" -print)"
+                  test "$(printf '%s\n' "$MATCHES" | grep -c .)" = 1
+                  cp "$MATCHES" "panels/$VARIANT/$STEM.$SUFFIX"
+                done
+              done
+            done
+            CANDIDATE="$(python3 - "$VARIANT" <<'PY'
+          import json, sys
+          print(json.load(open('transport/bindings/actors.json'))['actors'][sys.argv[1]])
+          PY
+            )"
+            BASELINE="$(python3 - <<'PY'
+          import json
+          print(json.load(open('transport/bindings/actors.json'))['actors']['legacy'])
+          PY
+            )"
+            TABLE_SHA="$(python3 - "$VARIANT" <<'PY'
+          import json, sys
+          value=json.load(open('transport/bindings/table-manifest.json'))
+          print(value['projected' if sys.argv[1].startswith('P') else 'raw']['sha256'])
+          PY
+            )"
+            PROVENANCE="stage=match_value_stage1;variant=$VARIANT;plan=${{ needs.preflight_and_tables.outputs.plan_sha }};execution=${{ needs.preflight_and_tables.outputs.execution_sha }};post_build=${{ needs.preflight_and_tables.outputs.post_build_manifest_sha }};source=${{ needs.preflight_and_tables.outputs.source_commit }};arena=${{ needs.preflight_and_tables.outputs.arena_sha }};model=$MODEL_SHA;table=$TABLE_SHA;worlds=${{ needs.preflight_and_tables.outputs.world_cap }};threads=4"
+            python3 transport/tools/validate_actor_shards.py \
+              --directory "panels/$VARIANT" --candidate "$CANDIDATE" \
+              --baseline "$BASELINE" --provenance "$PROVENANCE" \
+              --candidate-first-seed "$STAGE1_CANDIDATE_SEED" \
+              --baseline-first-seed "$STAGE1_BASELINE_SEED" \
+              --starts 0,100 --pairs-per-shard 100 --rounds 3 \
+              --output "merged/$VARIANT-structural-validation.json"
+          done
+
+      - name: Merge all four complete panels and select mechanically once
+        id: select
+        run: |
+          set -euo pipefail
+          ARGS=()
+          for VARIANT in R14 P14 R0 P0; do
+            CANDIDATE="$(python3 - "$VARIANT" <<'PY'
+          import json, sys
+          print(json.load(open('transport/bindings/actors.json'))['actors'][sys.argv[1]])
+          PY
+            )"
+            TABLE_SHA="$(python3 - "$VARIANT" <<'PY'
+          import json, sys
+          value=json.load(open('transport/bindings/table-manifest.json'))
+          print(value['projected' if sys.argv[1].startswith('P') else 'raw']['sha256'])
+          PY
+            )"
+            PROVENANCE="stage=match_value_stage1;variant=$VARIANT;plan=${{ needs.preflight_and_tables.outputs.plan_sha }};execution=${{ needs.preflight_and_tables.outputs.execution_sha }};post_build=${{ needs.preflight_and_tables.outputs.post_build_manifest_sha }};source=${{ needs.preflight_and_tables.outputs.source_commit }};arena=${{ needs.preflight_and_tables.outputs.arena_sha }};model=$MODEL_SHA;table=$TABLE_SHA;worlds=${{ needs.preflight_and_tables.outputs.world_cap }};threads=4"
+            python3 transport/tools/merge_arena.py block \
+              --expect-start 0 --expect-pairs 200 \
+              --output "merged/$VARIANT-candidate-first.json" \
+              panels/$VARIANT/candidate-first-*.jsonl
+            python3 transport/tools/merge_arena.py block \
+              --expect-start 0 --expect-pairs 200 \
+              --output "merged/$VARIANT-baseline-first.json" \
+              panels/$VARIANT/baseline-first-*.jsonl
+            python3 transport/tools/merge_arena.py reciprocal \
+              --first "merged/$VARIANT-candidate-first.json" \
+              --second "merged/$VARIANT-baseline-first.json" \
+              --gate-z 1.645 --require-positive-margin \
+              --output "merged/$VARIANT-reciprocal.json"
+            ARGS+=(--panel "$VARIANT=merged/$VARIANT-reciprocal.json")
+            ARGS+=(--actor "$VARIANT=$CANDIDATE")
+            ARGS+=(--provenance "$VARIANT=$PROVENANCE")
+          done
+          BASELINE="$(python3 - <<'PY'
+          import json
+          print(json.load(open('transport/bindings/actors.json'))['actors']['legacy'])
+          PY
+          )"
+          python3 transport/tools/match_value_campaign.py select-stage1 \
+            "${ARGS[@]}" --baseline "$BASELINE" \
+            --candidate-first-seed "$STAGE1_CANDIDATE_SEED" \
+            --baseline-first-seed "$STAGE1_BASELINE_SEED" \
+            --output merged/stage1-selection.json \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Hash the complete stage-1 evidence
+        run: |
+          set -euo pipefail
+          find downloads panels merged transport/bindings -type f \
+            ! -name SHA256SUMS.txt -print0 | sort -z | \
+            xargs -0 sha256sum > merged/SHA256SUMS.txt
+          sha256sum -c merged/SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: match-value-stage1-complete-evidence
+          path: |
+            downloads
+            panels
+            merged
+            transport/bindings
+          if-no-files-found: error
+          retention-days: 30
+
+  stage2_evaluate:
+    if: ${{ github.run_attempt == 1 && needs.stage1_select.result == 'success' }}
+    needs: [preflight_and_tables, stage1_select]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        orientation: [candidate-first, baseline-first]
+        start: [0, 100, 200, 300, 400]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: match-value-compile-once-transport
+          path: transport
+      - uses: actions/download-artifact@v4
+        with:
+          name: match-value-stage1-complete-evidence
+          path: stage1
+
+      - name: Verify the frozen selection and install its evaluator
+        run: |
+          set -euo pipefail
+          test "$(sha256sum transport/SHA256SUMS.txt | cut -d' ' -f1)" = \
+            "${{ needs.preflight_and_tables.outputs.transport_manifest_sha }}"
+          (cd transport && sha256sum -c SHA256SUMS.txt)
+          SELECTION="stage1/merged/stage1-selection.json"
+          test "$(sha256sum "$SELECTION" | cut -d' ' -f1)" = \
+            "${{ needs.stage1_select.outputs.selection_sha }}"
+          test "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["selected_actor"])' "$SELECTION")" = \
+            "${{ needs.stage1_select.outputs.selected_actor }}"
+          mkdir -p run/bin run/data run/tables raw
+          cp transport/bin/arena run/bin/arena
+          cp transport/data/champion.bin run/data/champion.bin
+          cp transport/tables/*.lcmv run/tables/
+          chmod 755 run/bin/arena
+
+      - name: Emit one immutable raw stage-2 shard
+        env:
+          ORIENTATION: ${{ matrix.orientation }}
+          START: ${{ matrix.start }}
+          CANDIDATE: ${{ needs.stage1_select.outputs.selected_actor }}
+        run: |
+          set -euo pipefail
+          BASELINE="${{ needs.preflight_and_tables.outputs.baseline }}"
+          VARIANT="${{ needs.stage1_select.outputs.selected_variant }}"
+          PROVENANCE="stage=match_value_stage2;variant=$VARIANT;selection=${{ needs.stage1_select.outputs.selection_sha }};plan=${{ needs.preflight_and_tables.outputs.plan_sha }};execution=${{ needs.preflight_and_tables.outputs.execution_sha }};post_build=${{ needs.preflight_and_tables.outputs.post_build_manifest_sha }};source=${{ needs.preflight_and_tables.outputs.source_commit }};arena=${{ needs.preflight_and_tables.outputs.arena_sha }};model=$MODEL_SHA;worlds=${{ needs.preflight_and_tables.outputs.world_cap }};threads=4"
+          if test "$ORIENTATION" = candidate-first; then
+            AGENT_A="$CANDIDATE"; AGENT_B="$BASELINE"
+            SEED="$STAGE2_CANDIDATE_SEED"
+          else
+            AGENT_A="$BASELINE"; AGENT_B="$CANDIDATE"
+            SEED="$STAGE2_BASELINE_SEED"
+          fi
+          STEM="$ORIENTATION-$START"
+          (cd run && /usr/bin/time \
+            -f 'wall_s=%e user_s=%U sys_s=%S max_rss_kb=%M exit=%x' \
+            -o "../raw/$STEM.time" \
+            ./bin/arena -a "$AGENT_A" -b "$AGENT_B" \
+              -n 100 -t 4 -s "$SEED" -r 3 --pair-start "$START" \
+              --raw-pairs "../raw/$STEM.jsonl" --raw-only \
+              --provenance "$PROVENANCE")
+          sha256sum "raw/$STEM.jsonl" > "raw/$STEM.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: match-value-stage2-${{ matrix.orientation }}-${{ matrix.start }}
+          path: raw
+          if-no-files-found: error
+          retention-days: 30
+
+  stage2_gate:
+    if: ${{ github.run_attempt == 1 && needs.stage2_evaluate.result == 'success' }}
+    needs: [preflight_and_tables, stage1_select, stage2_evaluate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      passed: ${{ steps.gate.outputs.passed }}
+      decision_sha: ${{ steps.gate.outputs.decision_sha }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: match-value-compile-once-transport
+          path: transport
+      - uses: actions/download-artifact@v4
+        with:
+          name: match-value-stage1-complete-evidence
+          path: stage1
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: match-value-stage2-*
+          path: downloads
+          merge-multiple: true
+
+      - name: Require every stage-2 shard before its only efficacy merge
+        run: |
+          set -euo pipefail
+          test "$(sha256sum transport/SHA256SUMS.txt | cut -d' ' -f1)" = \
+            "${{ needs.preflight_and_tables.outputs.transport_manifest_sha }}"
+          (cd transport && sha256sum -c SHA256SUMS.txt)
+          test "$(sha256sum stage1/merged/stage1-selection.json | cut -d' ' -f1)" = \
+            "${{ needs.stage1_select.outputs.selection_sha }}"
+          mkdir merged
+          CANDIDATE="${{ needs.stage1_select.outputs.selected_actor }}"
+          BASELINE="${{ needs.preflight_and_tables.outputs.baseline }}"
+          VARIANT="${{ needs.stage1_select.outputs.selected_variant }}"
+          PROVENANCE="stage=match_value_stage2;variant=$VARIANT;selection=${{ needs.stage1_select.outputs.selection_sha }};plan=${{ needs.preflight_and_tables.outputs.plan_sha }};execution=${{ needs.preflight_and_tables.outputs.execution_sha }};post_build=${{ needs.preflight_and_tables.outputs.post_build_manifest_sha }};source=${{ needs.preflight_and_tables.outputs.source_commit }};arena=${{ needs.preflight_and_tables.outputs.arena_sha }};model=$MODEL_SHA;worlds=${{ needs.preflight_and_tables.outputs.world_cap }};threads=4"
+          python3 transport/tools/validate_actor_shards.py \
+            --directory downloads --candidate "$CANDIDATE" \
+            --baseline "$BASELINE" --provenance "$PROVENANCE" \
+            --candidate-first-seed "$STAGE2_CANDIDATE_SEED" \
+            --baseline-first-seed "$STAGE2_BASELINE_SEED" \
+            --starts 0,100,200,300,400 --pairs-per-shard 100 --rounds 3 \
+            --output merged/structural-validation.json
+
+      - name: Merge once and apply the exact development gate
+        id: gate
+        run: |
+          set -euo pipefail
+          CANDIDATE="${{ needs.stage1_select.outputs.selected_actor }}"
+          BASELINE="${{ needs.preflight_and_tables.outputs.baseline }}"
+          VARIANT="${{ needs.stage1_select.outputs.selected_variant }}"
+          PROVENANCE="stage=match_value_stage2;variant=$VARIANT;selection=${{ needs.stage1_select.outputs.selection_sha }};plan=${{ needs.preflight_and_tables.outputs.plan_sha }};execution=${{ needs.preflight_and_tables.outputs.execution_sha }};post_build=${{ needs.preflight_and_tables.outputs.post_build_manifest_sha }};source=${{ needs.preflight_and_tables.outputs.source_commit }};arena=${{ needs.preflight_and_tables.outputs.arena_sha }};model=$MODEL_SHA;worlds=${{ needs.preflight_and_tables.outputs.world_cap }};threads=4"
+          python3 transport/tools/merge_arena.py block \
+            --expect-start 0 --expect-pairs 500 \
+            --output merged/candidate-first.json \
+            downloads/candidate-first-*.jsonl
+          python3 transport/tools/merge_arena.py block \
+            --expect-start 0 --expect-pairs 500 \
+            --output merged/baseline-first.json \
+            downloads/baseline-first-*.jsonl
+          python3 transport/tools/merge_arena.py reciprocal \
+            --first merged/candidate-first.json \
+            --second merged/baseline-first.json \
+            --gate-z 1.645 --require-positive-margin \
+            --output merged/reciprocal.json
+          python3 transport/tools/match_value_campaign.py gate-stage2 \
+            --reciprocal merged/reciprocal.json \
+            --candidate "$CANDIDATE" --baseline "$BASELINE" \
+            --provenance "$PROVENANCE" \
+            --candidate-first-seed "$STAGE2_CANDIDATE_SEED" \
+            --baseline-first-seed "$STAGE2_BASELINE_SEED" \
+            --output merged/stage2-decision.json \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Hash and upload complete stage-2 evidence without promotion
+        run: |
+          set -euo pipefail
+          cp stage1/merged/stage1-selection.json \
+            merged/stage1-selection.json
+          find downloads merged transport/bindings -type f \
+            ! -name SHA256SUMS.txt -print0 | sort -z | \
+            xargs -0 sha256sum > merged/SHA256SUMS.txt
+          sha256sum -c merged/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: match-value-stage2-complete-evidence
+          path: |
+            downloads
+            merged
+            transport/bindings
+          if-no-files-found: error
+          retention-days: 30
+
+  final_evaluate:
+    if: ${{ github.run_attempt == 1 && needs.stage2_gate.result == 'success' && needs.stage2_gate.outputs.passed == 'true' }}
+    needs: [preflight_and_tables, stage1_select, stage2_gate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        orientation: [candidate-first, baseline-first]
+        start: [0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000, 2100, 2200, 2300, 2400]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: match-value-compile-once-transport
+          path: transport
+      - uses: actions/download-artifact@v4
+        with:
+          name: match-value-stage2-complete-evidence
+          path: stage2
+
+      - name: Verify the passing development decision and install evaluator
+        run: |
+          set -euo pipefail
+          test "$(sha256sum transport/SHA256SUMS.txt | cut -d' ' -f1)" = \
+            "${{ needs.preflight_and_tables.outputs.transport_manifest_sha }}"
+          (cd transport && sha256sum -c SHA256SUMS.txt)
+          DECISION=stage2/merged/stage2-decision.json
+          test "$(sha256sum "$DECISION" | cut -d' ' -f1)" = \
+            "${{ needs.stage2_gate.outputs.decision_sha }}"
+          test "$(python3 -c 'import json,sys; print(str(json.load(open(sys.argv[1]))["passed"]).lower())' "$DECISION")" = true
+          test "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["candidate"])' "$DECISION")" = \
+            "${{ needs.stage1_select.outputs.selected_actor }}"
+          mkdir -p run/bin run/data run/tables raw
+          cp transport/bin/arena run/bin/arena
+          cp transport/data/champion.bin run/data/champion.bin
+          cp transport/tables/*.lcmv run/tables/
+          chmod 755 run/bin/arena
+
+      - name: Emit one immutable raw reserved-final shard
+        env:
+          ORIENTATION: ${{ matrix.orientation }}
+          START: ${{ matrix.start }}
+          CANDIDATE: ${{ needs.stage1_select.outputs.selected_actor }}
+        run: |
+          set -euo pipefail
+          BASELINE="${{ needs.preflight_and_tables.outputs.baseline }}"
+          VARIANT="${{ needs.stage1_select.outputs.selected_variant }}"
+          PROVENANCE="stage=match_value_reserved_final;variant=$VARIANT;selection=${{ needs.stage1_select.outputs.selection_sha }};stage2=${{ needs.stage2_gate.outputs.decision_sha }};plan=${{ needs.preflight_and_tables.outputs.plan_sha }};execution=${{ needs.preflight_and_tables.outputs.execution_sha }};post_build=${{ needs.preflight_and_tables.outputs.post_build_manifest_sha }};source=${{ needs.preflight_and_tables.outputs.source_commit }};arena=${{ needs.preflight_and_tables.outputs.arena_sha }};model=$MODEL_SHA;worlds=${{ needs.preflight_and_tables.outputs.world_cap }};threads=4"
+          if test "$ORIENTATION" = candidate-first; then
+            AGENT_A="$CANDIDATE"; AGENT_B="$BASELINE"
+            SEED="$FINAL_CANDIDATE_SEED"
+          else
+            AGENT_A="$BASELINE"; AGENT_B="$CANDIDATE"
+            SEED="$FINAL_BASELINE_SEED"
+          fi
+          STEM="$ORIENTATION-$START"
+          (cd run && /usr/bin/time \
+            -f 'wall_s=%e user_s=%U sys_s=%S max_rss_kb=%M exit=%x' \
+            -o "../raw/$STEM.time" \
+            ./bin/arena -a "$AGENT_A" -b "$AGENT_B" \
+              -n 100 -t 4 -s "$SEED" -r 3 --pair-start "$START" \
+              --raw-pairs "../raw/$STEM.jsonl" --raw-only \
+              --provenance "$PROVENANCE")
+          sha256sum "raw/$STEM.jsonl" > "raw/$STEM.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: match-value-final-${{ matrix.orientation }}-${{ matrix.start }}
+          path: raw
+          if-no-files-found: error
+          retention-days: 30
+
+  final_gate:
+    if: ${{ github.run_attempt == 1 && needs.stage2_gate.outputs.passed == 'true' && needs.final_evaluate.result == 'success' }}
+    needs: [preflight_and_tables, stage1_select, stage2_gate, final_evaluate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: match-value-compile-once-transport
+          path: transport
+      - uses: actions/download-artifact@v4
+        with:
+          name: match-value-stage2-complete-evidence
+          path: stage2
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: match-value-final-*
+          path: downloads
+          merge-multiple: true
+
+      - name: Require every reserved-final shard before the only final look
+        run: |
+          set -euo pipefail
+          test "$(sha256sum transport/SHA256SUMS.txt | cut -d' ' -f1)" = \
+            "${{ needs.preflight_and_tables.outputs.transport_manifest_sha }}"
+          (cd transport && sha256sum -c SHA256SUMS.txt)
+          test "$(sha256sum stage2/merged/stage2-decision.json | cut -d' ' -f1)" = \
+            "${{ needs.stage2_gate.outputs.decision_sha }}"
+          test "$(python3 -c 'import json; print(str(json.load(open("stage2/merged/stage2-decision.json"))["passed"]).lower())')" = true
+          mkdir merged bindings
+          CANDIDATE="${{ needs.stage1_select.outputs.selected_actor }}"
+          BASELINE="${{ needs.preflight_and_tables.outputs.baseline }}"
+          VARIANT="${{ needs.stage1_select.outputs.selected_variant }}"
+          PROVENANCE="stage=match_value_reserved_final;variant=$VARIANT;selection=${{ needs.stage1_select.outputs.selection_sha }};stage2=${{ needs.stage2_gate.outputs.decision_sha }};plan=${{ needs.preflight_and_tables.outputs.plan_sha }};execution=${{ needs.preflight_and_tables.outputs.execution_sha }};post_build=${{ needs.preflight_and_tables.outputs.post_build_manifest_sha }};source=${{ needs.preflight_and_tables.outputs.source_commit }};arena=${{ needs.preflight_and_tables.outputs.arena_sha }};model=$MODEL_SHA;worlds=${{ needs.preflight_and_tables.outputs.world_cap }};threads=4"
+          python3 transport/tools/validate_actor_shards.py \
+            --directory downloads --candidate "$CANDIDATE" \
+            --baseline "$BASELINE" --provenance "$PROVENANCE" \
+            --candidate-first-seed "$FINAL_CANDIDATE_SEED" \
+            --baseline-first-seed "$FINAL_BASELINE_SEED" \
+            --starts 0,100,200,300,400,500,600,700,800,900,1000,1100,1200,1300,1400,1500,1600,1700,1800,1900,2000,2100,2200,2300,2400 \
+            --pairs-per-shard 100 --rounds 3 \
+            --output merged/structural-validation.json
+
+      - name: Merge once and apply only the exact reserved promotion gate
+        id: final
+        run: |
+          set -euo pipefail
+          CANDIDATE="${{ needs.stage1_select.outputs.selected_actor }}"
+          BASELINE="${{ needs.preflight_and_tables.outputs.baseline }}"
+          VARIANT="${{ needs.stage1_select.outputs.selected_variant }}"
+          PROVENANCE="stage=match_value_reserved_final;variant=$VARIANT;selection=${{ needs.stage1_select.outputs.selection_sha }};stage2=${{ needs.stage2_gate.outputs.decision_sha }};plan=${{ needs.preflight_and_tables.outputs.plan_sha }};execution=${{ needs.preflight_and_tables.outputs.execution_sha }};post_build=${{ needs.preflight_and_tables.outputs.post_build_manifest_sha }};source=${{ needs.preflight_and_tables.outputs.source_commit }};arena=${{ needs.preflight_and_tables.outputs.arena_sha }};model=$MODEL_SHA;worlds=${{ needs.preflight_and_tables.outputs.world_cap }};threads=4"
+          python3 transport/tools/merge_arena.py block \
+            --expect-start 0 --expect-pairs 2500 \
+            --output merged/candidate-first.json \
+            downloads/candidate-first-*.jsonl
+          python3 transport/tools/merge_arena.py block \
+            --expect-start 0 --expect-pairs 2500 \
+            --output merged/baseline-first.json \
+            downloads/baseline-first-*.jsonl
+          python3 transport/tools/merge_arena.py reciprocal \
+            --first merged/candidate-first.json \
+            --second merged/baseline-first.json \
+            --gate-z 1.645 --require-positive-margin \
+            --output merged/reciprocal.json
+          python3 transport/tools/match_value_campaign.py gate-final \
+            --reciprocal merged/reciprocal.json \
+            --candidate "$CANDIDATE" --baseline "$BASELINE" \
+            --provenance "$PROVENANCE" \
+            --candidate-first-seed "$FINAL_CANDIDATE_SEED" \
+            --baseline-first-seed "$FINAL_BASELINE_SEED" \
+            --output merged/final-decision.json \
+            --github-output "$GITHUB_OUTPUT"
+          PASSED="$(python3 -c 'import json; print(str(json.load(open("merged/final-decision.json"))["promotion_gate_passed"]).lower())')"
+          echo "Match-value reserved promotion gate passed: $PASSED" >> \
+            "$GITHUB_STEP_SUMMARY"
+          echo "No repository promotion was performed." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Bind and hash all final evidence and immutable build inputs
+        run: |
+          set -euo pipefail
+          cp transport/bindings/* bindings/
+          cp transport/BUILD_INFO.txt transport/table-build.log \
+            transport/table-build.time bindings/
+          cp stage2/merged/stage1-selection.json bindings/
+          cp stage2/merged/stage2-decision.json bindings/
+          find downloads merged bindings transport/bin transport/data \
+            transport/tables -type f ! -name SHA256SUMS.txt -print0 | \
+            sort -z | xargs -0 sha256sum > merged/SHA256SUMS.txt
+          sha256sum -c merged/SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: match-value-reserved-final-complete-evidence
+          path: |
+            downloads
+            merged
+            bindings
+            transport/bin
+            transport/data
+            transport/tables
+          if-no-files-found: error
+          retention-days: 30

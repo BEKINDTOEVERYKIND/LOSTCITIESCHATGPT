@@ -1,0 +1,124 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "locked_action_core_shortlist_actor_campaign",
+  "status": "inert_pending_archived_world800_result_and_add_only_binding",
+  "hypothesis": "A five-slot shortlist that first reserves space for three distinct card/play-discard action cores is stronger than flat complete-move ranking because draw-source variants of one core cannot crowd unrelated high-policy actions out of rollout evaluation.",
+  "dependency": {
+    "path": "data/experiments/world800_result.json",
+    "rule": "The independently archived and exactly recomputed world800 result mechanically selects the unchanged baseline actor and its world count. The candidate is derived from that actor only after the result is committed.",
+    "invalid_or_missing_behavior": "Do not launch, build, or evaluate anything.",
+    "no_result_dependent_choice_beyond_world_cap": true
+  },
+  "source_binding": {
+    "branch": "agent/correctness-and-policy-upgrade",
+    "launch": "one future non-forced first-attempt push adding only data/experiments/locked_action_core_shortlist_execution.json",
+    "source": "the execution addendum's sole parent commit and tree",
+    "workflow": ".github/workflows/action-core-shortlist.yml",
+    "template": "data/experiments/locked_action_core_shortlist_execution.template.json"
+  },
+  "method": {
+    "name": "top-policy semantic action-core shortlist",
+    "sole_candidate_action_core_count": 3,
+    "root_width": 5,
+    "complete_move_policy_floor": 0.02,
+    "maximum_moves_evaluated": 5,
+    "evaluates_all_legal_moves": false,
+    "only_actor_field_changed": "action_core_count",
+    "mechanics": "Rank distinct card plus play/discard cores by aggregate policy probability, retain the highest-prior complete move for each admitted core, then use only remaining slots for at most one policy-floor-clearing information-set-safe draw alternative per retained core. Candidate zero remains the literal deployed policy move.",
+    "candidate_width_limit": "The candidate is still a bounded top-policy method. It never enumerates all legal moves, never widens past five complete moves, and can evaluate fewer than three cores when the existing aggregate floor rejects a nonbaseline core.",
+    "all_other_rollout_fields": "All other 41 semantic rollout fields, including model, selected world count, top-five budget, 2% floor, continuation roles, confirmation worlds, phase, objective, symmetries, gates, exact terminal mode, and absence of ranker/table extensions, must be identical. The helper normalizes and compares all 42 fields."
+  },
+  "why_three_is_the_only_confirmatory_candidate": {
+    "structural_reason": "With a hard five-move budget, three cores reserve a majority of capacity for distinct play/discard choices while leaving two possible slots for draw-source alternatives. One or two cores can preserve the crowding failure; four or five leave at most one or zero draw alternatives and approach the flat action-only extreme.",
+    "multiplicity_reason": "Testing counts 1 through 5 and selecting a winner would create an unpowered adaptive screen before the final holdout. This campaign asks one deployable A/B question instead.",
+    "claim_limit": "Three is the sole preregistered candidate justified for this test, not a claim that three is universally optimal.",
+    "excluded_evidence": "No user-commented state, expected move, hand-written judgment, frozen-ply audit, or position-specific outcome selects the candidate or enters a gate."
+  },
+  "actor_invariants": {
+    "model_path": "data/champion.bin",
+    "model_sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+    "world_cap": "mechanically selected from the archived world800 result: 800 on its exact pass, otherwise 512",
+    "uniform_hidden_worlds": true,
+    "root_width": 5,
+    "candidate_floor": 0.02,
+    "ply_low": 14,
+    "policy_prefix_mode": 3,
+    "root_symmetries": 20,
+    "playout_symmetries": 20,
+    "exact_terminal": 1,
+    "action_ranker": null,
+    "match_value_table": null,
+    "rounds": 3,
+    "threads_per_shard": 4
+  },
+  "state_and_data_firewall": {
+    "user_commented_states_used": false,
+    "position_specific_selection_used": false,
+    "training_used": false,
+    "match_source": "fresh seeded random deals generated only by arena",
+    "transport_excludes": [
+      "data/probes",
+      "saved viewer matches",
+      "flagged-ply audit outputs",
+      "human labels and expected moves"
+    ],
+    "rule": "Post-campaign ply audits may diagnose the finally selected maintained actor but cannot alter, select, extend, or reinterpret this campaign."
+  },
+  "build_and_transport": {
+    "runner": "ubuntu-24.04",
+    "compiler": "gcc",
+    "compiler_semantic_version_command": "gcc -dumpfullversion -dumpversion",
+    "required_compiler_semantic_version": "13.3.0",
+    "cflags": "-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11",
+    "ldflags": "-lm -pthread",
+    "compile_once": ["bin/arena"],
+    "rule": "Preflight archives the sole parent, compiles one arena once, hashes the evaluator/model/scripts/bindings, and transports those exact bytes. Evaluation jobs do not check out source or invoke a compiler."
+  },
+  "seed_firewall": {
+    "namespace": "20260904",
+    "safety": {
+      "candidate_first": "202609040101",
+      "baseline_first": "202609040102"
+    },
+    "final": {
+      "candidate_first": "202609040201",
+      "baseline_first": "202609040202"
+    },
+    "rule": "These four seeds are fresh, disjoint from every committed campaign seed, and are consumed once only by their named orientation and stage. No smoke test may use them."
+  },
+  "safety_screen": {
+    "pairs_per_orientation": 200,
+    "pairs_per_shard": 20,
+    "pair_starts": [0, 20, 40, 60, 80, 100, 120, 140, 160, 180],
+    "candidate_first_seed": "202609040101",
+    "baseline_first_seed": "202609040102",
+    "rounds": 3,
+    "gate": [
+      "equal-weight reciprocal candidate match score is at least 0.5",
+      "equal-weight reciprocal candidate point margin is strictly positive",
+      "candidate match score in each reciprocal orientation after inversion is at least 0.475",
+      "zero capped rounds and exact raw-row, shard, hash, schedule, actor, source, and provenance validity"
+    ],
+    "failure_behavior": "Stop before the final test and retain the authoritative world800 winner."
+  },
+  "final_promotion": {
+    "execute_only_if_safety_passes": true,
+    "pairs_per_orientation": 2500,
+    "pairs_per_shard": 100,
+    "pair_starts": [0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000, 2100, 2200, 2300, 2400],
+    "candidate_first_seed": "202609040201",
+    "baseline_first_seed": "202609040202",
+    "rounds": 3,
+    "gate_z": 1.645,
+    "promotion_gate": [
+      "combined candidate match score minus 1.645 orientation-stratified pair-clustered standard errors is above 0.5",
+      "combined candidate point margin minus 1.645 orientation-stratified pair-clustered standard errors is above zero",
+      "candidate match-score point estimate is above 0.5 in each reciprocal orientation after inversion",
+      "zero capped rounds and exact raw-row, shard, hash, schedule, actor, source, and provenance validity"
+    ],
+    "promotion_behavior": "Emit an evidence recommendation only. The workflow never edits a branch, actor default, checkpoint, plan, or repository file."
+  },
+  "inspection_rule": "Do not inspect, parse, report, or act on partial safety or final efficacy. A merge job starts only after every expected immutable shard for that stage succeeds, then validates the entire set before computing any result. There is one safety look and, conditionally, one final look; no rerun, seed replacement, optional stopping, or candidate change is allowed.",
+  "decision_rule": "Promote action_core_count=3 only if the exact safety gate and the one reserved final promotion gate both pass. Otherwise retain the archived world800 winner unchanged.",
+  "results": null
+}

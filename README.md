@@ -1202,6 +1202,21 @@ on both panels at ply 36. In live-actor testing, however, the independent
 `+2.20 ± 5.91` points and `50.6% ± 4.4%` match score. That is compatible with
 a gain but far from promotion evidence, so the maintained playing spec still
 leaves both fields at zero.
+
+A larger confirmatory test is now preregistered but deliberately inert in
+[`locked_action_core_shortlist_plan.json`](data/experiments/locked_action_core_shortlist_plan.json).
+After the exact archived world-800 result is committed, one addendum-only
+launch will derive that result's winner and compare it unchanged against the
+same actor with only `action_core_count=3`. A fresh 200-pair-per-orientation
+reciprocal safety screen gates one reserved 2,500-pair-per-orientation final
+test. Three is the sole candidate: within five total slots it reserves three
+distinct card/action cores and still permits two policy-supported draw
+alternatives, avoiding an adaptive 1-through-5 screen. This remains a
+top-policy method—it evaluates at most five complete moves, not every legal
+move—and no user-commented position, expected move, or frozen-ply result is
+allowed into selection or efficacy evidence. Publishing the plan does not
+launch it; `make action-core-campaign-test` verifies the lock.
+
 Supported symmetry modes are `1`, `5`, `10`, `20`, and `120`.
 
 All matches are paired: every deal (all three of them, in match mode) is

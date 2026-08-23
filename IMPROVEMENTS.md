@@ -962,6 +962,32 @@ Any successor should be learned or calibrated on frozen root-action regret,
 then evaluated as one new locked method rather than tuning this veto on the
 reserved final seeds.
 
+### Locked action-core shortlist confirmation (not launched)
+
+The flat complete-move shortlist can spend several of its five slots on
+different draw sources attached to one card/play-discard choice. The existing
+hierarchical alternative first ranks aggregate policy mass over semantic
+card/action cores. A single confirmatory candidate now tests three such cores:
+three of five slots are reserved for distinct choices and the remaining two
+may hold policy-supported draw alternatives. Counts one and two leave the
+structural omission largely intact; counts four and five eliminate most or all
+draw-alternative capacity. Testing every count and selecting the best would
+also turn a clean A/B question into an adaptive screen, so three is the sole
+candidate rather than a claim of universal optimality.
+
+The locked plan derives the baseline and world count only from the exact
+archived world-800 result, then changes only rollout field 35
+(`action_core_count`) from zero to three. Its helper compares all 42 semantic
+rollout fields, including inherited defaults and absent ranker/table roles.
+The method still evaluates no more than five complete top-policy moves and
+does not enumerate all legal moves. No user-commented state, frozen audit,
+expected move, or human label is an input. One fresh 200-pair-per-orientation
+reciprocal safety screen conditionally unlocks a disjoint
+2,500-pair-per-orientation final confidence-bound test. The workflow compiles
+one evaluator once, transports its hash-bound bytes, validates every complete
+raw stage before computing efficacy, and cannot promote repository files.
+There is intentionally no execution binding yet.
+
 ## Remaining high-value work
 
 1. Train a paired root-action-advantage veto instead of reusing a checkpoint

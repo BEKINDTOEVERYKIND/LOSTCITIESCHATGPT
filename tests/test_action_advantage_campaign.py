@@ -15,10 +15,29 @@ import hashlib
 from pathlib import Path
 import re
 import subprocess
+import sys
+import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from tools.action_advantage_campaign import (
+    BASELINE_512,
+    CANDIDATE_800,
+    COMPILER,
+    COMPILER_SEMANTIC_VERSION_COMMAND,
+    EvidenceError,
+    REQUIRED_COMPILER_SEMANTIC_VERSION,
+    candidate_prefix,
+    expected_execution,
+    guard_execution,
+    prepare_execution,
+)
+
 PLAN = ROOT / "data/experiments/locked_action_advantage_veto_v1_plan.json"
 WORKFLOW = ROOT / ".github/workflows/action-advantage-veto-v1.yml"
 EXECUTION = (
@@ -26,16 +45,9 @@ EXECUTION = (
 )
 GENERATOR = ROOT / "tools/action_advantage.c"
 
-BASELINE = (
-    "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:"
-    "3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:"
-    "0:0:0:0:1"
-)
+BASELINE = BASELINE_512
 FULL_TAIL = BASELINE.split(":", 2)[2] + ":0:0:0:1"
-PREFIX = (
-    "rolloutu4:data/champion.bin:data/champion.bin:"
-    "data/models/action_advantage_veto_v1.bin:" + FULL_TAIL + ":"
-)
+PREFIX = candidate_prefix(BASELINE)
 
 
 def unique(items: list[tuple[str, object]]) -> dict[str, object]:
@@ -60,8 +72,127 @@ def strict_json(path: Path) -> dict:
     return value
 
 
+def assert_workflow_mapping_keys_are_unique(test: unittest.TestCase,
+                                            text: str) -> None:
+    key_pattern = re.compile(
+        r"^(?P<indent> *)(?P<list>- )?"
+        r"(?P<key>[A-Za-z_][A-Za-z0-9_-]*):(?P<value>.*)$"
+    )
+    stack: list[tuple[int, object]] = []
+    seen: dict[object, set[str]] = {"root": set()}
+    block_indent: int | None = None
+    for number, raw in enumerate(text.splitlines(), 1):
+        test.assertNotIn("\t", raw, f"workflow line {number} contains a tab")
+        if not raw.strip() or raw.lstrip().startswith("#"):
+            continue
+        indent = len(raw) - len(raw.lstrip(" "))
+        if block_indent is not None:
+            if indent > block_indent:
+                continue
+            block_indent = None
+        match = key_pattern.fullmatch(raw)
+        if match is None and raw.lstrip().startswith("- "):
+            while stack and stack[-1][0] >= indent:
+                stack.pop()
+            continue
+        test.assertIsNotNone(match, f"unsupported YAML line {number}: {raw!r}")
+        while stack and stack[-1][0] >= indent:
+            stack.pop()
+        parent = stack[-1][1] if stack else "root"
+        if match.group("list"):
+            parent = ("item", number)
+            seen[parent] = set()
+            stack.append((indent, parent))
+        key = match.group("key")
+        test.assertNotIn(
+            key, seen.setdefault(parent, set()),
+            f"duplicate YAML key {key!r} on line {number}",
+        )
+        seen[parent].add(key)
+        value = match.group("value").strip()
+        if value in {"", "|", ">"}:
+            node = ("mapping", number, key)
+            seen[node] = set()
+            stack.append((indent, node))
+        if value in {"|", ">"}:
+            block_indent = indent
+
+
 class ActionAdvantageCampaignTests(unittest.TestCase):
     maxDiff = None
+
+    def test_prepare_is_canonical_atomic_and_no_clobber(self) -> None:
+        bound = {
+            "path": "data/experiments/world800_result.json",
+            "sha256": "2" * 64,
+            "candidate_actor": CANDIDATE_800,
+            "baseline_actor": BASELINE,
+            "promotion_gate_passed": False,
+            "selected_world_cap": 512,
+            "selected_actor": BASELINE,
+            "candidate_prefix": candidate_prefix(BASELINE),
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plan = root / "data/experiments/locked_action_advantage_veto_v1_plan.json"
+            workflow = root / ".github/workflows/action-advantage-veto-v1.yml"
+            output = root / (
+                "data/experiments/"
+                "locked_action_advantage_veto_v1_execution.json"
+            )
+            plan.parent.mkdir(parents=True)
+            workflow.parent.mkdir(parents=True)
+            plan.write_text("{}\n", encoding="utf-8")
+            workflow.write_text("name: fixture\n", encoding="utf-8")
+            with mock.patch(
+                    "tools.action_advantage_campaign.authoritative_inputs",
+                    return_value=bound):
+                created = prepare_execution(
+                    root, output, "0" * 40, "1" * 40)
+                snapshot = output.read_bytes()
+                self.assertEqual(strict_json(output), created)
+                self.assertEqual(output.stat().st_mode & 0o777, 0o644)
+                self.assertEqual(list(output.parent.glob(".*.tmp")), [])
+                with self.assertRaises(EvidenceError):
+                    prepare_execution(root, output, "0" * 40, "1" * 40)
+                self.assertEqual(output.read_bytes(), snapshot)
+                with self.assertRaises(EvidenceError):
+                    prepare_execution(
+                        root, root / "execution.json", "0" * 40, "1" * 40)
+
+    def test_world_result_winner_mechanically_constructs_both_actors(self) -> None:
+        for passed, selected, world in (
+            (False, BASELINE, 512),
+            (True, CANDIDATE_800, 800),
+        ):
+            bound = {
+                "path": "data/experiments/world800_result.json",
+                "sha256": "2" * 64,
+                "candidate_actor": CANDIDATE_800,
+                "baseline_actor": BASELINE,
+                "promotion_gate_passed": passed,
+                "selected_world_cap": world,
+                "selected_actor": selected,
+                "candidate_prefix": candidate_prefix(selected),
+            }
+            execution = expected_execution(
+                ROOT, "0" * 40, "1" * 40, authoritative=bound)
+            self.assertEqual(execution["actors"]["baseline"], selected)
+            self.assertEqual(
+                execution["actors"]["candidate_prefix"],
+                candidate_prefix(selected),
+            )
+            self.assertEqual(
+                execution["authoritative_world800_result"]
+                ["selected_world_cap"], world,
+            )
+            self.assertEqual(execution["build"]["compiler"], COMPILER)
+            self.assertEqual(
+                execution["build"]["compiler_semantic_version_command"],
+                COMPILER_SEMANTIC_VERSION_COMMAND,
+            )
+        with self.assertRaises(EvidenceError):
+            candidate_prefix(CANDIDATE_800.replace(":800:", ":799:", 1))
 
     def test_plan_locks_general_one_way_method(self) -> None:
         plan = strict_json(PLAN)
@@ -72,16 +203,35 @@ class ActionAdvantageCampaignTests(unittest.TestCase):
         )
         self.assertEqual(
             plan["status"],
-            "precommitted_before_candidate_generation_or_actor_efficacy",
+            "blocked_pending_add_only_authoritative_world800_binding",
         )
         self.assertIsNone(plan["results"])
-        method = plan["method"]
-        self.assertEqual(method["baseline_actor"], BASELINE)
+        source = plan["source_binding"]
         self.assertEqual(
-            method["candidate_template"], PREFIX + "{heldout_threshold}"
+            source["authoritative_world_result"],
+            "data/experiments/world800_result.json",
         )
+        self.assertIn("exactly recomputes", source["actor_selection"])
+        self.assertIn("no manual actor edit", source["actor_selection"])
+        self.assertIn("prepare-execution", source["execution_preparation"])
+        self.assertIn("guard-execution", source["execution_preparation"])
+        method = plan["method"]
+        self.assertIn("mechanically selected", method["baseline_actor"])
+        self.assertEqual(method["authorized_world_actors"], {
+            "512": BASELINE,
+            "800": CANDIDATE_800,
+        })
+        self.assertIn("preserve all 36", method["candidate_template"])
+        self.assertIn("{heldout_threshold}", method["candidate_template"])
         self.assertEqual(method["candidate_tail_fields_before_threshold"], 40)
         self.assertEqual(len(FULL_TAIL.split(":")), 40)
+        self.assertEqual(PREFIX, (
+            "rolloutu4:data/champion.bin:data/champion.bin:"
+            "data/models/action_advantage_veto_v1.bin:" + FULL_TAIL + ":"
+        ))
+        prefix800 = candidate_prefix(CANDIDATE_800)
+        self.assertEqual(len(prefix800.rstrip(":").split(":", 4)[4].split(":")), 40)
+        self.assertEqual(prefix800.split(":", 5)[4], "800")
         joined = "\n".join(method["invariants"])
         self.assertIn("cannot add, replace, reorder, or widen", joined)
         self.assertIn("top-policy-moves-only", joined)
@@ -101,6 +251,17 @@ class ActionAdvantageCampaignTests(unittest.TestCase):
             "final_looks": 1,
             "unplanned_retries": 0,
             "optional_stopping": False,
+        })
+
+        compiler = plan["build"]["compiler"]
+        self.assertEqual(compiler, {
+            "executable": COMPILER,
+            "semantic_version_command": COMPILER_SEMANTIC_VERSION_COMMAND,
+            "required_semantic_version": REQUIRED_COMPILER_SEMANTIC_VERSION,
+            "build_info_records": [
+                "gcc --version first line", "uname -a", "ImageOS",
+                "ImageVersion", "RUNNER_OS", "RUNNER_ARCH",
+            ],
         })
 
     def test_plan_locks_generated_data_and_honest_teacher(self) -> None:
@@ -186,11 +347,26 @@ class ActionAdvantageCampaignTests(unittest.TestCase):
 
     def test_workflow_is_one_addendum_compile_once_transport(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
+        assert_workflow_mapping_keys_are_unique(self, text)
         self.assertNotIn("workflow_dispatch", text)
         self.assertNotIn("continue-on-error", text)
         self.assertIn("on:\n  push:", text)
         self.assertIn(
             "data/experiments/locked_action_advantage_veto_v1_execution.json",
+            text,
+        )
+        self.assertIn(
+            "data/experiments/world800_result.json", text,
+        )
+        self.assertNotRegex(text, r"(?m)^  (?:BASELINE|CANDIDATE_PREFIX):")
+        self.assertIn(
+            "tools/action_advantage_campaign.py guard-execution", text,
+        )
+        self.assertIn(
+            "baseline: ${{ steps.guard.outputs.baseline }}", text,
+        )
+        self.assertIn(
+            "CANDIDATE_PREFIX: ${{ needs.preflight.outputs.candidate_prefix }}",
             text,
         )
         self.assertIn(
@@ -203,12 +379,37 @@ class ActionAdvantageCampaignTests(unittest.TestCase):
         self.assertNotIn("if:", preflight_header)
         self.assertIn('test "$GITHUB_RUN_ATTEMPT" = 1', text)
         self.assertIn('git -C campaign archive HEAD^ | tar -x -C source', text)
-        self.assertIn("compile exactly once in preflight", text)
+        self.assertIn("Compile the evaluator and training tools exactly once", text)
+        self.assertNotIn("COMPILER_ID", text)
+        self.assertIn("COMPILER_EXECUTABLE: gcc", text)
+        self.assertIn(
+            "COMPILER_SEMANTIC_VERSION_COMMAND: "
+            "'gcc -dumpfullversion -dumpversion'",
+            text,
+        )
+        self.assertIn("REQUIRED_COMPILER_SEMANTIC_VERSION: '13.3.0'", text)
+        self.assertIn(
+            'test "$(gcc -dumpfullversion -dumpversion)" =', text,
+        )
+        self.assertNotIn('test "$(gcc --version | head -1)" =', text)
+        for record in (
+            'echo "compiler_banner=$(gcc --version | head -1)"',
+            'echo "uname=$(uname -a)"',
+            'echo "runner_image_os=$ImageOS"',
+            'echo "runner_image_version=$ImageVersion"',
+            'echo "runner_os=$RUNNER_OS"',
+            'echo "runner_arch=$RUNNER_ARCH"',
+        ):
+            self.assertIn(record, text)
         self.assertIn("(cd source && ./bin/test_action_ranker", text)
         self.assertIn("./bin/test_action_advantage)", text)
         self.assertIn("(cd transport && sha256sum -c SHA256SUMS.txt)", text)
         self.assertIn("(cd evaluator && sha256sum -c SHA256SUMS.txt)", text)
         self.assertIn("selected.json PREFLIGHT_BUILD_INFO.txt", text)
+        self.assertEqual(text.count("timeout-minutes: 360"), 3)
+        self.assertEqual(text.count("/usr/bin/time"), 4)
+        self.assertEqual(text.count("wall_s=%e user_s=%U sys_s=%S "), 4)
+        self.assertIn('find downloads merged bindings -type f ! -name SHA256SUMS.txt', text)
         safety_eval = text.split("\n  safety_evaluate:", 1)[1].split(
             "\n  safety_merge:", 1
         )[0]
@@ -272,6 +473,15 @@ class ActionAdvantageCampaignTests(unittest.TestCase):
                     ["git", "show", f"{launch}:{path}"], cwd=ROOT,
                 ),
                 EXECUTION.read_bytes(),
+            )
+            expected, bound = guard_execution(
+                ROOT, EXECUTION,
+                execution["source_parent_commit"],
+                execution["source_parent_tree"],
+            )
+            self.assertEqual(expected, execution)
+            self.assertEqual(
+                bound["selected_actor"], execution["actors"]["baseline"]
             )
 
     def test_unchanged_actor_gates_and_fresh_namespaces(self) -> None:

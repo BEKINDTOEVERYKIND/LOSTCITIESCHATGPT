@@ -197,11 +197,17 @@ class MatchValueTableTest(unittest.TestCase):
 
             ranker_tail = tail.split(":")
             ranker_tail[27] = "2"
+            # Keep all three network roles physically distinct here.  Besides
+            # checking the table/ranker integration, the sanitizer job uses
+            # this successful arena process to prove that its root,
+            # continuation, ranker, and table allocations are all released.
+            # The table remains fingerprint-bound to the champion continuation
+            # checkpoint, not to the independently loaded root or ranker.
             ranked_table_actor = ":".join([
                 "rolloutu4",
+                str(ROOT / "data" / "c8.bin"),
                 str(CHAMPION),
-                str(CHAMPION),
-                str(CHAMPION),
+                str(ROOT / "data" / "best.bin"),
                 *ranker_tail,
             ])
             ranker_played = subprocess.run(

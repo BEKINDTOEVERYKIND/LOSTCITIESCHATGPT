@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "locked_match_value_variant_execution",
+  "status": "launch_bound_after_world800_before_table_build_or_efficacy",
+  "source_parent_commit": "__SOLE_PARENT_COMMIT__",
+  "source_parent_tree": "__SOLE_PARENT_TREE__",
+  "source_files_sha256": {
+    "src/agent.c": "__SHA256_FROM_SOLE_PARENT__",
+    "src/agent.h": "__SHA256_FROM_SOLE_PARENT__",
+    "src/match.c": "__SHA256_FROM_SOLE_PARENT__",
+    "src/match_value.c": "__SHA256_FROM_SOLE_PARENT__",
+    "src/match_value.h": "__SHA256_FROM_SOLE_PARENT__",
+    "src/rollout.c": "__SHA256_FROM_SOLE_PARENT__",
+    "src/spec.c": "__SHA256_FROM_SOLE_PARENT__",
+    "src/spec.h": "__SHA256_FROM_SOLE_PARENT__",
+    "tools/arena.c": "__SHA256_FROM_SOLE_PARENT__",
+    "tools/build_match_value.c": "__SHA256_FROM_SOLE_PARENT__",
+    "tools/gate_actor_panel.py": "__SHA256_FROM_SOLE_PARENT__",
+    "tools/match_value_campaign.py": "__SHA256_FROM_SOLE_PARENT__",
+    "tools/merge_arena.py": "__SHA256_FROM_SOLE_PARENT__",
+    "tools/validate_actor_shards.py": "__SHA256_FROM_SOLE_PARENT__"
+  },
+  "workflow": {
+    "path": ".github/workflows/match-value-variant.yml",
+    "sha256": "__SHA256_FROM_SOLE_PARENT__"
+  },
+  "plan": {
+    "path": "data/experiments/match_value_variant_plan.json",
+    "sha256": "__SHA256_FROM_SOLE_PARENT__"
+  },
+  "authoritative_world800_result": {
+    "path": "data/experiments/world800_result.json",
+    "sha256": "__SHA256_OF_COMMITTED_AUTHORITATIVE_RESULT__",
+    "candidate_actor": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+    "baseline_actor": "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+    "promotion_gate_passed": "__BOOLEAN_RECOMPUTED_FROM_AUTHORITATIVE_RESULT__",
+    "selected_world_cap": "__800_IF_PASS_ELSE_512__",
+    "selected_actor": "__CANDIDATE_IF_PASS_ELSE_BASELINE__"
+  },
+  "build": {
+    "runner": "ubuntu-24.04",
+    "compiler": "gcc",
+    "compiler_semantic_version_command": "gcc -dumpfullversion -dumpversion",
+    "required_compiler_semantic_version": "13.3.0",
+    "cflags": "-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11",
+    "ldflags": "-lm -pthread",
+    "expected_build_profile_hex": "0030d23b",
+    "compile_once": [
+      "bin/arena",
+      "bin/build_match_value"
+    ],
+    "model": {
+      "path": "data/champion.bin",
+      "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417"
+    },
+    "table": {
+      "single_transition_generation": true,
+      "samples": 16000,
+      "threads": 8,
+      "seed": "7331001",
+      "playout_symmetries": 20,
+      "role_cycle_size": 400,
+      "role_balance_complete": true,
+      "controller_abi": 1,
+      "controller_words": [0, 20, 4, 1, 1, 0, 0, 0, 0, 0, 300],
+      "raw_path": "tables/winner-o0-16000-raw.lcmv",
+      "projected_path": "tables/winner-o0-16000-isotonic.lcmv"
+    }
+  },
+  "evaluation": {
+    "plan_is_complete_command_seed_and_gate_binding": true,
+    "partial_efficacy_inspection_forbidden": true,
+    "stage1_selects_exactly_one_of": ["R14", "P14", "R0", "P0"],
+    "stage2_runs_only_selected_variant": true,
+    "reserved_final_runs_only_after_exact_stage2_pass": true,
+    "no_automatic_repository_promotion": true
+  },
+  "results": null
+}

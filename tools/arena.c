@@ -245,30 +245,28 @@ int main(int argc, char **argv)
     Agent a, b;
     spec_parse(spec0, &a);
     spec_parse(spec1, &b);
+    int status = 1;
     MatchResult r;
     MatchPairResult *rows = raw_path
         ? calloc((size_t)pairs, sizeof(*rows)) : NULL;
     if (raw_path && !rows) {
         fprintf(stderr, "cannot allocate raw pair results\n");
-        return 1;
+        goto cleanup;
     }
     struct timespec t0, t1;
     if (clock_gettime(CLOCK_MONOTONIC, &t0) != 0) {
         fprintf(stderr, "cannot start arena timer: %s\n", strerror(errno));
-        free(rows);
-        return 1;
+        goto cleanup;
     }
     if (match_run_range_r(&a, &b, pair_start, pairs, nthread, seed,
                           rounds, rows, &r) != 0) {
         fprintf(stderr, "match execution failed; no results were published\n");
-        free(rows);
-        return 1;
+        goto cleanup;
     }
     if (clock_gettime(CLOCK_MONOTONIC, &t1) != 0) {
         fprintf(stderr, "cannot stop arena timer; no results were published: "
                         "%s\n", strerror(errno));
-        free(rows);
-        return 1;
+        goto cleanup;
     }
     double secs = (t1.tv_sec - t0.tv_sec) + 1e-9 * (t1.tv_nsec - t0.tv_nsec);
 
@@ -276,18 +274,17 @@ int main(int argc, char **argv)
         if (!raw_rows_complete(rows, pairs, pair_start, rounds, &r)) {
             fprintf(stderr, "match returned incomplete raw rows; no results "
                             "were published\n");
-            free(rows);
-            return 1;
+            goto cleanup;
         }
         if (write_raw_pairs(raw_path, rows, pairs, pair_start, seed,
-                            rounds, spec0, spec1, provenance) != 0) {
-            free(rows);
-            return 1;
-        }
+                            rounds, spec0, spec1, provenance) != 0)
+            goto cleanup;
     }
-    free(rows);
 
-    if (raw_only) return 0;
+    if (raw_only) {
+        status = 0;
+        goto cleanup;
+    }
 
     if (quiet) {
         printf("%.3f %.3f %.4f %.4f\n", r.margin, r.margin_se, r.winrate, r.winrate_se);
@@ -305,5 +302,14 @@ int main(int argc, char **argv)
         printf("  cap-terminated rounds %llu\n",
                (unsigned long long)r.capped_rounds);
     }
-    return 0;
+    status = 0;
+
+cleanup:
+    free(rows);
+    /* spec_parse() owns every checkpoint/table it loads.  Releasing each
+     * complete actor through the ownership-aware API also handles aliased
+     * root/continuation/controller/ranker roles without double-freeing. */
+    spec_release(&b);
+    spec_release(&a);
+    return status;
 }

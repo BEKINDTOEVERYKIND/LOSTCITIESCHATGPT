@@ -16,14 +16,15 @@ permissions:
 env:
   PLAN_PATH: data/experiments/locked_action_advantage_veto_v1_plan.json
   EXECUTION_PATH: data/experiments/locked_action_advantage_veto_v1_execution.json
+  WORLD_RESULT_PATH: data/experiments/world800_result.json
   WORKFLOW_PATH: .github/workflows/action-advantage-veto-v1.yml
-  COMPILER_ID: 'gcc (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0'
+  COMPILER_EXECUTABLE: gcc
+  COMPILER_SEMANTIC_VERSION_COMMAND: 'gcc -dumpfullversion -dumpversion'
+  REQUIRED_COMPILER_SEMANTIC_VERSION: '13.3.0'
   BUILD_CFLAGS: '-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11'
   BUILD_LDFLAGS: '-lm -pthread'
   ROOT_SHA: af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417
   ROOT_SIZE: '2823748'
-  BASELINE: 'rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1'
-  CANDIDATE_PREFIX: 'rolloutu4:data/champion.bin:data/champion.bin:data/models/action_advantage_veto_v1.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1:0:0:0:1:'
   TEACHER: 'policy:data/champion.bin:0:20'
   DEVELOPMENT_SEED: '202609030101'
   SPLIT_SEED: '202609030201'
@@ -41,6 +42,11 @@ jobs:
       plan_sha: ${{ steps.guard.outputs.plan_sha }}
       source_commit: ${{ steps.guard.outputs.source_commit }}
       source_tree: ${{ steps.guard.outputs.source_tree }}
+      baseline: ${{ steps.guard.outputs.baseline }}
+      candidate_prefix: ${{ steps.guard.outputs.candidate_prefix }}
+      world_cap: ${{ steps.guard.outputs.world_cap }}
+      world_result_sha: ${{ steps.guard.outputs.world_result_sha }}
+      world_passed: ${{ steps.guard.outputs.world_passed }}
       transport_manifest_sha: ${{ steps.bind.outputs.transport_manifest_sha }}
     steps:
       - uses: actions/checkout@v4
@@ -65,102 +71,13 @@ jobs:
             exit 1
           fi
           test "$(git rev-list --all --count -- "$EXECUTION_PATH")" = 1
-          python3 - <<'PY'
-          import hashlib
-          import json
-          import os
-          import re
-          import subprocess
-          from pathlib import Path
-
-          def reject_constant(token):
-              raise ValueError(f"non-standard JSON constant {token}")
-
-          def unique(items):
-              out = {}
-              for key, value in items:
-                  if key in out:
-                      raise ValueError(f"duplicate JSON key {key}")
-                  out[key] = value
-              return out
-
-          parent = subprocess.check_output(
-              ["git", "rev-parse", "HEAD^"], text=True).strip()
-          tree = subprocess.check_output(
-              ["git", "rev-parse", "HEAD^^{tree}"], text=True).strip()
-          plan_path = Path(os.environ["PLAN_PATH"])
-          workflow_path = Path(os.environ["WORKFLOW_PATH"])
-          plan_sha = hashlib.sha256(plan_path.read_bytes()).hexdigest()
-          workflow_sha = hashlib.sha256(workflow_path.read_bytes()).hexdigest()
-          value = json.loads(
-              Path(os.environ["EXECUTION_PATH"]).read_text(encoding="utf-8"),
-              object_pairs_hook=unique,
-              parse_constant=reject_constant,
-          )
-          expected = {
-              "schema_version": 1,
-              "artifact_kind": "locked_action_advantage_veto_v1_execution",
-              "status": "launch_bound_before_candidate_generation_or_actor_efficacy",
-              "source_parent_commit": parent,
-              "source_parent_tree": tree,
-              "workflow": {
-                  "path": str(workflow_path),
-                  "sha256": workflow_sha,
-              },
-              "plan": {
-                  "path": str(plan_path),
-                  "sha256": plan_sha,
-              },
-              "build": {
-                  "runner": "ubuntu-24.04",
-                  "compiler": os.environ["COMPILER_ID"],
-                  "cflags": os.environ["BUILD_CFLAGS"],
-                  "ldflags": os.environ["BUILD_LDFLAGS"],
-                  "binding": "compile exactly once in preflight; transport and SHA-256 verify everywhere else",
-              },
-              "development": {
-                  "generator_seed": os.environ["DEVELOPMENT_SEED"],
-                  "split_seed": os.environ["SPLIT_SEED"],
-                  "source_matches": 64,
-                  "label_worlds": 256,
-                  "label_threads": 4,
-                  "teacher": os.environ["TEACHER"],
-                  "threshold_grid": [0.0, 0.1, 0.25, 0.5, 1.0],
-              },
-              "actors": {
-                  "baseline": os.environ["BASELINE"],
-                  "candidate_prefix": os.environ["CANDIDATE_PREFIX"],
-                  "candidate_count": 1,
-              },
-              "safety": {
-                  "pairs_per_orientation": 200,
-                  "pairs_per_shard": 20,
-                  "starts": list(range(0, 200, 20)),
-                  "candidate_first_seed": os.environ["SAFETY_CANDIDATE_SEED"],
-                  "baseline_first_seed": os.environ["SAFETY_BASELINE_SEED"],
-                  "gate": "score>=0.5; margin>0; each orientation>=0.475; zero caps; exact validity",
-              },
-              "final": {
-                  "execute_if_safety_passes": True,
-                  "pairs_per_orientation": 2500,
-                  "pairs_per_shard": 100,
-                  "starts": list(range(0, 2500, 100)),
-                  "candidate_first_seed": os.environ["FINAL_CANDIDATE_SEED"],
-                  "baseline_first_seed": os.environ["FINAL_BASELINE_SEED"],
-                  "gate_z": 1.645,
-                  "gate": "score-z*SE>0.5; margin-z*SE>0; each orientation>0.5; zero caps; exact validity",
-              },
-              "probe_exclusion": "no repository checkout after preflight; data/probes and user-commented positions are absent from training and actor-panel transports",
-              "results": None,
-          }
-          if value != expected:
-              raise SystemExit("execution addendum does not exactly match the locked campaign")
-          if not re.fullmatch(r"[0-9a-f]{40}", parent) or not re.fullmatch(
-                  r"[0-9a-f]{40}", tree):
-              raise SystemExit("noncanonical source binding")
-          PY
           SOURCE_COMMIT="$(git rev-parse HEAD^)"
           SOURCE_TREE="$(git rev-parse 'HEAD^^{tree}')"
+          python3 tools/action_advantage_campaign.py guard-execution \
+            --root . --execution "$EXECUTION_PATH" \
+            --source-parent-commit "$SOURCE_COMMIT" \
+            --source-parent-tree "$SOURCE_TREE" \
+            --github-output "$GITHUB_OUTPUT"
           PLAN_SHA="$(sha256sum "$PLAN_PATH" | cut -d' ' -f1)"
           EXECUTION_SHA="$(sha256sum "$EXECUTION_PATH" | cut -d' ' -f1)"
           echo "source_commit=$SOURCE_COMMIT" >> "$GITHUB_OUTPUT"
@@ -177,19 +94,28 @@ jobs:
           test "$(git -C campaign rev-parse HEAD^)" = "${{ steps.guard.outputs.source_commit }}"
           test "$(git -C campaign rev-parse 'HEAD^^{tree}')" = "${{ steps.guard.outputs.source_tree }}"
           test "$(sha256sum source/$PLAN_PATH | cut -d' ' -f1)" = "${{ steps.guard.outputs.plan_sha }}"
+          test "$(sha256sum source/$WORLD_RESULT_PATH | cut -d' ' -f1)" = \
+            "${{ steps.guard.outputs.world_result_sha }}"
           test "$(sha256sum source/data/champion.bin | cut -d' ' -f1)" = "$ROOT_SHA"
           test "$(stat -c %s source/data/champion.bin)" = "$ROOT_SIZE"
 
       - name: Compile the evaluator and training tools exactly once
         run: |
           set -euo pipefail
-          test "$(gcc --version | head -1)" = "$COMPILER_ID"
+          test "$COMPILER_EXECUTABLE" = gcc
+          test "$COMPILER_SEMANTIC_VERSION_COMMAND" = \
+            "gcc -dumpfullversion -dumpversion"
+          test "$(gcc -dumpfullversion -dumpversion)" = \
+            "$REQUIRED_COMPILER_SEMANTIC_VERSION"
           make -C source -j2 \
-            CC=gcc CFLAGS="$BUILD_CFLAGS" LDFLAGS="$BUILD_LDFLAGS" \
+            CC="$COMPILER_EXECUTABLE" CFLAGS="$BUILD_CFLAGS" \
+            LDFLAGS="$BUILD_LDFLAGS" \
             bin/arena bin/action_advantage bin/train_advantage_veto \
             bin/test_action_ranker bin/test_action_advantage
           (cd source && ./bin/test_action_ranker && \
             ./bin/test_action_advantage)
+          (cd campaign && python3 -m unittest \
+            tests/test_action_advantage_campaign.py)
           test "$(sha256sum source/data/champion.bin | cut -d' ' -f1)" = "$ROOT_SHA"
           test "$(stat -c %s source/data/champion.bin)" = "$ROOT_SIZE"
           ./source/bin/action_advantage --help > action-advantage-help.txt
@@ -200,6 +126,10 @@ jobs:
         id: bind
         run: |
           set -euo pipefail
+          test -n "${ImageOS:-}"
+          test -n "${ImageVersion:-}"
+          test -n "${RUNNER_OS:-}"
+          test -n "${RUNNER_ARCH:-}"
           mkdir -p transport/bin transport/data transport/tools transport/bindings
           cp source/bin/arena transport/bin/arena
           cp source/bin/action_advantage transport/bin/action_advantage
@@ -210,6 +140,7 @@ jobs:
           cp source/tools/validate_actor_shards.py transport/tools/validate_actor_shards.py
           cp "source/$PLAN_PATH" transport/bindings/plan.json
           cp "source/$WORKFLOW_PATH" transport/bindings/workflow.yml
+          cp "source/$WORLD_RESULT_PATH" transport/bindings/world800-result.json
           cp "campaign/$EXECUTION_PATH" transport/bindings/execution.json
           chmod 755 transport/bin/* transport/tools/*.py
           {
@@ -218,15 +149,29 @@ jobs:
             echo "source_parent_tree=${{ steps.guard.outputs.source_tree }}"
             echo "plan_sha=${{ steps.guard.outputs.plan_sha }}"
             echo "execution_sha=${{ steps.guard.outputs.execution_sha }}"
-            echo "compiler=$COMPILER_ID"
+            echo "world_result_sha=${{ steps.guard.outputs.world_result_sha }}"
+            echo "world_cap=${{ steps.guard.outputs.world_cap }}"
+            echo "world_passed=${{ steps.guard.outputs.world_passed }}"
+            echo "baseline=${{ steps.guard.outputs.baseline }}"
+            echo "candidate_prefix=${{ steps.guard.outputs.candidate_prefix }}"
+            echo "compiler_executable=$COMPILER_EXECUTABLE"
+            echo "compiler_semantic_version_command=$COMPILER_SEMANTIC_VERSION_COMMAND"
+            echo "compiler_semantic_version=$(gcc -dumpfullversion -dumpversion)"
+            echo "compiler_banner=$(gcc --version | head -1)"
+            echo "runner_image_os=$ImageOS"
+            echo "runner_image_version=$ImageVersion"
+            echo "runner_os=$RUNNER_OS"
+            echo "runner_arch=$RUNNER_ARCH"
+            echo "uname=$(uname -a)"
             echo "cflags=$BUILD_CFLAGS"
             echo "ldflags=$BUILD_LDFLAGS"
-            uname -a
           } > transport/BUILD_INFO.txt
           (cd transport && { find bin data tools bindings -type f -print0; \
             printf '%s\0' BUILD_INFO.txt; } | sort -z | \
             xargs -0 sha256sum > SHA256SUMS.txt)
           (cd transport && sha256sum -c SHA256SUMS.txt)
+          test "$(sha256sum transport/bindings/world800-result.json | cut -d' ' -f1)" = \
+            "${{ steps.guard.outputs.world_result_sha }}"
           TRANSPORT_SHA="$(sha256sum transport/SHA256SUMS.txt | cut -d' ' -f1)"
           echo "transport_manifest_sha=$TRANSPORT_SHA" >> "$GITHUB_OUTPUT"
 
@@ -242,6 +187,11 @@ jobs:
     needs: preflight
     runs-on: ubuntu-24.04
     timeout-minutes: 360
+    env:
+      BASELINE: ${{ needs.preflight.outputs.baseline }}
+      CANDIDATE_PREFIX: ${{ needs.preflight.outputs.candidate_prefix }}
+      WORLD_CAP: ${{ needs.preflight.outputs.world_cap }}
+      WORLD_RESULT_SHA: ${{ needs.preflight.outputs.world_result_sha }}
     outputs:
       candidate: ${{ steps.select.outputs.candidate }}
       baseline: ${{ steps.select.outputs.baseline }}
@@ -261,6 +211,8 @@ jobs:
           test "$(sha256sum transport/SHA256SUMS.txt | cut -d' ' -f1)" = \
             "${{ needs.preflight.outputs.transport_manifest_sha }}"
           (cd transport && sha256sum -c SHA256SUMS.txt)
+          test "$(sha256sum transport/bindings/world800-result.json | cut -d' ' -f1)" = \
+            "$WORLD_RESULT_SHA"
           mkdir -p bin data dev
           cp transport/bin/action_advantage bin/action_advantage
           cp transport/bin/train_advantage_veto bin/train_advantage_veto
@@ -464,6 +416,8 @@ jobs:
               f"source={os.environ['SOURCE_COMMIT']};"
               f"tree={os.environ['SOURCE_TREE']};"
               f"execution={os.environ['EXECUTION_SHA']};"
+              f"world_result={os.environ['WORLD_RESULT_SHA']};"
+              f"world_cap={os.environ['WORLD_CAP']};"
               f"arena={arena_sha};champion={champion_sha};"
               f"ranker={ranker_sha};threshold={threshold_text};threads=4"
           )
@@ -477,6 +431,9 @@ jobs:
               "source_tree": os.environ["SOURCE_TREE"],
               "plan_sha256": os.environ["PLAN_SHA"],
               "execution_sha256": os.environ["EXECUTION_SHA"],
+              "authoritative_world800_result_sha256":
+                  os.environ["WORLD_RESULT_SHA"],
+              "selected_world_cap": int(os.environ["WORLD_CAP"]),
               "arena_sha256": arena_sha,
               "champion_sha256": champion_sha,
               "records_sha256": sha("dev/records.bin"),

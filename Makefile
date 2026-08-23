@@ -122,6 +122,7 @@ test: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_role_coherence \
 	python3 -m unittest tests/test_actor_panel.py
 	python3 -m unittest tests/test_controller_veto_v3.py
 	python3 -m unittest tests/test_world800_campaign.py
+	python3 -m unittest tests/test_archive_world800.py
 	python3 -m unittest tests/test_action_advantage_campaign.py
 	python3 -m unittest tests/test_action_ranker_veto.py
 	python3 -m unittest tests/test_commented_ply_audit.py
@@ -130,6 +131,8 @@ test: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_role_coherence \
 	python3 -m unittest tests/test_net_average.py
 	python3 -m unittest tests/test_flagged_ply_audit.py
 	python3 -m unittest tests/test_match_value.py
+	python3 -m unittest tests/test_match_value_campaign.py
+	python3 -m unittest tests/test_action_core_campaign.py
 
 audit-test: $(BIN)/qpair $(DATA)/champion.bin
 	python3 tools/audit_regression.py
@@ -141,7 +144,8 @@ controller-veto-v3-test:
 	python3 -m unittest tests/test_controller_veto_v3.py
 
 world800-test: $(DATA)/champion.bin
-	python3 -m unittest tests/test_world800_campaign.py
+	python3 -m unittest tests/test_world800_campaign.py \
+		tests/test_archive_world800.py
 
 flagged-ply-test: $(BIN)/flagged_ply_probe $(BIN)/history_belief \
 	$(DATA)/champion.bin
@@ -151,7 +155,11 @@ match-value-test: $(BIN)/test_match_value $(BIN)/build_match_value \
 	$(BIN)/arena $(BIN)/train $(BIN)/rl $(BIN)/showgame $(BIN)/analyze \
 	$(BIN)/play $(BIN)/probe $(BIN)/flagged_ply_probe $(DATA)/champion.bin
 	./$(BIN)/test_match_value
-	python3 -m unittest tests/test_match_value.py
+	python3 -m unittest tests/test_match_value.py \
+		tests/test_match_value_campaign.py
+
+action-core-campaign-test:
+	python3 -m unittest tests/test_action_core_campaign.py
 
 belief-eval-test: $(BIN)/belief_eval $(BIN)/test_belief_eval \
 	$(DATA)/champion.bin
@@ -163,7 +171,8 @@ clean:
 	rm -f $(DATA)/champion.bin
 
 .PHONY: all test audit-test history-belief-test controller-veto-v3-test \
-	world800-test flagged-ply-test match-value-test belief-eval-test clean
+	world800-test flagged-ply-test match-value-test action-core-campaign-test \
+	belief-eval-test clean
 
 $(BIN)/probe: tools/probe.c $(CORE) $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)

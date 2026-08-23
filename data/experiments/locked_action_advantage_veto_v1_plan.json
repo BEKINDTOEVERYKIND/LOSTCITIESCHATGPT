@@ -1,23 +1,42 @@
 {
   "schema_version": 1,
   "artifact_kind": "locked_action_advantage_veto_v1_actor_campaign",
-  "status": "precommitted_before_candidate_generation_or_actor_efficacy",
+  "status": "blocked_pending_add_only_authoritative_world800_binding",
   "source_binding": {
-    "rule": "the execution addendum's sole parent commit and tree are the only build source",
+    "rule": "the execution addendum's sole parent commit and tree are the only build source; that parent must contain the exact archived and independently raw-validated world800 result",
     "launch": "one future addendum-only push; retries and workflow_dispatch are forbidden",
-    "branch": "agent/correctness-and-policy-upgrade"
+    "branch": "agent/correctness-and-policy-upgrade",
+    "authoritative_world_result": "data/experiments/world800_result.json",
+    "actor_selection": "tools/action_advantage_campaign.py reopens and exactly recomputes the archived result; promotion_gate_passed=true selects the predeclared 800+800 actor and false selects the predeclared 512+512 actor; no manual actor edit is permitted",
+    "execution_preparation": "after the result is committed, prepare-execution creates the one no-clobber addendum and guard-execution independently reconstructs it at launch"
   },
   "build": {
     "runner": "ubuntu-24.04",
-    "compiler": "gcc (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0",
+    "compiler": {
+      "executable": "gcc",
+      "semantic_version_command": "gcc -dumpfullversion -dumpversion",
+      "required_semantic_version": "13.3.0",
+      "build_info_records": [
+        "gcc --version first line",
+        "uname -a",
+        "ImageOS",
+        "ImageVersion",
+        "RUNNER_OS",
+        "RUNNER_ARCH"
+      ]
+    },
     "cflags": "-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11",
     "ldflags": "-lm -pthread",
-    "rule": "compile arena, action_advantage, and train_advantage_veto exactly once in preflight; every later job transports and SHA-256 verifies those executables, the evidence scripts, and champion.bin; no later job checks out source or invokes a compiler"
+    "rule": "require gcc semantic version 13.3.0 from the exact command gcc -dumpfullversion -dumpversion; compile arena, action_advantage, and train_advantage_veto exactly once in preflight; record and hash the observed package banner and GitHub runner platform identity; every later job transports and SHA-256 verifies those executables, the evidence scripts, and champion.bin; no later job checks out source or invokes a compiler"
   },
   "method": {
     "name": "direct signed paired action-advantage residual veto",
-    "baseline_actor": "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
-    "candidate_template": "rolloutu4:data/champion.bin:data/champion.bin:data/models/action_advantage_veto_v1.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1:0:0:0:1:{heldout_threshold}",
+    "baseline_actor": "the mechanically selected authoritative world800 winner frozen verbatim in the execution addendum",
+    "candidate_template": "replace rolloutu with rolloutu4, add the same champion as explicit continuation plus data/models/action_advantage_veto_v1.bin as ranker, preserve all 36 selected baseline tail fields, append unchanged default fields 37--40 as 0:0:0:1, then append {heldout_threshold} as field 41",
+    "authorized_world_actors": {
+      "512": "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+      "800": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
+    },
     "candidate_tail_fields_before_threshold": 40,
     "veto_rule": "only after the maintained primary panel and independent fresh panel agree on the same nonbaseline proposal, compare the ranker's signed residual log-odds for exactly that proposal versus candidate zero; retain at or above the frozen threshold and otherwise return candidate zero",
     "invariants": [
@@ -32,7 +51,7 @@
   },
   "development_data": {
     "source": "generated maintained-actor self-play only",
-    "proposal_population": "every zero-cap top-policy-prefix pair authorized by maintained primary-plus-fresh confirmation; collection occurs at the ranker gate even if a later low-prior challenger becomes the actor's final move",
+    "proposal_population": "every zero-cap top-policy-prefix pair authorized by maintained primary-plus-fresh confirmation; the selected actor has no semantic, draw-variant, action-core, planner, or advisory third-candidate path",
     "generator_seed": "202609030101",
     "source_matches": 64,
     "completion_rule": "finish all 64 predeclared generated matches; no proposal cap, early stop, or adaptive extension",
