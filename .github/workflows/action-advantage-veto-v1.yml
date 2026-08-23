@@ -292,6 +292,7 @@ jobs:
             -o dev/trainer.time \
             ./bin/train_advantage_veto \
               --records dev/records.bin --champion data/champion.bin \
+              --actor "$BASELINE" --reroot-actor "$TEACHER" \
               --out dev/ranker.bin --metrics-json dev/heldout.json \
               --split-seed "$SPLIT_SEED" --validation-permille 250 \
               --epochs 24 --batch 32 --lr 0.00002 --anchor-kl 1 \
@@ -360,6 +361,7 @@ jobs:
           champion_fnv = fnv1a64(champion_bytes[24:])
           absent_fnv = fnv1a64(b"ABSENT\0")
           expected_header = {
+              "format_version": 2,
               "generator_seed": os.environ["DEVELOPMENT_SEED"],
               "label_worlds": 256,
               "ply_lo": 14,
@@ -375,11 +377,15 @@ jobs:
               "maintained_root_net_hash": champion_fnv,
               "maintained_continuation_net_hash": champion_fnv,
               "maintained_controller_net_hash": absent_fnv,
+              "maintained_ranker_net_hash": absent_fnv,
+              "maintained_match_value_hash": absent_fnv,
               "reroot_actor_spec_hash": fnv1a64(
                   os.environ["TEACHER"].encode()),
               "reroot_root_net_hash": champion_fnv,
               "reroot_continuation_net_hash": champion_fnv,
               "reroot_controller_net_hash": absent_fnv,
+              "reroot_ranker_net_hash": absent_fnv,
+              "reroot_match_value_hash": absent_fnv,
           }
           header = metrics.get("record_header")
           if not isinstance(header, dict):

@@ -1,4 +1,5 @@
 #include "spec.h"
+#include "match_value.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,11 +18,42 @@ static Net *load_net(const char *path)
     return n;
 }
 
-enum { ROLLOUT_TAIL_FIELDS = 41 };
+enum { ROLLOUT_TAIL_FIELDS = 42 };
 
 static int valid_suit_group(int n)
 {
     return n == 1 || n == 5 || n == 10 || n == 20 || n == 120;
+}
+
+static int match_value_matches_rollout(const Agent *a)
+{
+    if (!a) return 0;
+    if (a->win_q != 3)
+        return a->match_value == NULL && !a->owns_match_value;
+    if (!a->match_value || !a->continuation_net ||
+        !match_value_validate(a->match_value) ||
+        !match_value_balanced_roles(a->match_value) ||
+        a->veto_continuation_net ||
+        a->bounded_late_root ||
+        a->deck2_replan_worlds != 0 || a->deck2_replan_cores != 0)
+        return 0;
+    const MatchValueController *c = &a->match_value->controller;
+    int playout_prune = a->playout_prune < 0
+        ? a->prune_dom : a->playout_prune != 0;
+    return c->net_fingerprint ==
+               match_value_net_fingerprint(a->continuation_net) &&
+           c->playout_symmetries == (uint32_t)a->playout_symmetries &&
+           c->playout_sample == (uint32_t)a->playout_sample &&
+           c->playout_prune == (uint32_t)playout_prune &&
+           c->exact_terminal == (uint32_t)a->exact_terminal &&
+           c->plan_deck_max == (uint32_t)a->plan_deck_max &&
+           c->plan_block_gap == (uint32_t)a->plan_block_gap &&
+           c->draw_playout_deck_max ==
+               (uint32_t)a->draw_playout_deck_max &&
+           c->deck2_replan_worlds ==
+               (uint32_t)a->deck2_replan_worlds &&
+           c->deck2_replan_cores == (uint32_t)a->deck2_replan_cores &&
+           c->max_plies == LC_MAX_PLIES;
 }
 
 static void validate_rollout(const Agent *a, const char *label)
@@ -37,7 +69,7 @@ static void validate_rollout(const Agent *a, const char *label)
         a->ply_hi >= 0 && a->ply_hi <= 300 &&
         (a->ply_hi == 0 || a->ply_hi >= a->ply_lo) &&
         a->eval_cand >= 0 && a->eval_cand <= MAX_MOVES &&
-        a->win_q >= 0 && a->win_q <= 2 &&
+        a->win_q >= 0 && a->win_q <= 3 &&
         (a->prune_dom == 0 || a->prune_dom == 1) &&
         isfinite(a->override_k) && a->override_k >= 0.0f &&
         isfinite(a->override_min) && a->override_min >= 0.0f &&
@@ -93,6 +125,7 @@ static void validate_rollout(const Agent *a, const char *label)
          (a->net && a->continuation_net && a->policy_prefix_mode >= 2 &&
           !a->veto_continuation_net)) &&
         (a->action_ranker_net || a->action_ranker_min == 0.0f) &&
+        match_value_matches_rollout(a) &&
         (!a->bounded_late_root ||
          (a->exact_terminal == 1 && a->no_belief &&
           a->deck2_replan_worlds == 0 && a->deck2_replan_cores == 0 &&
@@ -168,11 +201,25 @@ static void parse_rollout_tail(const char *tail, Agent *a, const char *label)
         case 38: a->bounded_late_root = atoi(v); break;
         case 39: a->bounded_late_min = (float)atof(v); break;
         case 40: a->action_ranker_min = (float)atof(v); break;
+        case 41: {
+            int error = 0;
+            MatchValueTable *table = match_value_load(v, &error);
+            if (!table) {
+                fprintf(stderr,
+                        "agent '%s' cannot load match-value table '%s' "
+                        "(error %d)\n", label, v, error);
+                free(buf);
+                exit(1);
+            }
+            a->match_value = table;
+            a->owns_match_value = 1;
+            break;
+        }
         }
         v = strtok_r(NULL, ":", &save);
     }
     free(buf);
-    if (field > 40 && !a->action_ranker_net) {
+    if (field > 40 && !a->action_ranker_net && !a->match_value) {
         fprintf(stderr,
                 "agent '%s' has action-ranker field 41 without a ranker role\n",
                 label);
@@ -192,6 +239,13 @@ void spec_parse_selfrollout(const char *spec, const Net *net, Agent *a)
     }
     agent_default(a, AG_ROLLOUT, net);
     parse_rollout_tail(spec[npre] == ':' ? spec + npre + 1 : "", a, spec);
+    if (a->match_value) {
+        fprintf(stderr,
+                "live selfrollout cannot use a match-value table: the "
+                "artifact is bound to immutable network bytes\n");
+        spec_release(a);
+        exit(1);
+    }
 }
 
 void spec_release(Agent *a)
@@ -201,6 +255,7 @@ void spec_release(Agent *a)
     const Net *continuation = a->continuation_net;
     const Net *veto = a->veto_continuation_net;
     const Net *ranker = a->action_ranker_net;
+    const MatchValueTable *match_value = a->match_value;
     if (a->owns_action_ranker_net && ranker &&
         ranker != veto && ranker != continuation && ranker != root)
         free((void *)ranker);
@@ -210,14 +265,18 @@ void spec_release(Agent *a)
     if (a->owns_continuation_net && continuation && continuation != root)
         free((void *)continuation);
     if (a->owns_net && root) free((void *)root);
+    if (a->owns_match_value && match_value)
+        match_value_free((MatchValueTable *)match_value);
     a->net = NULL;
     a->continuation_net = NULL;
     a->veto_continuation_net = NULL;
     a->action_ranker_net = NULL;
+    a->match_value = NULL;
     a->owns_net = 0;
     a->owns_continuation_net = 0;
     a->owns_veto_continuation_net = 0;
     a->owns_action_ranker_net = 0;
+    a->owns_match_value = 0;
 }
 
 void spec_parse(const char *spec, Agent *a)

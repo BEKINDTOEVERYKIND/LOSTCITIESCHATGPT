@@ -87,6 +87,10 @@ class ActionAdvantageCampaignTests(unittest.TestCase):
         self.assertIn("top-policy-moves-only", joined)
         self.assertIn("consumes no RNG", joined)
         self.assertIn("sanitized information view", joined)
+        self.assertIn("every loaded checkpoint role", joined)
+        self.assertIn("direct action ranker", joined)
+        self.assertIn("field-41 match-value table", joined)
+        self.assertIn("path text alone is insufficient", joined)
         self.assertIn("trunk, value head, and belief head", joined)
         self.assertIn("indistinguishable physical wager copies", joined)
         self.assertEqual(plan["multiplicity"], {
@@ -137,6 +141,9 @@ class ActionAdvantageCampaignTests(unittest.TestCase):
         self.assertEqual(training["max_state_kl"], 0.05)
         self.assertTrue(any("stored champion logit" in rule
                             for rule in training["fail_closed"]))
+        self.assertTrue(any("every checkpoint role" in rule and
+                            "match-value table" in rule
+                            for rule in training["fail_closed"]))
         calibration = plan["threshold_calibration"]
         self.assertEqual(calibration["data"], "heldout development records only")
         self.assertEqual(calibration["predeclared_grid"], [0, 0.1, 0.25, 0.5, 1])
@@ -154,6 +161,11 @@ class ActionAdvantageCampaignTests(unittest.TestCase):
         self.assertIn('"source_matches_completed": 64', text)
         self.assertIn('"proposal_cap": 0', text)
         self.assertIn('fnv1a64(b"ABSENT\\0")', text)
+        self.assertIn('"format_version": 2', text)
+        self.assertIn('"maintained_ranker_net_hash": absent_fnv', text)
+        self.assertIn('"maintained_match_value_hash": absent_fnv', text)
+        self.assertIn('"reroot_ranker_net_hash": absent_fnv', text)
+        self.assertIn('"reroot_match_value_hash": absent_fnv', text)
         self.assertIn("champion_bytes[24:]", text)
         self.assertIn("generated-record header drift", text)
         self.assertIn('metrics.get("training_gate_passed") is not True', text)
@@ -213,6 +225,7 @@ class ActionAdvantageCampaignTests(unittest.TestCase):
         self.assertIn("--matches 64 --worlds 256 --label-threads 4", after_preflight)
         self.assertNotIn("--max-proposals", after_preflight)
         self.assertIn('--reroot-actor "$TEACHER"', after_preflight)
+        self.assertGreaterEqual(after_preflight.count('--actor "$BASELINE"'), 2)
         if EXECUTION.exists():
             execution = strict_json(EXECUTION)
             source = execution.get("source_parent_commit")

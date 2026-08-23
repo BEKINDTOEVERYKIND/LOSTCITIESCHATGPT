@@ -221,6 +221,23 @@ static const char *search_metric(const SearchStats *ss)
     }
 }
 
+static const char *analysis_objective(const Agent *evaluator, int round)
+{
+    /* Selection mode 3 replaces an early round's isolated margin with the
+     * controller-bound Bellman value of the complete three-round match.  Its
+     * deciding-round leaf is the same final hybrid utility used by mode 2.
+     * Keep the established mode 0/1/2 labels unchanged. */
+    if (evaluator->win_q == 3 && evaluator->match_value)
+        return round == MATCH_ROUNDS - 1
+            ? "final_hybrid"
+            : "controller_bound_full_match_value";
+    if (round == MATCH_ROUNDS - 1 && evaluator->win_q == 2)
+        return "final_hybrid";
+    if (round == MATCH_ROUNDS - 1 && evaluator->win_q == 1)
+        return "final_result";
+    return "round_margin";
+}
+
 static void j_search_rows(FILE *fp, const SearchStats *ss, Move played,
                           Move recommended)
 {
@@ -501,6 +518,16 @@ int main(int argc, char **argv)
     Agent actor, evaluator;
     spec_parse(actor_spec, &actor);
     spec_parse(eval_spec, &evaluator);
+    if (rounds != MATCH_ROUNDS &&
+        (actor.match_value || evaluator.match_value)) {
+        fprintf(stderr,
+                "analyze: a match-value actor or evaluator requires "
+                "exactly %d rounds\n",
+                MATCH_ROUNDS);
+        spec_release(&actor);
+        spec_release(&evaluator);
+        return 1;
+    }
     if (!actor.net ||
         (actor.kind != AG_POLICY && actor.kind != AG_ROLLOUT)) {
         fprintf(stderr, "analyze: actor must be a network policy or rollout "
@@ -962,10 +989,7 @@ int main(int argc, char **argv)
                     "\"passed\":%s,\"worlds\":%d,\"configured_worlds\":%d,"
                     "\"continuation\":\"%s\"}",
                 pv,
-                rd == MATCH_ROUNDS - 1 && evaluator.win_q == 2
-                    ? "final_hybrid"
-                    : (rd == MATCH_ROUNDS - 1 && evaluator.win_q == 1
-                        ? "final_result" : "round_margin"),
+                analysis_objective(&evaluator, rd),
                 ss.worlds, ss.max_worlds,
                 evaluator.exact_terminal ? "true" : "false",
                 evaluator.exact_terminal == 1 ? "true" : "false",

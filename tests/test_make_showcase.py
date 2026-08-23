@@ -197,6 +197,26 @@ class ShowcaseProvenanceTests(unittest.TestCase):
                 "rollout3:data/champion.bin:data/c8.bin"
             )
 
+        root, continuation, ranker = showcase.actor_model_paths(
+            "rolloutu4:data/champion.bin:data/c8.bin:data/best.bin:512:5"
+        )
+        self.assertEqual(root.resolve(), (ROOT / "data/champion.bin").resolve())
+        self.assertEqual(continuation.resolve(), (ROOT / "data/c8.bin").resolve())
+        self.assertEqual(ranker.resolve(), (ROOT / "data/best.bin").resolve())
+        self.assertEqual(
+            showcase.rollout_tail_start(
+                (
+                    "rolloutu4:data/champion.bin:data/c8.bin:"
+                    "data/best.bin:512:5"
+                ).split(":")
+            ),
+            4,
+        )
+        with self.assertRaisesRegex(RuntimeError, "action-ranker checkpoint"):
+            showcase.actor_model_paths(
+                "rollout4:data/champion.bin:data/c8.bin"
+            )
+
     def test_non_network_actor_cannot_claim_model_provenance(self) -> None:
         for spec in ("heur", "random", "policy:"):
             with self.subTest(spec=spec), self.assertRaises(RuntimeError):
@@ -386,6 +406,92 @@ class ShowcaseProvenanceTests(unittest.TestCase):
             ):
                 showcase.main()
             self.assertEqual(output.read_text(encoding="utf-8"), "keep\n")
+
+    def test_ranker_actor_and_match_value_table_define_identity(self) -> None:
+        base_tail = showcase.DEFAULT_ACTOR.split(":", 2)[2].split(":")
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            root = parent / "root.bin"
+            continuation = parent / "continuation.bin"
+            ranker = parent / "ranker.bin"
+            table = parent / "value.lcmv"
+            output = parent / "showcase.json"
+            root.write_bytes(b"root checkpoint")
+            continuation.write_bytes(b"continuation checkpoint")
+            ranker.write_bytes(b"ranker checkpoint")
+            table.write_bytes(b"match value table")
+            tail = ":".join([
+                *base_tail,
+                "0", "0", "0", "1", "0", str(table),
+            ])
+            actor = (
+                f"rolloutu4:{root}:{continuation}:{ranker}:{tail}"
+            )
+            fields = actor.split(":")
+            self.assertEqual(len(fields) - showcase.rollout_tail_start(fields), 42)
+            self.assertEqual(showcase.rollout_match_value_path(fields), table)
+
+            game = json.loads(self.analyzer_result().stdout)
+            game["meta"]["actor"] = actor
+            result = type("Result", (), {"stdout": json.dumps(game)})()
+            argv = [
+                "make_showcase.py", "--seed", "1", "--output", str(output),
+                "--actor", actor,
+            ]
+            with patch.object(sys, "argv", argv), patch.object(
+                showcase.subprocess, "run", return_value=result,
+            ):
+                showcase.main()
+
+            meta = json.loads(output.read_text(encoding="utf-8"))["meta"]
+            hashes = {
+                path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+                for path in (root, continuation, ranker, table)
+            }
+            self.assertEqual(meta["root_model_sha256"], hashes[root.name])
+            self.assertEqual(
+                meta["continuation_model_sha256"], hashes[continuation.name]
+            )
+            self.assertEqual(meta["ranker_model_sha256"], hashes[ranker.name])
+            self.assertEqual(
+                meta["match_value_table_sha256"], hashes[table.name]
+            )
+            self.assertEqual(meta["ranker_model_path"], str(ranker))
+            self.assertEqual(meta["match_value_table_path"], str(table))
+            self.assertEqual(
+                meta["match_id"],
+                "1-" + "-".join(
+                    hashes[path.name]
+                    for path in (root, continuation, ranker, table)
+                ),
+            )
+            self.assertIn("ranker ranker.bin", meta["actor_label"])
+            self.assertIn("full-match value", meta["actor_label"])
+            self.assertIn("action_ranker", meta["actor_method"])
+
+            output.write_text("keep\n", encoding="utf-8")
+
+            def analyzer_finished(*_args, **_kwargs):
+                table.write_bytes(b"changed match value table")
+                return result
+
+            with patch.object(sys, "argv", argv), patch.object(
+                showcase.subprocess, "run", side_effect=analyzer_finished,
+            ), self.assertRaisesRegex(RuntimeError, "match-value table changed"):
+                showcase.main()
+            self.assertEqual(output.read_text(encoding="utf-8"), "keep\n")
+
+            table.write_bytes(b"match value table")
+            protected_argv = [
+                "make_showcase.py", "--seed", "1", "--output", str(table),
+                "--actor", actor,
+            ]
+            with patch.object(sys, "argv", protected_argv), patch.object(
+                showcase.subprocess, "run",
+            ) as run, self.assertRaisesRegex(RuntimeError, "match-value table"):
+                showcase.main()
+            run.assert_not_called()
+            self.assertEqual(table.read_bytes(), b"match value table")
 
     def test_dual_actor_cannot_overwrite_continuation_checkpoint(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -1550,6 +1550,16 @@ int main(int argc, char **argv)
         spec_parse(gen_opponent_spec, &gen_opponent);
         gen_opponent_ptr = &gen_opponent;
     }
+    if (rounds != MATCH_ROUNDS &&
+        (ref.match_value ||
+         (gen_opponent_ptr && gen_opponent.match_value))) {
+        fprintf(stderr,
+                "match-value reference/opponent actors require --rounds %d\n",
+                MATCH_ROUNDS);
+        spec_release(&ref);
+        if (gen_opponent_ptr) spec_release(&gen_opponent);
+        return 1;
+    }
 
     Net **grads = (Net **)calloc((size_t)nthread, sizeof(Net *));
     for (int i = 0; i < nthread; i++) grads[i] = (Net *)malloc(sizeof(Net));

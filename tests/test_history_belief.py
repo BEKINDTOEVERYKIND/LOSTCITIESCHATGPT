@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib.util
 from pathlib import Path
 import subprocess
+import tempfile
 import unittest
 
 
@@ -263,6 +265,68 @@ class HistoryBeliefTests(unittest.TestCase):
                 20,
                 ROOT / "data/champion.bin",
             )
+        with self.assertRaisesRegex(
+            history_belief.ViewError, "action-ranker checkpoint"
+        ):
+            history_belief.validate_actor_prefix(
+                "rollout4:data/champion.bin:data/c8.bin",
+                0,
+                20,
+                ROOT / "data/champion.bin",
+            )
+
+    def test_ranker_actor_hashes_every_role_and_match_value_table(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            root = parent / "root.bin"
+            continuation = parent / "continuation.bin"
+            ranker = parent / "ranker.bin"
+            table = parent / "value.lcmv"
+            root.write_bytes(b"root")
+            continuation.write_bytes(b"continuation")
+            ranker.write_bytes(b"ranker")
+            table.write_bytes(b"table")
+            tail = ["0"] * 42
+            tail[0] = "512"
+            tail[1] = "4"
+            tail[5] = "20"
+            tail[13] = "20"
+            tail[41] = str(table)
+            source = ":".join([
+                "rolloutu4", str(root), str(continuation), str(ranker), *tail,
+            ])
+
+            self.assertEqual(
+                history_belief.validate_actor_prefix(
+                    source, 3, 20, root
+                ),
+                source,
+            )
+            provenance = history_belief.source_actor_provenance(source)
+            self.assertEqual(
+                [row["role"] for row in provenance["checkpoints"]],
+                ["root", "continuation", "ranker"],
+            )
+            for row, path in zip(
+                provenance["checkpoints"], (root, continuation, ranker)
+            ):
+                self.assertEqual(
+                    row["sha256"],
+                    hashlib.sha256(path.read_bytes()).hexdigest(),
+                )
+            self.assertEqual(
+                provenance["match_value_table"]["sha256"],
+                hashlib.sha256(table.read_bytes()).hexdigest(),
+            )
+
+            searched_early = source.split(":")
+            searched_early[4 + 5] = "2"
+            with self.assertRaisesRegex(
+                history_belief.ViewError, "rollout-search action"
+            ):
+                history_belief.validate_actor_prefix(
+                    ":".join(searched_early), 3, 20, root
+                )
 
     def test_ply4_actor_aware_golden_and_cardinality(self) -> None:
         result = history_belief.annotate(

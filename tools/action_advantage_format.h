@@ -16,7 +16,10 @@
 #include <stdint.h>
 
 #define AA_MAGIC UINT32_C(0x4c434141) /* "LCAA" */
-#define AA_VERSION UINT32_C(1)
+/* Version 2 adds content hashes for the direct action-ranker checkpoint and
+ * the optional round-boundary match-value table.  Version-1 records cannot
+ * prove those inputs were unchanged and therefore fail closed. */
+#define AA_VERSION UINT32_C(2)
 #define AA_ENDIAN_TAG UINT32_C(0x01020304)
 #define AA_HASH_FNV1A64 UINT32_C(1)
 #define AA_SOURCE_GENERATED_SELFPLAY UINT32_C(1)
@@ -58,10 +61,14 @@ typedef struct {
     uint64_t maintained_root_net_hash;
     uint64_t maintained_continuation_net_hash;
     uint64_t maintained_controller_net_hash;
+    uint64_t maintained_ranker_net_hash;
+    uint64_t maintained_match_value_hash;
     uint64_t reroot_actor_spec_hash;
     uint64_t reroot_root_net_hash;
     uint64_t reroot_continuation_net_hash;
     uint64_t reroot_controller_net_hash;
+    uint64_t reroot_ranker_net_hash;
+    uint64_t reroot_match_value_hash;
     uint32_t label_worlds;
     uint32_t ply_lo;
     uint32_t match_rounds;
@@ -123,6 +130,8 @@ typedef struct {
     float champion_logits[MAX_MOVES];
 } ActionAdvantageRecord;
 
+struct Agent;
+
 uint64_t aa_hash_init(void);
 uint64_t aa_hash_extend(uint64_t h, const void *data, size_t size);
 uint64_t aa_hash_bytes(const void *data, size_t size);
@@ -134,6 +143,24 @@ int aa_group_is_validation(uint64_t source_match_id, uint64_t split_seed,
 /* Exact byte check for every frozen trunk/value/belief parameter.  Policy
  * heads (additive and full-move residual) are intentionally excluded. */
 int aa_nonpolicy_equal(const Net *a, const Net *b);
+
+/* Bind and later revalidate both complete actor definitions.  Every network
+ * role is hashed by loaded parameter bytes; an absent role has a domain-fixed
+ * sentinel hash.  A loaded match-value table is bound through its verified
+ * canonical payload fingerprint and its actual loaded semantic fields.  Thus
+ * a path string alone is never accepted as provenance for a ranker or table. */
+int aa_bind_actor_provenance(ActionAdvantageHeader *header,
+                             const char *maintained_spec,
+                             const struct Agent *maintained,
+                             const char *reroot_spec,
+                             const struct Agent *reroot,
+                             char *error, size_t error_size);
+int aa_validate_actor_provenance(const ActionAdvantageHeader *header,
+                                 const char *maintained_spec,
+                                 const struct Agent *maintained,
+                                 const char *reroot_spec,
+                                 const struct Agent *reroot,
+                                 char *error, size_t error_size);
 
 void aa_header_init(ActionAdvantageHeader *header);
 int aa_validate_header(const ActionAdvantageHeader *header,

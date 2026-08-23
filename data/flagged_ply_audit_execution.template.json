@@ -1,0 +1,12 @@
+{
+  "schema": "lc-flagged-ply-audit-execution-v1",
+  "execute": false,
+  "reference_actor": "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+  "winner_actor": "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+  "decision_worlds_per_actor_per_case": 16384,
+  "history_worlds": 20000,
+  "belief_alpha": 1.15,
+  "base_seed": 202608231701,
+  "shard_count": 12,
+  "manifest_sha256": "2ecbf712842d196e032fb2952d1347b8e452875557131ea84afd57dd0c7ff8b6"
+}

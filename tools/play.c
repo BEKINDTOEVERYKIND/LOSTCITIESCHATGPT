@@ -65,6 +65,13 @@ int main(int argc, char **argv)
     }
     Agent ai;
     spec_parse(spec, &ai);
+    if (ai.match_value) {
+        fprintf(stderr,
+                "play: match-value actors require a complete three-round "
+                "match; interactive play is one round only\n");
+        spec_release(&ai);
+        return 1;
+    }
 
     Rng rng;
     rng_seed(&rng, seed ? seed : (uint64_t)time(NULL));

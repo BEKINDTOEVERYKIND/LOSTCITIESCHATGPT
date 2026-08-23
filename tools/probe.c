@@ -36,6 +36,14 @@ int main(int argc, char **argv)
 
     Agent player;
     spec_parse(play_spec, &player);
+    if (player.match_value) {
+        fprintf(stderr,
+                "probe: match-value actors are incompatible with "
+                "independent-round margin targets\n");
+        spec_release(&player);
+        free(net);
+        return 1;
+    }
 
     Rng rng; rng_seed(&rng, 4242);
     size_t cap = (size_t)games * 400;

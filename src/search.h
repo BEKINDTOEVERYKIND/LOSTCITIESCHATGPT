@@ -238,4 +238,35 @@ int rollout_near_greedy_pick(const Move *mv, const float *prob, int n,
                              float temperature, uint64_t seed,
                              int depth, int player);
 
+/* Fixed-world, policy-focused diagnostic panel.  This is deliberately not a
+ * second gameplay selector: callers supply at most five complete moves that
+ * were admitted from policy-ranked complete semantic moves.  Every candidate sees the
+ * same sanitized hidden worlds, production continuation roles, cycle/cap
+ * handling, and exact last-deck solver.  baseline is an index into candidate
+ * and owns delta/delta_se.  With one to three deck cards, requesting at least
+ * the full ordered hidden-deck support evaluates that support exactly. */
+typedef struct {
+    int n;
+    int requested_worlds;
+    int worlds;
+    int baseline;
+    int selected;
+    int exact_hidden_support;
+    int hidden_support;
+    int objective;
+    double q[5];
+    double se[5];
+    double delta[5];
+    double delta_se[5];
+    uint64_t exact_terminal_leaves;
+    uint64_t unfinished_cap_leaves;
+    uint64_t cycle_breaks;
+    uint64_t cap_reserve_forces;
+} RolloutAuditPanel;
+
+int rollout_audit_panel(const struct Agent *a, const State *st,
+                        const Move *candidate, int n, int baseline,
+                        uint64_t seed, int worlds,
+                        RolloutAuditPanel *out);
+
 #endif

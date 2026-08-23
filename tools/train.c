@@ -641,12 +641,19 @@ int main(int argc, char **argv)
         } else if (!strcmp(gen_spec, "selfpolicy")) {
             agent_default(&gen, AG_POLICY, net);
         } else if (!strncmp(gen_spec, "selfrollout", 11)) {
-            /* Live-net generator with the same complete rollout tail as the
-             * command-line rollout agent.  The shared parser preserves the
-             * caller-owned training network and rejects unknown late fields. */
+            /* Live-net generator shares the immutable rollout fields, while
+             * the parser rejects a controller-bound match table that would
+             * become stale after this iteration's first optimizer step. */
             spec_parse_selfrollout(gen_spec, net, &gen);
         } else {
             spec_parse(gen_spec, &gen);
+            if (gen.match_value) {
+                fprintf(stderr,
+                        "--gen cannot use a match-value table: training "
+                        "replaces the bound checkpoint with mutable weights\n");
+                spec_release(&gen);
+                return 1;
+            }
             const Net *loaded_root = gen.net;
             int shared_continuation =
                 !gen.continuation_net || gen.continuation_net == loaded_root;
@@ -669,6 +676,13 @@ int main(int argc, char **argv)
                 gen.owns_action_ranker_net = 0;
             }
             free((void *)loaded_root);
+        }
+        if (gen.match_value) {
+            fprintf(stderr,
+                    "--gen cannot use a match-value table with mutable "
+                    "training weights\n");
+            spec_release(&gen);
+            return 1;
         }
         if (gen_symmetries > 0) gen.symmetries = gen_symmetries;
 
@@ -720,7 +734,8 @@ int main(int argc, char **argv)
                ga / gdone, gp / gdone);
         fflush(stdout);
         if (gen.owns_net || gen.owns_continuation_net ||
-            gen.owns_veto_continuation_net || gen.owns_action_ranker_net)
+            gen.owns_veto_continuation_net || gen.owns_action_ranker_net ||
+            gen.owns_match_value)
             spec_release(&gen);
         free(jobs); free(th);
 

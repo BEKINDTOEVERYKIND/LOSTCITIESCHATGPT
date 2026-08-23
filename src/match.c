@@ -147,6 +147,7 @@ int match_run_range_r(const Agent *a, const Agent *b, uint64_t pair_start,
     if (out) memset(out, 0, sizeof(*out));
     if (!a || !b || !out || pairs < 0 || pairs > MATCH_MAX_PAIRS ||
         nthread < 1 || rounds < 1 || rounds > MATCH_ROUNDS ||
+        (rounds != MATCH_ROUNDS && (a->match_value || b->match_value)) ||
         (pairs > 0 &&
          pair_start > UINT64_MAX - ((uint64_t)pairs - UINT64_C(1))))
         return -1;

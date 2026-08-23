@@ -10,6 +10,8 @@
 #include "lc.h"
 #include "net.h"
 
+typedef struct MatchValueTable MatchValueTable;
+
 typedef enum {
     AG_RANDOM = 0,
     AG_HEUR,     /* one-ply greedy on the hand-crafted evaluation */
@@ -30,10 +32,13 @@ typedef struct Agent {
     const Net *action_ranker_net; /* optional direct signed pair ranker used
                                      only to veto an already confirmed
                                      trusted-prefix override; NULL off */
+    const MatchValueTable *match_value; /* optional round-boundary Bellman
+                                           utility; NULL preserves legacy */
     unsigned owns_net : 1; /* set only for checkpoints loaded by spec_parse */
     unsigned owns_continuation_net : 1;
     unsigned owns_veto_continuation_net : 1;
     unsigned owns_action_ranker_net : 1;
+    unsigned owns_match_value : 1;
     int draw_samples;   /* deck-draw samples per decision (AG_NET)         */
     float temp;         /* >0: sample instead of taking the best move      */
     float eps;          /* probability of a uniformly random legal move    */
@@ -168,6 +173,8 @@ typedef struct Agent {
                            hybrid (0.05 * final margin + 50 * result) there.
                            Rounds 0/1 always use margin, preserving the
                            intentional last-round-only win objective.
+                           3 = an explicitly loaded, controller-bound
+                           round-boundary Bellman table in every round.
                            Default 0; SearchStats.qw always reports the raw
                            final-round win fraction. */
     int prune_dom;      /* AG_ROLLOUT: drop discards dominated by a dead-card
@@ -193,7 +200,9 @@ typedef struct Agent {
                            separately stratified fixed members for the two
                            players.  Mode 1 is a high-variance robustness
                            ablation. */
-    float override_min; /* AG_ROLLOUT: ...AND by at least this many points.
+    float override_min; /* AG_ROLLOUT: ...AND by at least this many selection-
+                           objective units (points for objectives 0-2 in early
+                           rounds; table/hybrid units for objective 3).
                            The SE gate alone is world-count-dependent in the
                            wrong direction: more worlds shrink the noise but
                            not the playout BIAS, so at 512 worlds a 3-SE

@@ -3,6 +3,7 @@
 #include "../tools/train_advantage_veto.c"
 #undef main
 
+#include "../src/match_value.h"
 #include <assert.h>
 #include <stdio.h>
 
@@ -12,13 +13,17 @@ static ActionAdvantageHeader test_header(void)
     aa_header_init(&h);
     h.champion_net_hash = 1;
     h.maintained_actor_spec_hash = 2;
-    h.maintained_root_net_hash = 3;
+    h.maintained_root_net_hash = 1;
     h.maintained_continuation_net_hash = 4;
     h.maintained_controller_net_hash = 5;
+    h.maintained_ranker_net_hash = 6;
+    h.maintained_match_value_hash = 7;
     h.reroot_actor_spec_hash = 6;
     h.reroot_root_net_hash = 7;
     h.reroot_continuation_net_hash = 8;
     h.reroot_controller_net_hash = 9;
+    h.reroot_ranker_net_hash = 10;
+    h.reroot_match_value_hash = 11;
     return h;
 }
 
@@ -103,6 +108,123 @@ static int policy_wager_symmetric(const Net *n)
         }
     }
     return 1;
+}
+
+static MatchValueTable *test_match_value(const Net *continuation)
+{
+    MatchValueTable *table = (MatchValueTable *)calloc(1, sizeof(*table));
+    assert(table);
+    table->version = MATCH_VALUE_VERSION;
+    table->samples_per_policy_lead = 400;
+    table->role_cycle_size = 400;
+    table->role_balance_complete = 1;
+    table->source_seed = 12345;
+    table->payload_fingerprint = UINT64_C(0x123456789abcdef0);
+    table->controller.net_fingerprint =
+        match_value_net_fingerprint(continuation);
+    table->controller.controller_abi = MATCH_VALUE_CONTROLLER_ABI;
+    table->controller.build_profile = match_value_build_profile();
+    table->controller.objective = 0;
+    table->controller.playout_symmetries = 20;
+    table->controller.playout_sample = 4;
+    table->controller.exact_terminal = 1;
+    table->controller.max_plies = LC_MAX_PLIES;
+    assert(match_value_validate(table));
+    return table;
+}
+
+static void test_complete_actor_provenance(void)
+{
+    Net *root = (Net *)malloc(sizeof(*root));
+    Net *continuation = (Net *)malloc(sizeof(*continuation));
+    Net *controller = (Net *)malloc(sizeof(*controller));
+    Net *ranker = (Net *)malloc(sizeof(*ranker));
+    assert(root && continuation && controller && ranker);
+    net_init(root, 1001);
+    net_init(continuation, 1002);
+    net_init(controller, 1003);
+    net_init(ranker, 1004);
+    MatchValueTable *table = test_match_value(continuation);
+
+    Agent maintained, reroot;
+    agent_default(&maintained, AG_ROLLOUT, root);
+    maintained.continuation_net = continuation;
+    maintained.action_ranker_net = ranker;
+    maintained.match_value = table;
+    agent_default(&reroot, AG_ROLLOUT, root);
+    reroot.continuation_net = continuation;
+    reroot.veto_continuation_net = controller;
+
+    const char *maintained_spec =
+        "rollout4:root:continuation:ranker:tail:match-value";
+    const char *reroot_spec = "rollout3:root:continuation:controller:tail";
+    ActionAdvantageHeader h;
+    aa_header_init(&h);
+    h.champion_net_hash = aa_hash_bytes(root, sizeof(*root));
+    char error[160];
+    assert(aa_bind_actor_provenance(
+        &h, maintained_spec, &maintained, reroot_spec, &reroot,
+        error, sizeof(error)));
+    assert(aa_validate_header(&h, error, sizeof(error)));
+    assert(aa_validate_actor_provenance(
+        &h, maintained_spec, &maintained, reroot_spec, &reroot,
+        error, sizeof(error)));
+
+    /* Keeping the exact same path/spec text cannot conceal changed ranker
+     * bytes or a changed match-value payload. */
+    ranker->bplay[0] = nextafterf(ranker->bplay[0], INFINITY);
+    assert(!aa_validate_actor_provenance(
+        &h, maintained_spec, &maintained, reroot_spec, &reroot,
+        error, sizeof(error)));
+    net_init(ranker, 1004);
+    assert(aa_validate_actor_provenance(
+        &h, maintained_spec, &maintained, reroot_spec, &reroot,
+        error, sizeof(error)));
+    continuation->bplay[0] = nextafterf(continuation->bplay[0], INFINITY);
+    assert(!aa_validate_actor_provenance(
+        &h, maintained_spec, &maintained, reroot_spec, &reroot,
+        error, sizeof(error)));
+    net_init(continuation, 1002);
+    controller->bplay[0] = nextafterf(controller->bplay[0], INFINITY);
+    assert(!aa_validate_actor_provenance(
+        &h, maintained_spec, &maintained, reroot_spec, &reroot,
+        error, sizeof(error)));
+    net_init(controller, 1003);
+    assert(aa_validate_actor_provenance(
+        &h, maintained_spec, &maintained, reroot_spec, &reroot,
+        error, sizeof(error)));
+    table->payload_fingerprint ^= UINT64_C(1);
+    assert(!aa_validate_actor_provenance(
+        &h, maintained_spec, &maintained, reroot_spec, &reroot,
+        error, sizeof(error)));
+    table->payload_fingerprint ^= UINT64_C(1);
+    assert(aa_validate_actor_provenance(
+        &h, maintained_spec, &maintained, reroot_spec, &reroot,
+        error, sizeof(error)));
+    table->source_seed++;
+    assert(!aa_validate_actor_provenance(
+        &h, maintained_spec, &maintained, reroot_spec, &reroot,
+        error, sizeof(error)));
+    table->source_seed--;
+    assert(aa_validate_actor_provenance(
+        &h, maintained_spec, &maintained, reroot_spec, &reroot,
+        error, sizeof(error)));
+
+    ActionAdvantageHeader bad = h;
+    bad.maintained_ranker_net_hash = 0;
+    assert(!aa_validate_header(&bad, error, sizeof(error)));
+    bad = h;
+    bad.reroot_match_value_hash = 0;
+    assert(!aa_validate_header(&bad, error, sizeof(error)));
+    bad = h;
+    bad.version = 1;
+    assert(!aa_validate_header(&bad, error, sizeof(error)));
+
+    free(table);
+    free(root);
+    free(continuation);
+    free(controller);
+    free(ranker);
 }
 
 static void test_format_and_grouping(void)
@@ -199,6 +321,7 @@ static void test_signed_head_only_update(void)
 int main(void)
 {
     test_format_and_grouping();
+    test_complete_actor_provenance();
     test_signed_head_only_update();
     puts("action-advantage tests passed");
     return 0;

@@ -9,22 +9,23 @@ DATA    := data
 HDRS    := $(wildcard $(SRC)/*.h)
 CORE    := $(SRC)/lc.c $(SRC)/features.c $(SRC)/net.c $(SRC)/heuristic.c \
            $(SRC)/planner.c $(SRC)/search.c $(SRC)/rollout.c \
-           $(SRC)/late_resolver.c $(SRC)/agent.c \
+           $(SRC)/late_resolver.c $(SRC)/match_value.c $(SRC)/agent.c \
            $(SRC)/match.c $(SRC)/spec.c
 
 all: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_role_coherence \
 	$(BIN)/test_late_resolver $(BIN)/test_rl_support \
 	$(BIN)/test_action_ranker $(BIN)/test_action_advantage \
-	$(BIN)/test_continuation_arena_support \
+	$(BIN)/test_continuation_arena_support $(BIN)/test_match_value \
 	$(BIN)/arena $(BIN)/train \
 	$(BIN)/bench $(BIN)/probe $(BIN)/rl $(BIN)/ladder $(BIN)/play \
 	$(BIN)/showgame $(BIN)/dumpfeat $(BIN)/analyze $(BIN)/searchcmp \
-	$(BIN)/qpair $(BIN)/commented_ply_eval \
+	$(BIN)/qpair $(BIN)/commented_ply_eval $(BIN)/flagged_ply_probe \
 	$(BIN)/mine $(BIN)/robust_distill $(BIN)/action_advantage \
 	$(BIN)/train_advantage_veto $(BIN)/symmetrize \
 	$(BIN)/net_average \
 	$(BIN)/history_belief $(BIN)/planprobe $(BIN)/planarena \
 	$(BIN)/belief_eval $(BIN)/test_belief_eval $(BIN)/continuation_arena \
+	$(BIN)/build_match_value \
 	$(DATA)/champion.bin
 
 $(BIN):
@@ -85,15 +86,24 @@ $(BIN)/train: tools/train.c tools/train_target.h $(CORE) $(HDRS) | $(BIN)
 $(BIN)/bench: tools/bench.c $(CORE) $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
 
+$(BIN)/build_match_value: tools/build_match_value.c $(CORE) $(HDRS) | $(BIN)
+	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
+
+$(BIN)/test_match_value: tests/test_match_value.c $(CORE) $(HDRS) | $(BIN)
+	$(CC) $(CFLAGS) -fno-fast-math -ffp-contract=off \
+		-o $@ $(filter %.c,$^) $(LDFLAGS)
+
 test: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_role_coherence \
 	$(BIN)/test_late_resolver $(BIN)/test_rl_support \
 	$(BIN)/test_action_ranker $(BIN)/test_action_advantage \
-	$(BIN)/test_continuation_arena_support \
+	$(BIN)/test_continuation_arena_support $(BIN)/test_match_value \
 	$(BIN)/test_belief_eval \
 	$(BIN)/belief_eval $(BIN)/rl $(BIN)/arena $(BIN)/qpair \
 	$(BIN)/commented_ply_eval \
 	$(BIN)/continuation_arena \
-	$(BIN)/net_average \
+	$(BIN)/net_average $(BIN)/flagged_ply_probe $(BIN)/history_belief \
+	$(BIN)/build_match_value $(BIN)/train $(BIN)/showgame $(BIN)/analyze \
+	$(BIN)/play $(BIN)/probe \
 	$(DATA)/champion.bin
 	./$(BIN)/test_engine
 	./$(BIN)/test_runtime
@@ -103,6 +113,7 @@ test: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_role_coherence \
 	./$(BIN)/test_action_ranker
 	./$(BIN)/test_action_advantage
 	./$(BIN)/test_continuation_arena_support
+	./$(BIN)/test_match_value
 	./$(BIN)/test_belief_eval
 	python3 -m unittest tests/test_rl_population.py
 	python3 -m unittest tests/test_belief_eval.py
@@ -117,6 +128,8 @@ test: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_role_coherence \
 	python3 -m unittest tests/test_continuation_arena.py
 	python3 -m unittest tests/test_select_continuation_v2.py
 	python3 -m unittest tests/test_net_average.py
+	python3 -m unittest tests/test_flagged_ply_audit.py
+	python3 -m unittest tests/test_match_value.py
 
 audit-test: $(BIN)/qpair $(DATA)/champion.bin
 	python3 tools/audit_regression.py
@@ -130,6 +143,16 @@ controller-veto-v3-test:
 world800-test: $(DATA)/champion.bin
 	python3 -m unittest tests/test_world800_campaign.py
 
+flagged-ply-test: $(BIN)/flagged_ply_probe $(BIN)/history_belief \
+	$(DATA)/champion.bin
+	python3 -m unittest tests/test_flagged_ply_audit.py
+
+match-value-test: $(BIN)/test_match_value $(BIN)/build_match_value \
+	$(BIN)/arena $(BIN)/train $(BIN)/rl $(BIN)/showgame $(BIN)/analyze \
+	$(BIN)/play $(BIN)/probe $(BIN)/flagged_ply_probe $(DATA)/champion.bin
+	./$(BIN)/test_match_value
+	python3 -m unittest tests/test_match_value.py
+
 belief-eval-test: $(BIN)/belief_eval $(BIN)/test_belief_eval \
 	$(DATA)/champion.bin
 	./$(BIN)/test_belief_eval
@@ -140,7 +163,7 @@ clean:
 	rm -f $(DATA)/champion.bin
 
 .PHONY: all test audit-test history-belief-test controller-veto-v3-test \
-	world800-test belief-eval-test clean
+	world800-test flagged-ply-test match-value-test belief-eval-test clean
 
 $(BIN)/probe: tools/probe.c $(CORE) $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
@@ -170,6 +193,9 @@ $(BIN)/qpair: tools/qpair.c $(CORE) $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
 
 $(BIN)/commented_ply_eval: tools/commented_ply_eval.c $(CORE) $(HDRS) | $(BIN)
+	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
+
+$(BIN)/flagged_ply_probe: tools/flagged_ply_probe.c $(CORE) $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
 
 $(BIN)/mine: tools/mine.c $(CORE) $(HDRS) | $(BIN)

@@ -1,5 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "action_advantage_format.h"
+#include "../src/agent.h"
+#include "../src/match_value.h"
 
 #include <errno.h>
 #include <math.h>
@@ -78,6 +80,156 @@ int aa_nonpolicy_equal(const Net *a, const Net *b)
         memcmp(a->bbel, b->bbel, sizeof(a->bbel)) == 0;
 }
 
+static uint64_t absent_role_hash(void)
+{
+    static const char absent[] = "ABSENT";
+    return aa_hash_bytes(absent, sizeof(absent));
+}
+
+static uint64_t net_or_absent_hash(const Net *net)
+{
+    return net ? aa_hash_bytes(net, sizeof(*net)) : absent_role_hash();
+}
+
+static uint64_t match_value_or_absent_hash(const MatchValueTable *table)
+{
+    static const char domain[] = "LCMV-LOADED-CONTENT-V1";
+    if (!table) return absent_role_hash();
+    /* match_value_load() first verified payload_fingerprint against the
+     * canonical file.  Hash the actual loaded semantic fields as well, so a
+     * stale fingerprint cannot conceal an in-process content change. */
+    if (!table->payload_fingerprint || !match_value_validate(table)) return 0;
+    uint64_t h = aa_hash_extend(aa_hash_init(), domain, sizeof(domain));
+#define HASH_MATCH_VALUE_FIELD(field) \
+    h = aa_hash_extend(h, &table->field, sizeof(table->field))
+    HASH_MATCH_VALUE_FIELD(version);
+    HASH_MATCH_VALUE_FIELD(samples_per_policy_lead);
+    HASH_MATCH_VALUE_FIELD(role_cycle_size);
+    HASH_MATCH_VALUE_FIELD(role_balance_complete);
+    HASH_MATCH_VALUE_FIELD(isotonic_projected);
+    HASH_MATCH_VALUE_FIELD(source_seed);
+    HASH_MATCH_VALUE_FIELD(payload_fingerprint);
+    HASH_MATCH_VALUE_FIELD(max_isotonic_adjustment);
+    HASH_MATCH_VALUE_FIELD(controller.net_fingerprint);
+    HASH_MATCH_VALUE_FIELD(controller.controller_abi);
+    HASH_MATCH_VALUE_FIELD(controller.build_profile);
+    HASH_MATCH_VALUE_FIELD(controller.objective);
+    HASH_MATCH_VALUE_FIELD(controller.playout_symmetries);
+    HASH_MATCH_VALUE_FIELD(controller.playout_sample);
+    HASH_MATCH_VALUE_FIELD(controller.playout_prune);
+    HASH_MATCH_VALUE_FIELD(controller.exact_terminal);
+    HASH_MATCH_VALUE_FIELD(controller.plan_deck_max);
+    HASH_MATCH_VALUE_FIELD(controller.plan_block_gap);
+    HASH_MATCH_VALUE_FIELD(controller.draw_playout_deck_max);
+    HASH_MATCH_VALUE_FIELD(controller.deck2_replan_worlds);
+    HASH_MATCH_VALUE_FIELD(controller.deck2_replan_cores);
+    HASH_MATCH_VALUE_FIELD(controller.max_plies);
+    HASH_MATCH_VALUE_FIELD(before_round1);
+    HASH_MATCH_VALUE_FIELD(before_round2);
+#undef HASH_MATCH_VALUE_FIELD
+    return h;
+}
+
+typedef struct {
+    uint64_t spec;
+    uint64_t root;
+    uint64_t continuation;
+    uint64_t controller;
+    uint64_t ranker;
+    uint64_t match_value;
+} ActorProvenance;
+
+static int actor_provenance(const char *spec, const Agent *actor,
+                            ActorProvenance *out)
+{
+    if (!spec || !*spec || !actor || !out) return 0;
+    out->spec = aa_hash_bytes(spec, strlen(spec));
+    out->root = net_or_absent_hash(actor->net);
+    out->continuation = net_or_absent_hash(actor->continuation_net);
+    out->controller = net_or_absent_hash(actor->veto_continuation_net);
+    out->ranker = net_or_absent_hash(actor->action_ranker_net);
+    out->match_value = match_value_or_absent_hash(actor->match_value);
+    return out->spec && out->root && out->continuation && out->controller &&
+           out->ranker && out->match_value;
+}
+
+int aa_bind_actor_provenance(ActionAdvantageHeader *h,
+                             const char *maintained_spec,
+                             const Agent *maintained,
+                             const char *reroot_spec,
+                             const Agent *reroot,
+                             char *error, size_t error_size)
+{
+    ActorProvenance m, r;
+    if (!h || !actor_provenance(maintained_spec, maintained, &m) ||
+        !actor_provenance(reroot_spec, reroot, &r)) {
+        set_error(error, error_size,
+                  "cannot bind complete actor content provenance");
+        return 0;
+    }
+    h->maintained_actor_spec_hash = m.spec;
+    h->maintained_root_net_hash = m.root;
+    h->maintained_continuation_net_hash = m.continuation;
+    h->maintained_controller_net_hash = m.controller;
+    h->maintained_ranker_net_hash = m.ranker;
+    h->maintained_match_value_hash = m.match_value;
+    h->reroot_actor_spec_hash = r.spec;
+    h->reroot_root_net_hash = r.root;
+    h->reroot_continuation_net_hash = r.continuation;
+    h->reroot_controller_net_hash = r.controller;
+    h->reroot_ranker_net_hash = r.ranker;
+    h->reroot_match_value_hash = r.match_value;
+    return 1;
+}
+
+int aa_validate_actor_provenance(const ActionAdvantageHeader *h,
+                                 const char *maintained_spec,
+                                 const Agent *maintained,
+                                 const char *reroot_spec,
+                                 const Agent *reroot,
+                                 char *error, size_t error_size)
+{
+    ActorProvenance m, r;
+    if (!h || !actor_provenance(maintained_spec, maintained, &m) ||
+        !actor_provenance(reroot_spec, reroot, &r)) {
+        set_error(error, error_size,
+                  "cannot validate complete actor content provenance");
+        return 0;
+    }
+#define REQUIRE_PROVENANCE(field, expected, label) do { \
+    if (h->field != (expected)) { \
+        set_error(error, error_size, label " provenance mismatch"); \
+        return 0; \
+    } \
+} while (0)
+    REQUIRE_PROVENANCE(maintained_actor_spec_hash, m.spec,
+                       "maintained actor spec");
+    REQUIRE_PROVENANCE(maintained_root_net_hash, m.root,
+                       "maintained root checkpoint");
+    REQUIRE_PROVENANCE(maintained_continuation_net_hash, m.continuation,
+                       "maintained continuation checkpoint");
+    REQUIRE_PROVENANCE(maintained_controller_net_hash, m.controller,
+                       "maintained veto-controller checkpoint");
+    REQUIRE_PROVENANCE(maintained_ranker_net_hash, m.ranker,
+                       "maintained action-ranker checkpoint");
+    REQUIRE_PROVENANCE(maintained_match_value_hash, m.match_value,
+                       "maintained match-value table");
+    REQUIRE_PROVENANCE(reroot_actor_spec_hash, r.spec,
+                       "reroot actor spec");
+    REQUIRE_PROVENANCE(reroot_root_net_hash, r.root,
+                       "reroot root checkpoint");
+    REQUIRE_PROVENANCE(reroot_continuation_net_hash, r.continuation,
+                       "reroot continuation checkpoint");
+    REQUIRE_PROVENANCE(reroot_controller_net_hash, r.controller,
+                       "reroot veto-controller checkpoint");
+    REQUIRE_PROVENANCE(reroot_ranker_net_hash, r.ranker,
+                       "reroot action-ranker checkpoint");
+    REQUIRE_PROVENANCE(reroot_match_value_hash, r.match_value,
+                       "reroot match-value table");
+#undef REQUIRE_PROVENANCE
+    return 1;
+}
+
 void aa_header_init(ActionAdvantageHeader *h)
 {
     memset(h, 0, sizeof(*h));
@@ -137,10 +289,19 @@ int aa_validate_header(const ActionAdvantageHeader *h,
         !h->maintained_root_net_hash ||
         !h->maintained_continuation_net_hash ||
         !h->maintained_controller_net_hash ||
+        !h->maintained_ranker_net_hash ||
+        !h->maintained_match_value_hash ||
         !h->reroot_actor_spec_hash || !h->reroot_root_net_hash ||
         !h->reroot_continuation_net_hash ||
-        !h->reroot_controller_net_hash) {
-        set_error(error, error_size, "missing model/spec provenance hash");
+        !h->reroot_controller_net_hash || !h->reroot_ranker_net_hash ||
+        !h->reroot_match_value_hash) {
+        set_error(error, error_size,
+                  "missing checkpoint/table/spec provenance hash");
+        return 0;
+    }
+    if (h->champion_net_hash != h->maintained_root_net_hash) {
+        set_error(error, error_size,
+                  "champion and maintained-root provenance disagree");
         return 0;
     }
     if (h->anchor_count + h->proposal_count != h->record_count) {

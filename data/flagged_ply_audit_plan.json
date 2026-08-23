@@ -1,0 +1,23 @@
+{
+  "schema": "lc-flagged-ply-audit-plan-v1",
+  "status": "not_run",
+  "purpose": "Post-training diagnosis on every literal user-commented ply; this corpus is diagnostic and cannot promote a model that failed locked full-match evaluation.",
+  "manifest": "data/user_reviewed_plies.json",
+  "cases": 36,
+  "decision_worlds_per_actor_per_case": 16384,
+  "belief_alpha": 1.15,
+  "history_worlds": 20000,
+  "base_seed": 202608231701,
+  "candidate_rule": "Union of each actor's top-three complete semantic policy moves, capped at five. Physical wager IDs are deduplicated but draw sources remain distinct, so high-policy deck-versus-pile alternatives are compared. Never enumerate rollout values for every legal move.",
+  "world_model": "Uniform hidden-card determinizations shared by every admitted move and reproducible across actors; exact ordered support replaces sampling at deck=2/3 when the requested budget covers it.",
+  "continuation": "Each actor's production continuation checkpoint and role schedule, with exact one-card endings, semantic cycle handling, and cap-reserve completion.",
+  "belief_diagnostics": "Each belief complaint reports both comparison actors' snapshot-only fixed-cardinality network marginals and a separate actor-aware posterior from the frozen perspective history. If rejection inference accepts no worlds, the result is explicitly marked insufficient rather than treating the snapshot head as history-conditioned evidence.",
+  "shards": {
+    "count": 12,
+    "assignment": "manifest_index modulo shard_count",
+    "command": "python3 tools/flagged_ply_audit.py --reference '$REFERENCE_ACTOR' --candidate '$CANDIDATE_ACTOR' --worlds 16384 --seed 202608231701 --shard-count 12 --shard-index SHARD --output artifacts/shard-SHARD.json"
+  },
+  "execution": "Either manual workflow_dispatch or an auditable one-shot push: after the workflow is published, copy data/flagged_ply_audit_execution.template.json to data/flagged_ply_audit_execution.json, freeze the actual winner/reference actors, set execute=true, and add only that file in its commit. The real execution file is intentionally absent until launch.",
+  "reporting": "The merge preserves every raw case row in JSON; tools/render_flagged_ply_audit.py deterministically produces a per-ply Markdown report with policy ranks/probabilities, admitted moves, common-panel Q/delta/SE, deployed moves, classifications, and both belief evidence types.",
+  "result": null
+}

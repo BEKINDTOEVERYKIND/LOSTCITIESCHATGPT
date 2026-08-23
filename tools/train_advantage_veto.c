@@ -15,6 +15,7 @@
  */
 #include "action_advantage_format.h"
 #include "../src/agent.h"
+#include "../src/spec.h"
 
 #include <errno.h>
 #include <math.h>
@@ -27,6 +28,8 @@
 typedef struct {
     const char *records_path;
     const char *champion_path;
+    const char *actor_spec;
+    const char *reroot_spec;
     const char *out_path;
     const char *metrics_path;
     uint64_t split_seed;
@@ -107,7 +110,8 @@ static int parse_f(const char *s, float lo, float hi, float *out)
 static void usage(FILE *f, const char *argv0)
 {
     fprintf(f,
-        "usage: %s --records FILE --champion NET --out RANKER [options]\n\n"
+        "usage: %s --records FILE --champion NET --actor SPEC "
+        "--reroot-actor SPEC --out RANKER [options]\n\n"
         "  --epochs N              deterministic passes (default 24)\n"
         "  --batch N               records per head-only Adam step (default 32)\n"
         "  --lr X                  learning rate (default 2e-5)\n"
@@ -126,9 +130,10 @@ static void usage(FILE *f, const char *argv0)
         "  --metrics-json FILE     atomically write heldout threshold metrics\n"
         "  --force                 atomically replace an existing output\n\n"
         "Only wplay/bplay, wdraw/bdraw, and wcomb/bcomb are updated.  The "
-        "trainer rejects a validation pair-loss regression, any KL gate "
-        "failure, mixed/empty source-match partitions, or one changed "
-        "trunk/value/belief byte.\n", argv0);
+        "trainer reloads both actor specs and rejects any checkpoint-role or "
+        "match-value-table content mismatch.  It also rejects a validation "
+        "pair-loss regression, any KL gate failure, mixed/empty source-match "
+        "partitions, or one changed trunk/value/belief byte.\n", argv0);
 }
 
 static int parse_args(int argc, char **argv, Config *c)
@@ -151,6 +156,10 @@ static int parse_args(int argc, char **argv, Config *c)
         if (!strcmp(a, "--records") && ++i < argc) c->records_path = argv[i];
         else if (!strcmp(a, "--champion") && ++i < argc)
             c->champion_path = argv[i];
+        else if (!strcmp(a, "--actor") && ++i < argc)
+            c->actor_spec = argv[i];
+        else if (!strcmp(a, "--reroot-actor") && ++i < argc)
+            c->reroot_spec = argv[i];
         else if (!strcmp(a, "--out") && ++i < argc) c->out_path = argv[i];
         else if (!strcmp(a, "--epochs") && ++i < argc &&
                  parse_i(argv[i], 1, 10000, &c->epochs)) {}
@@ -190,10 +199,11 @@ static int parse_args(int argc, char **argv, Config *c)
             return 0;
         }
     }
-    if (!c->records_path || !c->champion_path ||
+    if (!c->records_path || !c->champion_path || !c->actor_spec ||
+        !c->reroot_spec ||
         (!c->dry_run && !c->out_path)) {
-        fprintf(stderr, "--records and --champion are required; --out is "
-                        "required unless --dry-run\n");
+        fprintf(stderr, "--records, --champion, --actor, and --reroot-actor "
+                        "are required; --out is required unless --dry-run\n");
         return 0;
     }
     return 1;
@@ -460,7 +470,7 @@ static void print_metrics_json(FILE *f, const ActionAdvantageHeader *h,
         "\"record_chain\":\"%016llx\","
         "\"champion_hash\":\"%016llx\","
         "\"record_header\":{"
-        "\"generator_seed\":\"%llu\","
+        "\"format_version\":%u,\"generator_seed\":\"%llu\","
         "\"record_count\":%llu,\"anchor_count\":%llu,"
         "\"proposal_count\":%llu,"
         "\"label_worlds\":%u,\"ply_lo\":%u,"
@@ -473,10 +483,14 @@ static void print_metrics_json(FILE *f, const ActionAdvantageHeader *h,
         "\"maintained_root_net_hash\":\"%016llx\","
         "\"maintained_continuation_net_hash\":\"%016llx\","
         "\"maintained_controller_net_hash\":\"%016llx\","
+        "\"maintained_ranker_net_hash\":\"%016llx\","
+        "\"maintained_match_value_hash\":\"%016llx\","
         "\"reroot_actor_spec_hash\":\"%016llx\","
         "\"reroot_root_net_hash\":\"%016llx\","
         "\"reroot_continuation_net_hash\":\"%016llx\","
-        "\"reroot_controller_net_hash\":\"%016llx\"},"
+        "\"reroot_controller_net_hash\":\"%016llx\","
+        "\"reroot_ranker_net_hash\":\"%016llx\","
+        "\"reroot_match_value_hash\":\"%016llx\"},"
         "\"split_seed\":%llu,\"validation_permille\":%d,"
         "\"validation_states\":%llu,\"validation_proposals\":%llu,"
         "\"initial_pair_huber\":%.17g,\"final_pair_huber\":%.17g,"
@@ -485,6 +499,7 @@ static void print_metrics_json(FILE *f, const ActionAdvantageHeader *h,
         "\"threshold_grid\":[",
         (unsigned long long)h->record_chain_hash,
         (unsigned long long)h->champion_net_hash,
+        h->version,
         (unsigned long long)h->generator_seed,
         (unsigned long long)h->record_count,
         (unsigned long long)h->anchor_count,
@@ -497,10 +512,14 @@ static void print_metrics_json(FILE *f, const ActionAdvantageHeader *h,
         (unsigned long long)h->maintained_root_net_hash,
         (unsigned long long)h->maintained_continuation_net_hash,
         (unsigned long long)h->maintained_controller_net_hash,
+        (unsigned long long)h->maintained_ranker_net_hash,
+        (unsigned long long)h->maintained_match_value_hash,
         (unsigned long long)h->reroot_actor_spec_hash,
         (unsigned long long)h->reroot_root_net_hash,
         (unsigned long long)h->reroot_continuation_net_hash,
         (unsigned long long)h->reroot_controller_net_hash,
+        (unsigned long long)h->reroot_ranker_net_hash,
+        (unsigned long long)h->reroot_match_value_hash,
         (unsigned long long)c->split_seed, c->validation_permille,
         (unsigned long long)final->states,
         (unsigned long long)final->proposals,
@@ -619,6 +638,19 @@ int main(int argc, char **argv)
         fprintf(stderr, "cannot load records: %s\n", error);
         return 1;
     }
+    Agent maintained, reroot;
+    spec_parse(c.actor_spec, &maintained);
+    spec_parse(c.reroot_spec, &reroot);
+    if (!aa_validate_actor_provenance(
+            &header, c.actor_spec, &maintained, c.reroot_spec, &reroot,
+            error, sizeof(error))) {
+        fprintf(stderr, "record actor provenance does not match inputs: %s\n",
+                error);
+        spec_release(&maintained);
+        spec_release(&reroot);
+        free(records);
+        return 1;
+    }
     Net *champion = (Net *)malloc(sizeof(*champion));
     Net *ranker = (Net *)malloc(sizeof(*ranker));
     Net *gradient = (Net *)calloc(1, sizeof(*gradient));
@@ -630,6 +662,8 @@ int main(int argc, char **argv)
         fprintf(stderr, "cannot allocate trainer or load champion\n");
         free(records); free(champion); free(ranker); free(gradient);
         free(adam.m); free(adam.v);
+        spec_release(&maintained);
+        spec_release(&reroot);
         return 1;
     }
     if (aa_hash_bytes(champion, sizeof(*champion)) !=
@@ -801,10 +835,14 @@ int main(int argc, char **argv)
     free(validation); free(order);
     free(records); free(champion); free(ranker); free(gradient);
     free(adam.m); free(adam.v);
+    spec_release(&maintained);
+    spec_release(&reroot);
     return rc;
 
 fail:
     free(records); free(champion); free(ranker); free(gradient);
     free(adam.m); free(adam.v);
+    spec_release(&maintained);
+    spec_release(&reroot);
     return 1;
 }

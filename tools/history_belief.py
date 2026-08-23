@@ -36,9 +36,16 @@ ROLLOUT_KINDS = {
     "rolloutu2",
     "rollout3",
     "rolloutu3",
+    "rollout4",
+    "rolloutu4",
 }
 TWO_NETWORK_ROLLOUT_KINDS = {"rollout2", "rolloutu2"}
-THREE_NETWORK_ROLLOUT_KINDS = {"rollout3", "rolloutu3"}
+VETO_NETWORK_ROLLOUT_KINDS = {"rollout3", "rolloutu3"}
+RANKER_NETWORK_ROLLOUT_KINDS = {"rollout4", "rolloutu4"}
+THREE_NETWORK_ROLLOUT_KINDS = {
+    *VETO_NETWORK_ROLLOUT_KINDS,
+    *RANKER_NETWORK_ROLLOUT_KINDS,
+}
 MULTI_NETWORK_ROLLOUT_KINDS = {
     *TWO_NETWORK_ROLLOUT_KINDS,
     *THREE_NETWORK_ROLLOUT_KINDS,
@@ -47,6 +54,66 @@ MULTI_NETWORK_ROLLOUT_KINDS = {
 
 class ViewError(ValueError):
     """The source cannot be reduced to a valid perspective view."""
+
+
+def source_actor_provenance(actor_spec: str) -> dict[str, Any]:
+    """Hash every strength-defining artifact named by a source actor."""
+    fields = actor_spec.split(":")
+    if len(fields) < 2 or fields[0] not in {"policy", *ROLLOUT_KINDS}:
+        raise ViewError("unsupported or incomplete source actor spec")
+    kind = fields[0]
+    roles = ["root"]
+    if kind in MULTI_NETWORK_ROLLOUT_KINDS:
+        roles.append("continuation")
+    if kind in VETO_NETWORK_ROLLOUT_KINDS:
+        roles.append("veto")
+    elif kind in RANKER_NETWORK_ROLLOUT_KINDS:
+        roles.append("ranker")
+
+    checkpoints = []
+    for index, role in enumerate(roles, start=1):
+        if len(fields) <= index or not fields[index]:
+            raise ViewError(
+                f"source actor spec does not identify its {role} checkpoint"
+            )
+        source_path = Path(fields[index])
+        if not source_path.is_absolute():
+            source_path = ROOT / source_path
+        try:
+            digest = hashlib.sha256(source_path.read_bytes()).hexdigest()
+        except OSError as exc:
+            raise ViewError(
+                f"cannot verify source actor {role} checkpoint: {exc}"
+            ) from exc
+        checkpoints.append({
+            "role": role,
+            "path": fields[index],
+            "sha256": digest,
+        })
+
+    provenance: dict[str, Any] = {"checkpoints": checkpoints}
+    if kind in ROLLOUT_KINDS:
+        tail_start = len(roles) + 1
+        match_value_index = tail_start + 41
+        if len(fields) > match_value_index:
+            if not fields[match_value_index]:
+                raise ViewError(
+                    "source actor spec has an empty match-value table path"
+                )
+            table_path = Path(fields[match_value_index])
+            if not table_path.is_absolute():
+                table_path = ROOT / table_path
+            try:
+                table_hash = hashlib.sha256(table_path.read_bytes()).hexdigest()
+            except OSError as exc:
+                raise ViewError(
+                    f"cannot verify source actor match-value table: {exc}"
+                ) from exc
+            provenance["match_value_table"] = {
+                "path": fields[match_value_index],
+                "sha256": table_hash,
+            }
+    return provenance
 
 
 def parse_card(name: str) -> tuple[int, int]:
@@ -225,15 +292,18 @@ def validate_actor_prefix(
             "source actor spec does not identify its continuation checkpoint"
         )
     if three_network_actor and (len(fields) < 4 or not fields[3]):
-        raise ViewError(
-            "source actor spec does not identify its veto checkpoint"
+        role = (
+            "veto"
+            if kind in VETO_NETWORK_ROLLOUT_KINDS
+            else "action-ranker"
         )
-    source_net_path = Path(fields[1])
-    if not source_net_path.is_absolute():
-        source_net_path = ROOT / source_net_path
+        raise ViewError(
+            f"source actor spec does not identify its {role} checkpoint"
+        )
+    artifact_provenance = source_actor_provenance(actor_spec)
     try:
-        source_hash = hashlib.sha256(source_net_path.read_bytes()).digest()
-        inference_hash = hashlib.sha256(net_path.read_bytes()).digest()
+        source_hash = artifact_provenance["checkpoints"][0]["sha256"]
+        inference_hash = hashlib.sha256(net_path.read_bytes()).hexdigest()
     except OSError as exc:
         raise ViewError(f"cannot verify source actor checkpoint: {exc}") from exc
     if source_hash != inference_hash:
@@ -366,6 +436,12 @@ def annotate(
     source_actor = validate_actor_prefix(
         meta.get("actor"), view["target_round_ply"], symmetries, net_path
     )
+    source_artifacts = source_actor_provenance(source_actor)
+    initial_inference_hash = hashlib.sha256(net_path.read_bytes()).hexdigest()
+    if source_artifacts["checkpoints"][0]["sha256"] != initial_inference_hash:
+        raise ViewError(
+            "source actor root checkpoint changed during validation"
+        )
 
     command = [
         str(worker_path),
@@ -388,6 +464,16 @@ def annotate(
     if completed.returncode != 0:
         detail = completed.stderr.strip() or "worker failed without diagnostics"
         raise ViewError(detail)
+    final_source_artifacts = source_actor_provenance(source_actor)
+    if final_source_artifacts != source_artifacts:
+        raise ViewError(
+            "source actor artifact changed while history inference was running"
+        )
+    final_inference_hash = hashlib.sha256(net_path.read_bytes()).hexdigest()
+    if final_inference_hash != initial_inference_hash:
+        raise ViewError(
+            "inference checkpoint changed while history inference was running"
+        )
     try:
         result = json.loads(completed.stdout)
     except json.JSONDecodeError as exc:
@@ -407,15 +493,20 @@ def annotate(
         "observer": view["observer"],
         "round": view["round"],
         "source_actor_spec": source_actor,
+        "source_actor_checkpoints": source_artifacts["checkpoints"],
         "inference_actor": (
             f"policy:{net_path}:0:{symmetries} "
             "(source actor's pre-search behavior)"
         ),
-        "model_sha256": hashlib.sha256(net_path.read_bytes()).hexdigest(),
+        "model_sha256": initial_inference_hash,
         "view_sha256": hashlib.sha256(view_bytes).hexdigest(),
         "annotation_seed": seed,
         "selection": "all sampled worlds; no posterior screening or retries",
     }
+    if "match_value_table" in source_artifacts:
+        result["provenance"]["source_match_value_table"] = (
+            source_artifacts["match_value_table"]
+        )
     return result
 
 

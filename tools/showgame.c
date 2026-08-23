@@ -50,6 +50,13 @@ int main(int argc, char **argv)
 
     Agent ag;
     spec_parse(spec, &ag);
+    if (ag.match_value && rounds != MATCH_ROUNDS) {
+        fprintf(stderr,
+                "showgame: a match-value actor requires exactly %d rounds\n",
+                MATCH_ROUNDS);
+        spec_release(&ag);
+        return 1;
+    }
     Rng rng; rng_seed(&rng, seed);
 
     printf("Lost Cities -- self-play, both seats %s, deal seed %llu%s\n",

@@ -23,6 +23,7 @@
 #include "agent.h"
 #include "heuristic.h"
 #include "late_resolver.h"
+#include "match_value.h"
 #include "planner.h"
 #include <math.h>
 #include <stdlib.h>
@@ -198,6 +199,33 @@ static const Net *continuation_net(const Agent *a)
                                     : (a ? a->net : NULL);
 }
 
+/* The Bellman table evaluates a frozen legacy continuation controller.  Its
+ * objective is therefore controller metadata, not selection mode 3 itself.
+ * Keeping these notions separate avoids recursively changing the policy while
+ * constructing or applying its value table. */
+static int rollout_controller_objective(const Agent *a)
+{
+    return a && a->match_value
+        ? (int)a->match_value->controller.objective
+        : (a ? a->win_q : 0);
+}
+
+static double rollout_selection_objective(const Agent *a,
+                                          const State *terminal, int p)
+{
+    if (a && a->match_value) {
+        double value = 0.0;
+        if (match_value_terminal(a->match_value, terminal, p, &value))
+            return value;
+        /* A parsed table/state mismatch is impossible; unfinished fuse leaves
+         * are separately counted and forbidden from authorizing an override.
+         * Returning a common finite value keeps diagnostic arithmetic defined
+         * while that fail-closed path retains the deployed baseline. */
+        return 0.0;
+    }
+    return rollout_terminal_objective(terminal, p, a ? a->win_q : 0);
+}
+
 static int playout(const Net *net, const NetEvalPlan *eval_plan,
                    State *s, int p, int prune, Rng *symrng,
                    const uint8_t fixed_perm[NSUIT],
@@ -277,6 +305,46 @@ int rollout_exact_terminal_choice(const State *st, const Move *mv,
              MOVE_PACK(mv[i]) < MOVE_PACK(mv[best]))) {
             best = i;
             best_objective = value;
+        }
+    }
+    if (best >= 0 && out_objective) *out_objective = best_objective;
+    return best;
+}
+
+/* Objective 3 need not be monotone for a fixed lead-conditioned controller:
+ * changing its carried lead can change its later policy.  Optimize a real
+ * deck-one root directly in table units instead of assuming the legacy
+ * maximum-margin action remains best.  Modes 0..2 retain their byte-for-byte
+ * selector above. */
+static int rollout_match_value_terminal_choice(
+    const Agent *a, const State *st, const Move *mv,
+    const float *prior, int n, double *out_objective)
+{
+    if (!a || !a->match_value)
+        return rollout_exact_terminal_choice(
+            st, mv, prior, n, rollout_controller_objective(a),
+            out_objective);
+    if (!st || st->deck_left != 1 || st->over || n <= 0) return -1;
+    int best = -1;
+    double best_objective = -INFINITY;
+    for (int i = 0; i < n; i++) {
+        if (mv[i].draw != 0) continue;
+        State terminal = *st;
+        lc_apply_play(&terminal, mv[i]);
+        terminal.deck_left = 0;
+        terminal.over = 1;
+        double objective = 0.0;
+        if (!match_value_terminal(
+                a->match_value, &terminal, st->turn, &objective))
+            continue;
+        float pi = prior ? prior[i] : 0.0f;
+        float best_pi = best >= 0 && prior ? prior[best] : 0.0f;
+        if (best < 0 || objective > best_objective ||
+            (objective == best_objective && pi > best_pi) ||
+            (objective == best_objective && pi == best_pi &&
+             MOVE_PACK(mv[i]) < MOVE_PACK(mv[best]))) {
+            best = i;
+            best_objective = objective;
         }
     }
     if (best >= 0 && out_objective) *out_objective = best_objective;
@@ -681,6 +749,41 @@ static int playout(const Net *net, const NetEvalPlan *eval_plan,
     return sp - so;
 }
 
+int rollout_match_value_round(const Net *net, const NetEvalPlan *eval_plan,
+                              const MatchValueController *controller,
+                              State *state,
+                              const uint8_t role[2][NSUIT], int *margin)
+{
+    if (!net || !controller || !state || !role || !margin || state->over ||
+        state->round == 0 || state->round >= MATCH_ROUNDS ||
+        !match_value_controller_supported(controller))
+        return -1;
+    for (int p = 0; p < 2; p++) {
+        unsigned seen = 0;
+        for (int s = 0; s < NSUIT; s++) {
+            if (role[p][s] >= NSUIT ||
+                (seen & (1U << role[p][s])))
+                return -1;
+            seen |= 1U << role[p][s];
+        }
+    }
+    PlayoutWork work = { 0 };
+    int value = playout(
+        net, eval_plan, state, 0, (int)controller->playout_prune,
+        NULL, role[0], role[1], 1, 0,
+        (int)controller->playout_symmetries,
+        (int)controller->plan_deck_max,
+        (int)controller->plan_block_gap,
+        (int)controller->draw_playout_deck_max, 0.0f, 0,
+        (int)controller->objective, (int)controller->exact_terminal,
+        0, 0, NULL, NULL, &work);
+    if (!state->over || state->deck_left != 0 ||
+        work.unfinished_cap_leaves != 0)
+        return -2;
+    *margin = value;
+    return 0;
+}
+
 /* Objective used to compare completed playouts.  Modes:
  *   0: round margin (historical default)
  *   1: pure match result in real round index 2
@@ -883,7 +986,7 @@ static void late_assignment_cards(
 static int late_assignment_plan_init(
     const State *st, int p, LateAssignmentPlan *plan)
 {
-    if (!st || !plan || p < 0 || p > 1 || st->deck_left < 2 ||
+    if (!st || !plan || p < 0 || p > 1 || st->deck_left < 1 ||
         st->deck_left > LATE_REPLAN_MAX_DECK)
         return 0;
     memset(plan, 0, sizeof *plan);
@@ -2286,12 +2389,12 @@ static int confirm_trusted_prefix(
                             cont_sym, a->plan_deck_max,
                             a->plan_block_gap,
                             a->draw_playout_deck_max, a->confirm_temp,
-                            wseed, a->win_q,
+                            wseed, rollout_controller_objective(a),
                             a->exact_terminal,
                             replan_worlds, replan_cores,
                             replan_worlds > 0 ? &replan : NULL,
                             NULL, work);
-            double obj = rollout_terminal_objective(&s, p, a->win_q);
+            double obj = rollout_selection_objective(a, &s, p);
             world_obj[c] = obj;
             total[c] += obj;
             total2[c] += obj * obj;
@@ -2448,8 +2551,10 @@ static Move rollout_move_impl(const struct Agent *a, const State *st,
      * phase or confidence gate guarantees that the playing actor cannot skip
      * the exact result. */
     double exact_objective = 0.0;
-    int exact_index = a->exact_terminal ? rollout_exact_terminal_choice(
-        st, mv, prob, n, a->win_q, &exact_objective) : -1;
+    int exact_index = a->exact_terminal
+        ? rollout_match_value_terminal_choice(
+              a, st, mv, prob, n, &exact_objective)
+        : -1;
     if (exact_index >= 0) {
         int policy_terminal_index = -1;
         for (int i = 0; i < n; i++)
@@ -2464,8 +2569,14 @@ static Move rollout_move_impl(const struct Agent *a, const State *st,
         lc_apply_play(&policy_terminal, mv[policy_terminal_index]);
         policy_terminal.deck_left = 0;
         policy_terminal.over = 1;
-        double policy_terminal_objective = rollout_terminal_objective(
-            &policy_terminal, st->turn, a->win_q);
+        double policy_terminal_objective = rollout_selection_objective(
+            a, &policy_terminal, st->turn);
+        State exact_terminal = *st;
+        lc_apply_play(&exact_terminal, mv[exact_index]);
+        exact_terminal.deck_left = 0;
+        exact_terminal.over = 1;
+        exact_objective = rollout_selection_objective(
+            a, &exact_terminal, st->turn);
         int rows = exact_index == policy_terminal_index ? 1 : 2;
         if (out_value) *out_value = value;
         if (stats) {
@@ -2519,7 +2630,8 @@ static Move rollout_move_impl(const struct Agent *a, const State *st,
         Move resolved = { 0 };
         LateResolverStats late_stats;
         int late_passed = late_resolver_choose_dual_plan(
-            a->net, cont_net, st, a->win_q, 3, a->symmetries,
+            a->net, cont_net, st, rollout_controller_objective(a),
+            3, a->symmetries,
             a->root_width, a->bounded_late_min,
             &resolved, &late_stats, eval_plan, cont_eval_plan);
         if (stats) {
@@ -3228,11 +3340,12 @@ static Move rollout_move_impl(const struct Agent *a, const State *st,
                             sample_cont_actions, cont_sym,
                             a->plan_deck_max, a->plan_block_gap,
                             a->draw_playout_deck_max, 0.0f, wseed,
-                            a->win_q, a->exact_terminal,
+                            rollout_controller_objective(a),
+                            a->exact_terminal,
                             replan_worlds, replan_cores,
                             replan_worlds > 0 ? &replan : NULL,
                             &w, &work);
-            double obj = rollout_terminal_objective(&s, p, a->win_q);
+            double obj = rollout_selection_objective(a, &s, p);
             if (val) val[(size_t)c * cap + d] = obj;
             sum[c] += m;
             if (w >= 0.0) sumw[c] += w;
@@ -3489,12 +3602,13 @@ static Move rollout_move_impl(const struct Agent *a, const State *st,
                               a->confirm_exact5 ? 5 : cont_sym,
                               a->plan_deck_max, a->plan_block_gap,
                               a->draw_playout_deck_max, a->confirm_temp,
-                              wseed, a->win_q, a->exact_terminal,
+                              wseed, rollout_controller_objective(a),
+                              a->exact_terminal,
                               replan_worlds, replan_cores,
                               replan_worlds > 0 ? &baseline_replan : NULL,
                               NULL, &work);
-                double bobj =
-                    rollout_terminal_objective(&baseline, p, a->win_q);
+                double bobj = rollout_selection_objective(
+                    a, &baseline, p);
 
                 for (int q = 0; q < nqual; q++) {
                     int c = qual[q];
@@ -3516,13 +3630,13 @@ static Move rollout_move_impl(const struct Agent *a, const State *st,
                         a->confirm_exact5 ? 5 : cont_sym,
                         a->plan_deck_max, a->plan_block_gap,
                         a->draw_playout_deck_max, a->confirm_temp,
-                        wseed, a->win_q, a->exact_terminal,
+                        wseed, rollout_controller_objective(a),
+                        a->exact_terminal,
                         replan_worlds, replan_cores,
                         replan_worlds > 0 ? &challenger_replan : NULL,
                         NULL, &work);
-                    double x =
-                        rollout_terminal_objective(&challenger, p, a->win_q)
-                        - bobj;
+                    double x = rollout_selection_objective(
+                        a, &challenger, p) - bobj;
                     csum[c] += x;
                     csum2[c] += x * x;
                 }
@@ -3704,6 +3818,170 @@ static Move rollout_move_impl(const struct Agent *a, const State *st,
      * when enabled). SearchStats.value/q carry the rollout objective. */
     if (out_value) *out_value = value;
     return mv[order[best]];
+}
+
+int rollout_audit_panel(const struct Agent *a, const State *st,
+                        const Move *candidate, int n, int baseline,
+                        uint64_t seed, int worlds,
+                        RolloutAuditPanel *out)
+{
+    if (!a || !st || !candidate || !out || !a->net || st->over ||
+        n < 1 || n > 5 || baseline < 0 || baseline >= n || worlds < 2)
+        return -1;
+    /* A diagnostic advertised as exact-late must fail closed.  Mode 3 is a
+     * useful propagation ablation, but it deliberately does not optimize the
+     * final action and therefore cannot satisfy this corpus contract. */
+    if (a->exact_terminal != 1) return -2;
+
+    Move legal[MAX_MOVES], mapped[5];
+    int nlegal = lc_moves(st, legal);
+    for (int c = 0; c < n; c++) {
+        int found = find_semantic_move(legal, nlegal, candidate[c]);
+        if (found < 0) return -3;
+        mapped[c] = legal[found];
+        for (int j = 0; j < c; j++)
+            if (same_semantic_move(mapped[c], mapped[j])) return -3;
+    }
+
+    memset(out, 0, sizeof *out);
+    out->n = n;
+    out->requested_worlds = worlds;
+    out->baseline = baseline;
+    out->objective = a->win_q;
+
+    const int p = st->turn;
+    LateAssignmentPlan assignment_plan;
+    int assignment_order[LATE_REPLAN_MAX_ASSIGNMENTS];
+    int unique_worlds = 0;
+    if (st->deck_left >= 1 && st->deck_left <= LATE_REPLAN_MAX_DECK) {
+        unique_worlds = late_unique_assignment_order(
+            st, p, worlds, LATE_PANEL_PRIMARY_ASSIGNMENTS,
+            &assignment_plan, assignment_order);
+        if (unique_worlds > 0) {
+            out->hidden_support = assignment_plan.support;
+            out->exact_hidden_support =
+                unique_worlds == assignment_plan.support;
+            worlds = unique_worlds;
+        }
+    }
+    out->worlds = worlds;
+
+    double *value = (double *)malloc(
+        sizeof(double) * (size_t)n * (size_t)worlds);
+    if (!value) return -4;
+
+    const Net *cont_net = continuation_net(a);
+    NetEvalPlan cont_plan_storage;
+    const NetEvalPlan *cont_plan = NULL;
+    if (cont_net) {
+        net_eval_plan_init(cont_net, &cont_plan_storage);
+        cont_plan = &cont_plan_storage;
+    }
+    const int cont_sym =
+        a->playout_symmetries > 0 ? a->playout_symmetries : 1;
+    const int cont_prune =
+        a->playout_prune < 0 ? a->prune_dom : a->playout_prune != 0;
+    const int random_cont_sym = a->playout_sample > 0;
+    const int sample_cont_actions = a->playout_sample == 1;
+    const int fixed_world_sym =
+        (a->playout_sample == 3 || a->playout_sample == 4) && cont_sym > 1;
+    const int role_fixed_world_sym =
+        a->playout_sample == 4 && cont_sym > 1;
+    uint8_t perms[120][NSUIT];
+    int nperm = fixed_world_sym ? suit_permutations(cont_sym, perms) : 0;
+    uint64_t panel_seed = confirmation_mix64(
+        seed ^ UINT64_C(0xA0761D6478BD642F));
+    int perm_offset = fixed_world_sym
+        ? (int)(panel_seed % (uint64_t)nperm) : 0;
+    int other_perm_offset = role_fixed_world_sym
+        ? (int)(confirmation_mix64(panel_seed) % (uint64_t)nperm) : 0;
+
+    Rng world_rng;
+    rng_seed(&world_rng, seed ^ UINT64_C(0xDB4F0B9175AE2165));
+    int replan_worlds, replan_cores;
+    historical_replan_config(a, &replan_worlds, &replan_cores);
+    LateReplanCache replan_cache = { 0 };
+    PlayoutWork work = { 0 };
+    double margin[5] = { 0 };
+    for (int d = 0; d < worlds; d++) {
+        State world;
+        if (unique_worlds > 0)
+            late_assignment_world(
+                &assignment_plan, p, assignment_order[d], &world);
+        else
+            determinize(st, p, &world_rng, &world);
+        uint64_t wseed = confirmation_mix64(
+            seed ^ (UINT64_C(0xD1B54A32D192ED03) *
+                    (uint64_t)(d + 1)));
+        const uint8_t *fixed_perm = NULL;
+        const uint8_t *other_perm = NULL;
+        if (fixed_world_sym) {
+            fixed_perm = perms[(perm_offset + d) % nperm];
+            if (role_fixed_world_sym) {
+                int other =
+                    (other_perm_offset + d / nperm + d % nperm) % nperm;
+                other_perm = perms[other];
+            }
+        }
+        for (int c = 0; c < n; c++) {
+            State s = world;
+            lc_apply(&s, mapped[c]);
+            Rng prng;
+            if (random_cont_sym) rng_seed(&prng, wseed);
+            LateReplanContext replan = late_replan_context_init(
+                replan_worlds, replan_cores, LATE_PANEL_PRIMARY,
+                &replan_cache);
+            int m = playout(
+                cont_net, cont_plan, &s, p, cont_prune,
+                random_cont_sym ? &prng : NULL,
+                fixed_perm, other_perm, p ^ 1,
+                sample_cont_actions, cont_sym,
+                a->plan_deck_max, a->plan_block_gap,
+                a->draw_playout_deck_max, 0.0f, wseed,
+                rollout_controller_objective(a), a->exact_terminal,
+                replan_worlds, replan_cores,
+                replan_worlds > 0 ? &replan : NULL,
+                NULL, &work);
+            value[(size_t)c * (size_t)worlds + (size_t)d] =
+                rollout_selection_objective(a, &s, p);
+            margin[c] += m;
+        }
+    }
+
+    for (int c = 0; c < n; c++) {
+        double sum = 0.0;
+        for (int d = 0; d < worlds; d++)
+            sum += value[(size_t)c * (size_t)worlds + (size_t)d];
+        out->q[c] = sum / worlds;
+    }
+    for (int c = 0; c < n; c++) {
+        double qv = 0.0, dv = 0.0;
+        out->delta[c] = out->q[c] - out->q[baseline];
+        for (int d = 0; d < worlds; d++) {
+            double qx = value[(size_t)c * (size_t)worlds + (size_t)d]
+                      - out->q[c];
+            double dx = value[(size_t)c * (size_t)worlds + (size_t)d]
+                      - value[(size_t)baseline * (size_t)worlds + (size_t)d]
+                      - out->delta[c];
+            qv += qx * qx;
+            dv += dx * dx;
+        }
+        out->se[c] = sqrt(qv / (worlds - 1) / worlds);
+        out->delta_se[c] = c == baseline
+            ? 0.0 : sqrt(dv / (worlds - 1) / worlds);
+    }
+    int selected = 0;
+    for (int c = 1; c < n; c++)
+        if (out->q[c] > out->q[selected] ||
+            (out->q[c] == out->q[selected] && margin[c] > margin[selected]))
+            selected = c;
+    out->selected = selected;
+    out->exact_terminal_leaves = work.exact_terminal_leaves;
+    out->unfinished_cap_leaves = work.unfinished_cap_leaves;
+    out->cycle_breaks = work.cycle_breaks;
+    out->cap_reserve_forces = work.cap_reserve_forces;
+    free(value);
+    return 0;
 }
 
 Move rollout_move(const struct Agent *a, const State *st, Rng *rng,

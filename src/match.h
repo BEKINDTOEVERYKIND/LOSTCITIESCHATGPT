@@ -29,7 +29,8 @@ typedef struct {
 
 /* rounds = 1 gives single-deal games; rounds = MATCH_ROUNDS gives the full
  * competitive format, cumulative totals, alternating first player, margins
- * and winrate reported per match. */
+ * and winrate reported per match.  An Agent with match_value set is defined
+ * only for that full format; shorter requests fail closed. */
 int match_run_r(const Agent *a, const Agent *b, int pairs, int nthread,
                 uint64_t seed, int rounds, MatchResult *out);
 /* The range API is strict and fail-closed: zero means all requested pairs and

@@ -25,6 +25,7 @@
       "the ranker evaluates exactly two already-selected actions and cannot select any third action",
       "the ranker consumes no RNG and sees only the acting player's sanitized information view",
       "the baseline, primary panel, fresh confirmation panel, top-policy-moves-only boundary, continuation checkpoint, and all rollout settings remain byte-for-byte and field-for-field unchanged",
+      "the record header and trainer independently content-bind every loaded checkpoint role (root, continuation, veto controller, and direct action ranker) plus the optional rollout-tail field-41 match-value table for both maintained and re-root actors; absent roles are bound by a fixed sentinel and path text alone is insufficient",
       "trunk, value head, and belief head remain byte-identical to champion.bin; only policy action heads may train",
       "the three indistinguishable physical wager copies remain byte-identical in every trained policy row"
     ]
@@ -71,6 +72,7 @@
       "nonempty train and heldout source-match groups",
       "at least twenty heldout signed proposals",
       "the generated record header exactly matches all locked generator, actor, teacher, model, completion, world, thread, phase, and symmetry identities",
+      "the trainer reloads both exact actor specs, binds every checkpoint role and optional match-value table, and rejects any content mismatch before fitting",
       "every stored champion logit is recomputed and must exactly match champion.bin before fitting",
       "heldout weighted pair-Huber loss strictly improves from champion initialization",
       "mean and maximum heldout policy KL satisfy the predeclared caps",

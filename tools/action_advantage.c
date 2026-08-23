@@ -165,13 +165,6 @@ static int parse_args(int argc, char **argv, Config *c)
     return 1;
 }
 
-static uint64_t net_or_absent_hash(const Net *n)
-{
-    static const char absent[] = "ABSENT";
-    return n ? aa_hash_bytes(n, sizeof(*n))
-             : aa_hash_bytes(absent, sizeof(absent));
-}
-
 static void shuffle_deck(uint8_t deck[NCARD], Rng *rng)
 {
     for (int i = 0; i < NCARD; i++) deck[i] = (uint8_t)i;
@@ -468,20 +461,16 @@ int main(int argc, char **argv)
     header.source_matches_completed = 0;
     header.proposal_cap = (uint32_t)c.max_proposals;
     header.champion_net_hash = aa_hash_bytes(champion, sizeof(*champion));
-    header.maintained_actor_spec_hash =
-        aa_hash_bytes(c.actor_spec, strlen(c.actor_spec));
-    header.maintained_root_net_hash = net_or_absent_hash(maintained.net);
-    header.maintained_continuation_net_hash =
-        net_or_absent_hash(maintained.continuation_net);
-    header.maintained_controller_net_hash =
-        net_or_absent_hash(maintained.veto_continuation_net);
-    header.reroot_actor_spec_hash =
-        aa_hash_bytes(c.reroot_spec, strlen(c.reroot_spec));
-    header.reroot_root_net_hash = net_or_absent_hash(reroot.net);
-    header.reroot_continuation_net_hash =
-        net_or_absent_hash(reroot.continuation_net);
-    header.reroot_controller_net_hash =
-        net_or_absent_hash(reroot.veto_continuation_net);
+    char provenance_error[200];
+    if (!aa_bind_actor_provenance(
+            &header, c.actor_spec, &maintained, c.reroot_spec, &reroot,
+            provenance_error, sizeof(provenance_error))) {
+        fprintf(stderr, "cannot bind actor inputs: %s\n", provenance_error);
+        spec_release(&maintained);
+        spec_release(&reroot);
+        free(champion);
+        return 1;
+    }
 
     ActionAdvantageRecord *records = NULL;
     uint64_t count = 0, capacity = 0, anchors = 0, proposals = 0;

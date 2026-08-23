@@ -42,9 +42,16 @@ ROLLOUT_KINDS = {
     "rolloutu2",
     "rollout3",
     "rolloutu3",
+    "rollout4",
+    "rolloutu4",
 }
 TWO_NETWORK_ROLLOUT_KINDS = {"rollout2", "rolloutu2"}
-THREE_NETWORK_ROLLOUT_KINDS = {"rollout3", "rolloutu3"}
+VETO_NETWORK_ROLLOUT_KINDS = {"rollout3", "rolloutu3"}
+RANKER_NETWORK_ROLLOUT_KINDS = {"rollout4", "rolloutu4"}
+THREE_NETWORK_ROLLOUT_KINDS = {
+    *VETO_NETWORK_ROLLOUT_KINDS,
+    *RANKER_NETWORK_ROLLOUT_KINDS,
+}
 MULTI_NETWORK_ROLLOUT_KINDS = {
     *TWO_NETWORK_ROLLOUT_KINDS,
     *THREE_NETWORK_ROLLOUT_KINDS,
@@ -61,9 +68,9 @@ def actor_model_paths(
     """Return every checkpoint named by a supported actor specification.
 
     The historical one- and two-network return shapes stay unchanged.  A
-    three-network actor returns ``(root, continuation, veto)`` so callers
-    cannot accidentally omit the conservative-veto checkpoint from their
-    integrity or provenance handling.
+    three-network actor returns ``(root, continuation, controller)`` so
+    callers cannot accidentally omit either a conservative-veto or direct
+    action-ranker checkpoint from their integrity and provenance handling.
     """
     fields = spec.split(":")
     if len(fields) < 2 or fields[0] not in {"policy", *ROLLOUT_KINDS}:
@@ -80,8 +87,14 @@ def actor_model_paths(
         continuation = repo_path(Path(fields[2]))
     if fields[0] in THREE_NETWORK_ROLLOUT_KINDS:
         if len(fields) < 4 or not fields[3]:
+            role = (
+                "veto"
+                if fields[0] in VETO_NETWORK_ROLLOUT_KINDS
+                else "action-ranker"
+            )
             raise RuntimeError(
-                "three-network showcase actor spec has no veto checkpoint path"
+                f"three-network showcase actor spec has no {role} "
+                "checkpoint path"
             )
         assert continuation is not None
         return (
@@ -104,6 +117,17 @@ def rollout_tail_start(fields: list[str]) -> int:
     if fields[0] in THREE_NETWORK_ROLLOUT_KINDS:
         return 4
     return 3 if fields[0] in TWO_NETWORK_ROLLOUT_KINDS else 2
+
+
+def rollout_match_value_path(fields: list[str]) -> Path | None:
+    """Return optional strength-defining rollout-tail field 41."""
+    tail_start = rollout_tail_start(fields)
+    match_value_index = tail_start + 41
+    if len(fields) <= match_value_index:
+        return None
+    if not fields[match_value_index]:
+        raise RuntimeError("showcase actor has an empty match-value table path")
+    return repo_path(Path(fields[match_value_index]))
 
 
 def same_semantic_action(first: dict, second: dict) -> bool:
@@ -497,13 +521,19 @@ def main() -> None:
         )
 
     initial_actor_fields = args.actor.split(":")
-    veto_model = None
+    third_model = None
+    third_role = None
     if initial_actor_fields[0] in MULTI_NETWORK_ROLLOUT_KINDS:
         model_paths = actor_model_paths(args.actor)
         actor_model = model_paths[0]
         continuation_model = model_paths[1]
         if initial_actor_fields[0] in THREE_NETWORK_ROLLOUT_KINDS:
-            veto_model = model_paths[2]
+            third_model = model_paths[2]
+            third_role = (
+                "veto"
+                if initial_actor_fields[0] in VETO_NETWORK_ROLLOUT_KINDS
+                else "ranker"
+            )
     else:
         # Keep this legacy entry point as the single-network lookup used by
         # existing callers and tests.
@@ -512,8 +542,14 @@ def main() -> None:
     actor_checkpoints = [("root", actor_model)]
     if continuation_model is not None:
         actor_checkpoints.append(("continuation", continuation_model))
-    if veto_model is not None:
-        actor_checkpoints.append(("veto", veto_model))
+    if third_model is not None:
+        assert third_role is not None
+        actor_checkpoints.append((third_role, third_model))
+    match_value_table = (
+        rollout_match_value_path(initial_actor_fields)
+        if initial_actor_fields[0] in ROLLOUT_KINDS
+        else None
+    )
     for role, checkpoint in actor_checkpoints:
         if paths_alias(args.output, checkpoint):
             checkpoint_label = (
@@ -524,6 +560,12 @@ def main() -> None:
             raise RuntimeError(
                 f"--output must not replace the {checkpoint_label}"
             )
+    if match_value_table is not None and paths_alias(
+        args.output, match_value_table
+    ):
+        raise RuntimeError(
+            "--output must not replace the actor match-value table"
+        )
     viewer_source = None
     viewer_start = viewer_end = None
     if args.embed_viewer:
@@ -540,6 +582,12 @@ def main() -> None:
                     "--embed-viewer must not replace the "
                     f"{checkpoint_label}"
                 )
+        if match_value_table is not None and paths_alias(
+            args.embed_viewer, match_value_table
+        ):
+            raise RuntimeError(
+                "--embed-viewer must not replace the actor match-value table"
+            )
         viewer_source, viewer_start, viewer_end = viewer_template(args.embed_viewer)
     check_destination(args.output, "output")
     if args.embed_viewer:
@@ -551,6 +599,11 @@ def main() -> None:
         role: hashlib.sha256(checkpoint.read_bytes()).hexdigest()
         for role, checkpoint in actor_checkpoints
     }
+    match_value_hash = (
+        hashlib.sha256(match_value_table.read_bytes()).hexdigest()
+        if match_value_table is not None
+        else None
+    )
     model_hash = checkpoint_hashes["root"]
     if args.model:
         asserted_hash = hashlib.sha256(repo_path(args.model).read_bytes()).hexdigest()
@@ -587,6 +640,15 @@ def main() -> None:
             raise RuntimeError(
                 f"{checkpoint_label} changed while the showcase was being "
                 "analyzed"
+            )
+    if match_value_table is not None:
+        final_match_value_hash = hashlib.sha256(
+            match_value_table.read_bytes()
+        ).hexdigest()
+        if final_match_value_hash != match_value_hash:
+            raise RuntimeError(
+                "actor match-value table changed while the showcase was "
+                "being analyzed"
             )
     final_model_hash = final_checkpoint_hashes["root"]
     if args.model:
@@ -638,6 +700,8 @@ def main() -> None:
     rollout_actor = actor_kind in ROLLOUT_KINDS
     dual_network_actor = actor_kind in TWO_NETWORK_ROLLOUT_KINDS
     three_network_actor = actor_kind in THREE_NETWORK_ROLLOUT_KINDS
+    veto_network_actor = actor_kind in VETO_NETWORK_ROLLOUT_KINDS
+    ranker_network_actor = actor_kind in RANKER_NETWORK_ROLLOUT_KINDS
     multi_network_actor = dual_network_actor or three_network_actor
     policy_actor = actor_kind == "policy"
     tail_start = rollout_tail_start(actor_fields) if rollout_actor else 0
@@ -727,13 +791,26 @@ def main() -> None:
         if multi_network_actor:
             root_name = Path(actor_fields[1]).name
             continuation_name = Path(actor_fields[2]).name
-            if three_network_actor:
+            if veto_network_actor:
                 veto_name = Path(actor_fields[3]).name
                 actor_method = "three_network_late_round_rollout_veto_consensus"
                 actor_label = (
                     f"Root {root_name} (policy, value, belief, shortlist) + "
                     f"continuation {continuation_name} (post-candidate play) + "
                     f"veto {veto_name} (conservative override check) · "
+                    "validated coherent rollout consensus "
+                    f"({actor_worlds}+{actor_confirmation_worlds} worlds, "
+                    f"top {actor_root_width})"
+                )
+            elif ranker_network_actor:
+                ranker_name = Path(actor_fields[3]).name
+                actor_method = (
+                    "three_network_late_round_rollout_action_ranker_consensus"
+                )
+                actor_label = (
+                    f"Root {root_name} (policy, value, belief, shortlist) + "
+                    f"continuation {continuation_name} (post-candidate play) + "
+                    f"ranker {ranker_name} (direct pair override check) · "
                     "validated coherent rollout consensus "
                     f"({actor_worlds}+{actor_confirmation_worlds} worlds, "
                     f"top {actor_root_width})"
@@ -783,13 +860,17 @@ def main() -> None:
             " + authoritative bounded deck-2/3 root gate "
             f"(>{actor_bounded_late_min:g} point gain)"
         )
+    if match_value_table is not None:
+        actor_method += "_with_controller_bound_match_value"
+        actor_label += " + controller-bound full-match value"
     match_id = f"{args.seed}-{model_hash[:12]}"
     multi_model_provenance = {}
     if multi_network_actor:
         assert continuation_model is not None
         continuation_hash = checkpoint_hashes["continuation"]
         # Include every complete content identity.  Root-only IDs would make
-        # distinct continuation or veto policies appear to be the same match.
+        # distinct continuation, veto, or ranker policies appear to be the
+        # same match.
         match_id = f"{args.seed}-{model_hash}-{continuation_hash}"
         multi_model_provenance = {
             "root_model_path": actor_fields[1],
@@ -801,8 +882,8 @@ def main() -> None:
                 "policy decisions after each evaluated root candidate"
             ),
         }
-        if three_network_actor:
-            assert veto_model is not None
+        if veto_network_actor:
+            assert third_model is not None
             veto_hash = checkpoint_hashes["veto"]
             match_id = f"{match_id}-{veto_hash}"
             multi_model_provenance.update({
@@ -812,6 +893,30 @@ def main() -> None:
                     "conservative veto of continuation-approved root overrides"
                 ),
             })
+        elif ranker_network_actor:
+            assert third_model is not None
+            ranker_hash = checkpoint_hashes["ranker"]
+            match_id = f"{match_id}-{ranker_hash}"
+            multi_model_provenance.update({
+                "ranker_model_path": actor_fields[3],
+                "ranker_model_sha256": ranker_hash,
+                "ranker_model_role": (
+                    "direct signed pairwise veto of confirmed root overrides"
+                ),
+            })
+    match_value_provenance = {}
+    if match_value_table is not None:
+        assert match_value_hash is not None
+        if not multi_network_actor:
+            match_id = f"{args.seed}-{model_hash}"
+        match_id = f"{match_id}-{match_value_hash}"
+        match_value_provenance = {
+            "match_value_table_path": actor_fields[tail_start + 41],
+            "match_value_table_sha256": match_value_hash,
+            "match_value_table_role": (
+                "controller-bound round-boundary full-match value"
+            ),
+        }
     game["meta"].update(
         actor_label=actor_label,
         actor_method=actor_method,
@@ -839,6 +944,7 @@ def main() -> None:
             "and decisions were not screened, retried, or selected."
         ),
         **multi_model_provenance,
+        **match_value_provenance,
     )
 
     output_payload = json.dumps(game, separators=(",", ":")) + "\n"

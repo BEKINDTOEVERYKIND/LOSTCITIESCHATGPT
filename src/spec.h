@@ -19,8 +19,10 @@
  *            [:prefix_confirm_min[:confirm_temp
  *            [:action_core_count[:exact_terminal[:deck2_replan_worlds
  *            [:deck2_replan_cores[:bounded_late_root
- *            [:bounded_late_min[:action_ranker_min]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]
- *                 objective: 0 margin; 1 final match result; 2 final hybrid
+ *            [:bounded_late_min[:action_ranker_min
+ *            [:match_value_path]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]
+ *                 objective: 0 margin; 1 final match result; 2 final hybrid;
+ *                   3 controller-bound round-boundary match-value table
  *                 symmetries: 1, 5, 10, 20, or 120 exact suit relabellings
  *                 sample: continuation mode 0 exact-group argmax, 1 random-
  *                   group policy sample, 2 random-group argmax
@@ -125,6 +127,15 @@
  *                   support the already primary+fresh-confirmed proposal
  *                   over candidate zero (default 0).  Other rollout kinds
  *                   require this field to remain zero.
+ *                 match_value_path: checked `.lcmv` artifact required only
+ *                   by objective 3. Its continuation-net fingerprint,
+ *                   frozen-controller settings, and complete player-role
+ *                   cycles must match this actor or parsing fails closed.
+ *                   A rollout3 veto controller is unsupported because the
+ *                   table is bound only to the primary continuation policy;
+ *                   a direct rollout4 action ranker may coexist.
+ *                   This rollout-only objective requires a three-round match;
+ *                   it is not an MCTS leaf objective.
  *   rolloutu:PATH[...]                 (same, but uniform world sampling: the
  *                                       ablation for the learned hand beliefs)
  *   rollout2:ROOT_PATH:CONT_PATH[...]  (root policy/value/belief/shortlist use
@@ -210,7 +221,9 @@ void spec_release(Agent *a);
 
 /* Parses selfrollout[:ROLLOUT_TAIL] into *a using the caller-owned live
  * network.  This is the training counterpart of rollout:PATH[...] and shares
- * the same complete optional tail; it never loads, frees, or replaces net. */
+ * the same optional tail except objective 3, which is rejected because its
+ * table becomes stale after the first weight update.  It never loads, frees,
+ * or replaces net. */
 void spec_parse_selfrollout(const char *spec, const Net *net, Agent *a);
 
 #endif

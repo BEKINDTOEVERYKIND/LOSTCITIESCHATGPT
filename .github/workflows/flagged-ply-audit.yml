@@ -1,0 +1,137 @@
+name: Flagged ply audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      reference_actor:
+        description: Frozen reference rollout actor spec
+        required: true
+        default: "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
+      candidate_actor:
+        description: Candidate/current-best rollout actor spec
+        required: true
+        default: "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
+      belief_alpha:
+        description: Fixed-cardinality belief diagnostic temperature
+        required: true
+        default: "1.15"
+  # The connector cannot dispatch workflows.  A future commit that *only*
+  # adds this frozen, execute=true addendum is the auditable one-shot launch.
+  # The inert .template.json does not match this path and cannot trigger it.
+  push:
+    paths:
+      - data/flagged_ply_audit_execution.json
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    name: verify launch configuration
+    runs-on: ubuntu-latest
+    outputs:
+      reference_actor: ${{ steps.addendum.outputs.reference_actor || inputs.reference_actor }}
+      winner_actor: ${{ steps.addendum.outputs.winner_actor || inputs.candidate_actor }}
+      worlds: ${{ steps.addendum.outputs.worlds || '16384' }}
+      belief_alpha: ${{ steps.addendum.outputs.belief_alpha || inputs.belief_alpha }}
+      history_worlds: ${{ steps.addendum.outputs.history_worlds || '20000' }}
+      base_seed: ${{ steps.addendum.outputs.base_seed || '202608231701' }}
+      shard_count: ${{ steps.addendum.outputs.shard_count || '12' }}
+      execution_sha256: ${{ steps.addendum.outputs.execution_sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify addendum-only one-shot launch
+        if: github.event_name == 'push'
+        id: addendum
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: >-
+          python3 tools/flagged_ply_execution.py
+          --execution data/flagged_ply_audit_execution.json
+          --before "$BEFORE" --after "$AFTER"
+          --github-output "$GITHUB_OUTPUT"
+
+  audit:
+    name: shard ${{ matrix.shard }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build frozen diagnostic worker
+        run: >-
+          make -j2
+          CFLAGS='-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11'
+          bin/flagged_ply_probe bin/history_belief data/champion.bin
+      - name: Run assigned frozen cases
+        env:
+          REFERENCE_ACTOR: ${{ needs.prepare.outputs.reference_actor }}
+          CANDIDATE_ACTOR: ${{ needs.prepare.outputs.winner_actor }}
+          AUDIT_WORLDS: ${{ needs.prepare.outputs.worlds }}
+          BELIEF_ALPHA: ${{ needs.prepare.outputs.belief_alpha }}
+          HISTORY_WORLDS: ${{ needs.prepare.outputs.history_worlds }}
+          BASE_SEED: ${{ needs.prepare.outputs.base_seed }}
+          SHARD_COUNT: ${{ needs.prepare.outputs.shard_count }}
+          EXECUTION_SHA256: ${{ needs.prepare.outputs.execution_sha256 }}
+        run: |
+          mkdir -p artifacts
+          launch=()
+          if [[ -n "$EXECUTION_SHA256" ]]; then
+            launch+=(--execution-sha256 "$EXECUTION_SHA256")
+          fi
+          python3 tools/flagged_ply_audit.py \
+            --reference "$REFERENCE_ACTOR" \
+            --candidate "$CANDIDATE_ACTOR" \
+            --worlds "$AUDIT_WORLDS" \
+            --belief-alpha "$BELIEF_ALPHA" \
+            --history-worlds "$HISTORY_WORLDS" \
+            --seed "$BASE_SEED" \
+            --shard-count "$SHARD_COUNT" \
+            --shard-index "${{ matrix.shard }}" \
+            "${launch[@]}" \
+            --output "artifacts/shard-${{ matrix.shard }}.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flagged-ply-audit-shard-${{ matrix.shard }}
+          path: artifacts/shard-${{ matrix.shard }}.json
+          if-no-files-found: error
+          retention-days: 30
+
+  merge:
+    name: merge all 36 frozen cases
+    needs: audit
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: flagged-ply-audit-shard-*
+          path: artifacts
+          merge-multiple: true
+      - name: Verify and merge shards
+        run: >-
+          python3 tools/merge_flagged_ply_audit.py artifacts/shard-*.json
+          --output artifacts/flagged-ply-audit-merged.json
+      - name: Render per-ply evidence report
+        run: >-
+          python3 tools/render_flagged_ply_audit.py
+          artifacts/flagged-ply-audit-merged.json
+          --output artifacts/flagged-ply-audit-merged.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flagged-ply-audit-complete
+          path: |
+            artifacts/flagged-ply-audit-merged.json
+            artifacts/flagged-ply-audit-merged.md
+          if-no-files-found: error
+          retention-days: 30
