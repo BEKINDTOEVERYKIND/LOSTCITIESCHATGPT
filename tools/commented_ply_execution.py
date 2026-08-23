@@ -37,7 +37,9 @@ from tools.flagged_ply_execution import (  # noqa: E402
 SCHEMA = "lc-commented-ply-audit-execution-v1"
 LOCK_SCHEMA = "lc-commented-ply-audit-definition-lock-v1"
 PLAN_PATH = "data/experiments/locked_commented_ply_audit_plan.json"
-LOCK_PATH = "data/experiments/locked_commented_ply_audit_definition_lock.json"
+LOCK_PATH = (
+    "data/experiments/locked_commented_ply_audit_definition_lock_v2.json"
+)
 EXECUTION_PATH = (
     "data/experiments/locked_commented_ply_audit_execution.json"
 )

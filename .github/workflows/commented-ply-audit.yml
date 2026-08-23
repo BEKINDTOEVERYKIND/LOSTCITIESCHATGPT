@@ -21,7 +21,7 @@ env:
   EXECUTION_PATH: data/experiments/locked_commented_ply_audit_execution.json
   FINAL_RESULT_PATH: data/experiments/final_actor_result.json
   PLAN_PATH: data/experiments/locked_commented_ply_audit_plan.json
-  LOCK_PATH: data/experiments/locked_commented_ply_audit_definition_lock.json
+  LOCK_PATH: data/experiments/locked_commented_ply_audit_definition_lock_v2.json
   WORKFLOW_PATH: .github/workflows/commented-ply-audit.yml
   COMPILER_EXECUTABLE: gcc
   COMPILER_SEMANTIC_VERSION_COMMAND: 'gcc -dumpfullversion -dumpversion'

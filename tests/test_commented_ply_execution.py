@@ -224,12 +224,17 @@ class CommentedPlyExecutionTests(unittest.TestCase):
         "canonical definition lock is intentionally absent before sealing",
     )
     def test_canonical_sealed_lock_revalidates_from_git_history(self) -> None:
-        source = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+        history = subprocess.check_output(
+            ["git", "log", "--all", "--format=%H", "--",
+             execution.LOCK_PATH], cwd=ROOT, text=True).splitlines()
+        self.assertEqual(len(history), 1)
+        source = history[0]
         tree = subprocess.check_output(
-            ["git", "rev-parse", "HEAD^{tree}"], cwd=ROOT, text=True).strip()
+            ["git", "rev-parse", f"{source}^{{tree}}"], cwd=ROOT,
+            text=True).strip()
         binding, lock = execution.validate_definition_lock(ROOT, source, tree)
         self.assertEqual(binding["path"], execution.LOCK_PATH)
+        self.assertEqual(binding["lock_commit"], source)
         self.assertEqual(lock["case_rows"], execution.strict_json(PLAN)["cases"])
         self.assertEqual(binding["definition_commit"],
                          lock["definition"]["commit"])
