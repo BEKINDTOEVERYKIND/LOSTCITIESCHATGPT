@@ -126,6 +126,7 @@ test: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_role_coherence \
 	python3 -m unittest tests/test_action_advantage_campaign.py
 	python3 -m unittest tests/test_action_ranker_veto.py
 	python3 -m unittest tests/test_commented_ply_audit.py
+	python3 -m unittest tests/test_commented_ply_execution.py
 	python3 -m unittest tests/test_continuation_arena.py
 	python3 -m unittest tests/test_select_continuation_v2.py
 	python3 -m unittest tests/test_net_average.py

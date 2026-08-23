@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -58,14 +59,17 @@ class CommentedPlyAuditTests(unittest.TestCase):
             deck.reverse()
         return text.rstrip() + "\ndeck " + " ".join(deck) + "\n"
 
-    def helper(self, state: Path, *extra: str) -> dict:
+    def helper(
+        self, state: Path, *extra: str, seed: int = 991337,
+        worlds: int = 2,
+    ) -> dict:
         command = [
             str(ROOT / "bin" / "commented_ply_eval"),
             "--state", str(state),
             "--actor", self.POLICY_ACTOR,
             "--net", "data/champion.bin",
-            "--seed", "991337",
-            "--worlds", "2",
+            "--seed", str(seed),
+            "--worlds", str(worlds),
             "--symmetries", "20",
             *extra,
         ]
@@ -86,13 +90,12 @@ class CommentedPlyAuditTests(unittest.TestCase):
         for case in audit.CASES:
             actual.setdefault(case.source_seed, set()).add(case.ply)
             self.assertTrue((ROOT / case.state).is_file())
-            if case.candidates:
-                self.assertGreaterEqual(
-                    case.min_worlds, audit.MIN_PAIRED_WORLDS
-                )
             self.assertNotIn("train", case.state.lower())
         self.assertEqual(len(audit.CASES), 17)
         self.assertEqual(actual, expected)
+        self.assertEqual(
+            sum(case.min_worlds for case in audit.CASES), 18_432
+        )
 
         p14 = next(case for case in audit.CASES if case.case_id == "showcase-572-p14")
         self.assertEqual(
@@ -100,7 +103,14 @@ class CommentedPlyAuditTests(unittest.TestCase):
             ("R4 d deck", "G7 p deck", "B3 d deck"),
         )
         p10 = next(case for case in audit.CASES if case.case_id == "ui-221-p10")
-        self.assertGreaterEqual(p10.min_worlds, 2048)
+        self.assertEqual(p10.min_worlds, 2048)
+        self.assertTrue(all(
+            case.min_worlds == 1024
+            for case in audit.CASES if case is not p10
+        ))
+        p13 = next(case for case in audit.CASES if case.case_id == "ui-221-p13")
+        self.assertEqual(p13.candidates, ())
+        self.assertEqual(p13.belief_card, "Y9")
 
     def test_confidence_interval_that_spans_zero_is_inconclusive(self) -> None:
         self.assertEqual(audit.descriptive_signal(0.19, 1.17), "inconclusive")
@@ -128,26 +138,81 @@ class CommentedPlyAuditTests(unittest.TestCase):
             first = self.helper(completed, *args)
             repeated = self.helper(completed, *args)
             changed_hidden_truth = self.helper(mutated, *args)
+            changed_seed = self.helper(completed, *args, seed=991338)
         self.assertEqual(first, repeated)
         self.assertEqual(first["state"]["input_deck_entries"], 24)
         self.assertEqual(changed_hidden_truth["state"]["input_deck_entries"], 24)
         first["state"]["path"] = "STATE"
         changed_hidden_truth["state"]["path"] = "STATE"
         self.assertEqual(first, changed_hidden_truth)
-        continuation = first["counterfactual"]["continuation"]
+        self.assertEqual(first["schema"], audit.EVAL_SCHEMA)
+        counterfactual = first["counterfactual"]
+        self.assertTrue(counterfactual["shared_current_hidden_worlds"])
+        self.assertTrue(counterfactual["shared_future_deals"])
+        self.assertTrue(counterfactual["branch_neutral_rng_domains"])
+        self.assertEqual(counterfactual["hash_algorithm"], "fnv1a64")
+        self.assertEqual(counterfactual["cap_hits"], 0)
+        for key in (
+            "hidden_world_set_hash", "future_deal_set_hash",
+            "branch_rng_domain_hash",
+        ):
+            self.assertRegex(counterfactual[key], r"^[0-9a-f]{16}$")
+        continuation = counterfactual["continuation"]
+        self.assertEqual(continuation["kind"], "exact_policy_argmax")
+        self.assertEqual(
+            continuation["scope"], "full_remaining_three_round_match"
+        )
+        self.assertEqual(continuation["checkpoint"], "data/champion.bin")
         self.assertTrue(continuation["exact_group_average"])
+        self.assertTrue(continuation["fresh_information_view_each_node"])
         self.assertFalse(continuation["recursive_actor"])
+        self.assertNotEqual(
+            counterfactual["hidden_world_set_hash"],
+            changed_seed["counterfactual"]["hidden_world_set_hash"],
+        )
+        self.assertNotEqual(
+            counterfactual["future_deal_set_hash"],
+            changed_seed["counterfactual"]["future_deal_set_hash"],
+        )
 
     def test_p13_reports_exact_k_posterior_programmatically(self) -> None:
         state = ROOT / "data" / "probes" / "ui_seed2214615196_p13.state"
+        case = next(case for case in audit.CASES if case.case_id == "ui-221-p13")
         result = self.helper(
             state,
             "--belief", "--belief-alpha", "1.15",
             "--belief-card", "Y9",
+            seed=case.audit_seed,
+        )
+        result["state"]["path"] = case.state
+        audit._validate_evaluation(
+            case, result, actor_spec=self.POLICY_ACTOR,
+            net_label="data/champion.bin", worlds=2, symmetries=20,
+            belief_alpha=1.15,
+        )
+        panel = result["counterfactual"]
+        self.assertEqual(panel["nominated_candidates"], 0)
+        self.assertEqual(panel["policy_reference_candidates"], 2)
+        self.assertIn(len(panel["candidates"]), (2, 3))
+        self.assertTrue(panel["actor_selected_included"])
+        self.assertIn(
+            result["actor"]["selected"],
+            [row["move"] for row in panel["candidates"]],
+        )
+        self.assertEqual(
+            panel["candidates"][0]["move"], result["actor"]["selected"]
+        )
+        self.assertGreaterEqual(
+            panel["candidates"][0]["policy_prior"],
+            panel["candidates"][1]["policy_prior"],
         )
         belief = result["belief"]
         self.assertTrue(belief["valid"])
         self.assertEqual(belief["kind"], "fixed_k")
+        self.assertTrue(belief["information_view"])
+        self.assertTrue(belief["complete_state_used_only_as_truth_label"])
+        self.assertEqual(belief["symmetries"], 20)
+        self.assertAlmostEqual(belief["alpha"], 1.15, places=6)
         self.assertEqual(belief["need"], 8)
         self.assertAlmostEqual(belief["marginal_sum"], 8.0, places=5)
         self.assertAlmostEqual(belief["uniform_marginal"], 0.2, places=8)
@@ -157,23 +222,205 @@ class CommentedPlyAuditTests(unittest.TestCase):
         self.assertTrue(cards["B10"]["held"])
         self.assertTrue(cards["B9"]["held"])
 
-    def test_public_driver_refuses_underpowered_disputed_panel(self) -> None:
-        with self.assertRaisesRegex(ValueError, "at least 1024"):
+    def test_public_driver_refuses_any_locked_contract_drift(self) -> None:
+        with self.assertRaisesRegex(ValueError, "equal the locked base budget"):
             audit.build_audit(
                 helper=ROOT / "bin" / "commented_ply_eval",
                 actor_spec=self.POLICY_ACTOR,
                 net_path=ROOT / "data" / "champion.bin",
                 worlds=1023,
             )
+        with self.assertRaisesRegex(ValueError, "equal the locked base budget"):
+            audit.build_audit(
+                helper=ROOT / "bin" / "commented_ply_eval",
+                actor_spec=self.POLICY_ACTOR,
+                net_path=ROOT / "data" / "champion.bin",
+                worlds=1025,
+            )
+        with self.assertRaisesRegex(ValueError, "policy-20"):
+            audit.build_audit(
+                helper=ROOT / "bin" / "commented_ply_eval",
+                actor_spec=self.POLICY_ACTOR,
+                net_path=ROOT / "data" / "champion.bin",
+                symmetries=5,
+            )
+        with self.assertRaisesRegex(ValueError, "belief alpha"):
+            audit.build_audit(
+                helper=ROOT / "bin" / "commented_ply_eval",
+                actor_spec=self.POLICY_ACTOR,
+                net_path=ROOT / "data" / "champion.bin",
+                belief_alpha=1.0,
+            )
 
     def test_actor_selected_move_is_always_counterfactually_graded(self) -> None:
         state = ROOT / "data" / "probes" / "ui_seed95647345759839_p44.state"
-        result = self.helper(state, "--candidate", "W10 p deck")
+        result = self.helper(
+            state,
+            "--candidate", "W10 p deck",
+            "--candidate", "W10 p G",
+            seed=202608230444,
+        )
+        case = next(case for case in audit.CASES if case.case_id == "ui-956-p44")
+        result["state"]["path"] = case.state
+        audit._validate_evaluation(
+            case, result, actor_spec=self.POLICY_ACTOR,
+            net_label="data/champion.bin", worlds=2, symmetries=20,
+            belief_alpha=1.15,
+        )
         moves = [row["move"] for row in result["counterfactual"]["candidates"]]
         self.assertEqual(moves[0], "W10 p deck")
         self.assertNotEqual(result["actor"]["selected"], "W10 p deck")
         self.assertIn(result["actor"]["selected"], moves)
         self.assertTrue(result["counterfactual"]["actor_selected_included"])
+
+        semantic_keys = [
+            row["semantic_key"]
+            for row in result["counterfactual"]["candidates"]
+        ]
+        self.assertEqual(len(set(semantic_keys)), len(semantic_keys))
+        for row in result["counterfactual"]["candidates"]:
+            metrics = row["metrics"]
+            self.assertEqual(
+                set(metrics), {"match_score", "final_margin", "hybrid"}
+            )
+            for metric in metrics.values():
+                self.assertRegex(metric["samples_fnv1a64"], r"^[0-9a-f]{16}$")
+            self.assertAlmostEqual(
+                metrics["hybrid"]["mean"],
+                0.05 * metrics["final_margin"]["mean"]
+                + 100 * (metrics["match_score"]["mean"] - 0.5),
+                places=7,
+            )
+
+    def test_duplicate_physical_wager_nominations_are_semantically_deduped(
+        self,
+    ) -> None:
+        state = ROOT / "data" / "probes" / "ui_seed95647345759839_p44.state"
+        self.assertIn("hand1 Y7 Bx Bx B5 B7 W10 G8 R4", state.read_text())
+        result = self.helper(
+            state,
+            "--candidate", "Bx d deck",
+            "--candidate", "Bx d deck",
+            "--candidate", "W10 p deck",
+        )
+        counterfactual = result["counterfactual"]
+        self.assertEqual(counterfactual["nominated_candidates"], 2)
+        self.assertEqual(
+            counterfactual["policy_probability_aggregation"],
+            "sum_by_semantic_move",
+        )
+        moves = [row["move"] for row in counterfactual["candidates"]]
+        self.assertEqual(moves.count("Bx d deck"), 1)
+        self.assertEqual(
+            len({row["semantic_key"] for row in counterfactual["candidates"]}),
+            len(counterfactual["candidates"]),
+        )
+
+    def test_counterfactual_cap_is_fail_closed(self) -> None:
+        source = ROOT / "data" / "probes" / "ui_seed725402798_p21.state"
+        capped = source.read_text().replace("nply 20", "nply 299", 1)
+        with tempfile.TemporaryDirectory(prefix="lc-commented-cap-") as tmp:
+            path = Path(tmp) / "cap.state"
+            path.write_text(capped)
+            command = [
+                str(ROOT / "bin" / "commented_ply_eval"),
+                "--state", str(path),
+                "--actor", self.POLICY_ACTOR,
+                "--net", "data/champion.bin",
+                "--seed", "991337",
+                "--worlds", "2",
+                "--symmetries", "20",
+                "--candidate", "Bx d deck",
+                "--candidate", "G5 p deck",
+            ]
+            result = subprocess.run(
+                command, cwd=ROOT, text=True,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("LC_MAX_PLIES", result.stderr)
+
+    def test_locked_schema_exposes_shards_and_exact_merge(self) -> None:
+        contract = audit._contract()
+        self.assertEqual(contract["case_count"], 17)
+        self.assertEqual(contract["exact_policy_teacher"], self.POLICY_ACTOR)
+        self.assertEqual(contract["exact_policy_symmetries"], 20)
+        self.assertEqual(
+            contract["paired_worlds_by_case"]["ui-221-p10"], 2048
+        )
+        self.assertTrue(contract["actor_selected_action_graded_on_all_17"])
+        self.assertEqual(contract["counterfactual_caps"], "zero_fail_closed")
+        args = audit.parse_args([
+            "--actor", self.POLICY_ACTOR,
+            "--case", "ui-221-p3",
+            "--source-commit", "a" * 40,
+        ])
+        self.assertEqual(args.case_ids, ["ui-221-p3"])
+        self.assertEqual(args.source_commit, "a" * 40)
+        merge_args = audit.parse_args([
+            "--merge", "shard-a.json", "shard-b.json",
+            "--output-json", "merged.json",
+            "--output-md", "merged.md",
+        ])
+        self.assertEqual(
+            merge_args.merge, [Path("shard-a.json"), Path("shard-b.json")]
+        )
+        with self.assertRaisesRegex(ValueError, "at least one"):
+            audit.merge_audits([])
+        with self.assertRaisesRegex(RuntimeError, "unexpected audit schema"):
+            audit.validate_audit_document(
+                {"schema": "lc-commented-ply-audit-v1"},
+                require_full=True,
+            )
+
+    def test_source_commit_binding_supports_sealed_gitless_transport(self) -> None:
+        case = audit.CASES[0]
+        with mock.patch.object(audit, "_git_head", return_value=None), \
+                mock.patch.object(audit, "run_case", return_value={}), \
+                mock.patch.object(
+                    audit, "_envelope", return_value={"bound": True}
+                ):
+            value = audit.build_audit(
+                helper=ROOT / "bin" / "commented_ply_eval",
+                actor_spec=self.POLICY_ACTOR,
+                net_path=ROOT / "data" / "champion.bin",
+                selected_cases=(case,),
+                source_commit="a" * 40,
+            )
+        self.assertEqual(value, {"bound": True})
+        with mock.patch.object(audit, "_git_head", return_value="b" * 40), \
+                mock.patch.object(audit, "run_case") as run:
+            with self.assertRaisesRegex(ValueError, "checked-out HEAD"):
+                audit.build_audit(
+                    helper=ROOT / "bin" / "commented_ply_eval",
+                    actor_spec=self.POLICY_ACTOR,
+                    net_path=ROOT / "data" / "champion.bin",
+                    selected_cases=(case,),
+                    source_commit="a" * 40,
+                )
+            run.assert_not_called()
+
+    def test_merge_rejects_duplicate_case_even_after_fragment_validation(
+        self,
+    ) -> None:
+        metadata = {
+            "schema": audit.AUDIT_SCHEMA,
+            "audit_definition_sha256": "definition",
+            "repository_head": "a" * 40,
+            "subject": {},
+            "implementation": {},
+            "contract": {},
+            "selection": {"case_ids": ["ui-221-p3"]},
+            "summary": {},
+            "cases": [{"case_id": "ui-221-p3"}],
+        }
+        with mock.patch.object(audit, "validate_audit_document"):
+            with self.assertRaisesRegex(RuntimeError, "duplicate audit case"):
+                audit.merge_audits([
+                    json.loads(json.dumps(metadata)),
+                    json.loads(json.dumps(metadata)),
+                ])
 
 
 if __name__ == "__main__":

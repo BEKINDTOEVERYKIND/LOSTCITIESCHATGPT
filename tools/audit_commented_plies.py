@@ -4,8 +4,9 @@
 This is diagnostic evidence, never a training corpus or a promotion gate.  At
 each saved information state it records the supplied actor's actual seeded
 choice, then grades the human-nominated alternatives on common hidden worlds
-with an exact suit-ensemble policy continuation.  The search actor is not
-recursively invoked inside those counterfactual branches.
+and future deals with an exact policy-20 continuation through the complete
+remaining three-round match.  The search actor is not recursively invoked
+inside those counterfactual branches.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
+import re
 import subprocess
 import sys
 from typing import Any, Iterable
@@ -25,6 +27,9 @@ ROOT = Path(__file__).resolve().parents[1]
 MIN_PAIRED_WORLDS = 1024
 DEFAULT_SYMMETRIES = 20
 DEFAULT_BELIEF_ALPHA = 1.15
+EVAL_SCHEMA = "lc-commented-ply-eval-v2"
+AUDIT_SCHEMA = "lc-commented-ply-audit-v2"
+_HEX16 = re.compile(r"[0-9a-f]{16}\Z")
 
 
 @dataclass(frozen=True)
@@ -149,6 +154,7 @@ def definition_sha256(cases: Iterable[AuditCase] = CASES) -> str:
             "source_seed": str(case.source_seed),
             "ply": case.ply,
             "state": case.state,
+            "state_sha256": sha256_file(ROOT / case.state),
             "candidates": list(case.candidates),
             "reviewed_moves": list(case.reviewed_moves),
             "review": case.review,
@@ -179,8 +185,16 @@ def _repo_path(text: str) -> Path:
     return path if path.is_absolute() else ROOT / path
 
 
+def _display_path(path: Path) -> str:
+    resolved = path.resolve()
+    try:
+        return str(resolved.relative_to(ROOT))
+    except ValueError:
+        return str(resolved)
+
+
 def _checkpoint_hashes(actor_spec: str, net_path: Path) -> list[dict[str, str]]:
-    found: list[tuple[str, Path]] = [(str(net_path), net_path)]
+    found: list[tuple[str, Path]] = [(_display_path(net_path), net_path)]
     for token in actor_spec.split(":")[1:]:
         candidate = _repo_path(token)
         if token and candidate.is_file():
@@ -204,6 +218,252 @@ def _git_head() -> str | None:
     return result.stdout.strip() if result.returncode == 0 else None
 
 
+def _locked_worlds(case: AuditCase) -> int:
+    return case.min_worlds
+
+
+def _validate_locked_options(
+    worlds: int, symmetries: int, belief_alpha: float
+) -> None:
+    if worlds != MIN_PAIRED_WORLDS:
+        raise ValueError(
+            f"worlds must equal the locked base budget {MIN_PAIRED_WORLDS}"
+        )
+    if symmetries != DEFAULT_SYMMETRIES:
+        raise ValueError(
+            f"symmetries must equal locked policy-{DEFAULT_SYMMETRIES}"
+        )
+    if not math.isfinite(belief_alpha) or not math.isclose(
+        belief_alpha, DEFAULT_BELIEF_ALPHA, rel_tol=0, abs_tol=1e-12
+    ):
+        raise ValueError(
+            f"belief alpha must equal locked value {DEFAULT_BELIEF_ALPHA}"
+        )
+
+
+def _validate_evaluation(
+    case: AuditCase,
+    evaluation: dict[str, Any],
+    *,
+    actor_spec: str,
+    net_label: str,
+    worlds: int,
+    symmetries: int,
+    belief_alpha: float,
+) -> None:
+    if evaluation.get("schema") != EVAL_SCHEMA:
+        raise RuntimeError(f"{case.case_id}: unexpected helper schema")
+    state = evaluation.get("state")
+    if not isinstance(state, dict) or (
+        state.get("path") != case.state
+        or state.get("nply") != case.ply - 1
+        or state.get("input_deck_entries") != 0
+    ):
+        raise RuntimeError(f"{case.case_id}: saved-state binding drift")
+    actor = evaluation.get("actor")
+    if not isinstance(actor, dict) or (
+        actor.get("spec") != actor_spec
+        or actor.get("information_view") is not True
+        or not isinstance(actor.get("selected"), str)
+    ):
+        raise RuntimeError(f"{case.case_id}: actor binding drift")
+
+    counterfactual = evaluation.get("counterfactual")
+    if not isinstance(counterfactual, dict) or (
+        counterfactual.get("seed") != str(case.audit_seed)
+        or counterfactual.get("requested_worlds") != worlds
+        or counterfactual.get("completed_worlds") != worlds
+        or counterfactual.get("cap_hits") != 0
+        or counterfactual.get("world_model")
+        != "uniform_exact_card_count_plus_future_deals"
+        or counterfactual.get("hash_algorithm") != "fnv1a64"
+        or counterfactual.get("policy_probability_aggregation")
+        != "sum_by_semantic_move"
+    ):
+        raise RuntimeError(f"{case.case_id}: incomplete paired worlds")
+    for key in (
+        "shared_current_hidden_worlds", "shared_future_deals",
+        "branch_neutral_rng_domains", "root_information_view",
+        "actor_selected_included",
+    ):
+        if counterfactual.get(key) is not True:
+            raise RuntimeError(f"{case.case_id}: false {key} contract")
+    for key in (
+        "hidden_world_set_hash", "future_deal_set_hash",
+        "branch_rng_domain_hash",
+    ):
+        if not isinstance(counterfactual.get(key), str) or not _HEX16.fullmatch(
+            counterfactual[key]
+        ):
+            raise RuntimeError(f"{case.case_id}: invalid {key}")
+    continuation = counterfactual.get("continuation")
+    if not isinstance(continuation, dict) or (
+        continuation.get("kind") != "exact_policy_argmax"
+        or continuation.get("scope") != "full_remaining_three_round_match"
+        or continuation.get("checkpoint") != net_label
+        or continuation.get("temperature") != 0
+        or continuation.get("epsilon") != 0
+        or continuation.get("symmetries") != symmetries
+        or continuation.get("exact_group_average") is not True
+        or continuation.get("fresh_information_view_each_node") is not True
+        or continuation.get("recursive_actor") is not False
+    ):
+        raise RuntimeError(f"{case.case_id}: invalid continuation contract")
+
+    selected = actor["selected"]
+    rows = counterfactual.get("candidates")
+    if not isinstance(rows, list) or len(rows) < 2:
+        raise RuntimeError(f"{case.case_id}: action panel is not paired")
+    actual_candidates = [row.get("move") for row in rows]
+    semantic_keys = [row.get("semantic_key") for row in rows]
+    if (
+        any(not isinstance(move, str) for move in actual_candidates)
+        or any(not isinstance(key, int) for key in semantic_keys)
+        or len(set(actual_candidates)) != len(actual_candidates)
+        or len(set(semantic_keys)) != len(semantic_keys)
+    ):
+        raise RuntimeError(f"{case.case_id}: duplicate semantic candidate")
+    selected_is_extra: bool
+    if case.candidates:
+        if actual_candidates[:len(case.candidates)] != list(case.candidates):
+            raise RuntimeError(
+                f"{case.case_id}: nominated candidate drift "
+                f"{actual_candidates!r}"
+            )
+        expected_tail = [] if selected in case.candidates else [selected]
+        if actual_candidates[len(case.candidates):] != expected_tail:
+            raise RuntimeError(f"{case.case_id}: actor-selected tail drift")
+        if counterfactual.get("nominated_candidates") != len(case.candidates):
+            raise RuntimeError(f"{case.case_id}: nominated count drift")
+        if counterfactual.get("policy_reference_candidates") != 0:
+            raise RuntimeError(f"{case.case_id}: unexpected policy references")
+        selected_is_extra = bool(expected_tail)
+    else:
+        if (
+            counterfactual.get("nominated_candidates") != 0
+            or counterfactual.get("policy_reference_candidates") != 2
+        ):
+            raise RuntimeError(f"{case.case_id}: neutral pair drift")
+        if len(actual_candidates) not in (2, 3) or selected not in actual_candidates:
+            raise RuntimeError(f"{case.case_id}: actor absent from neutral pair")
+        if len(actual_candidates) == 3 and actual_candidates[-1] != selected:
+            raise RuntimeError(f"{case.case_id}: neutral actor tail drift")
+        selected_is_extra = len(actual_candidates) == 3
+
+    if counterfactual.get("actor_selected_appended") is not selected_is_extra:
+        raise RuntimeError(f"{case.case_id}: actor append accounting drift")
+    for index, row in enumerate(rows):
+        if (
+            row.get("completed_worlds") != worlds
+            or row.get("cap_hits") != 0
+            or not isinstance(row.get("policy_prior"), (int, float))
+            or not math.isfinite(row["policy_prior"])
+            or not 0 <= row["policy_prior"] <= 1
+        ):
+            raise RuntimeError(f"{case.case_id}: candidate world drift")
+        metrics = row.get("metrics")
+        if not isinstance(metrics, dict) or set(metrics) != {
+            "match_score", "final_margin", "hybrid"
+        }:
+            raise RuntimeError(f"{case.case_id}: incomplete full-match metrics")
+        for metric in metrics.values():
+            if (
+                not isinstance(metric, dict)
+                or set(metric) != {
+                    "mean", "se", "delta_vs_reference", "delta_se",
+                    "samples_fnv1a64",
+                }
+                or any(
+                    not isinstance(metric[key], (int, float))
+                    or not math.isfinite(metric[key])
+                    for key in (
+                        "mean", "se", "delta_vs_reference", "delta_se"
+                    )
+                )
+                or metric["se"] < 0
+                or metric["delta_se"] < 0
+                or not isinstance(metric["samples_fnv1a64"], str)
+                or not _HEX16.fullmatch(metric["samples_fnv1a64"])
+            ):
+                raise RuntimeError(f"{case.case_id}: invalid metric")
+        score = metrics["match_score"]
+        margin = metrics["final_margin"]
+        hybrid = metrics["hybrid"]
+        if not -1e-12 <= score["mean"] <= 1 + 1e-12:
+            raise RuntimeError(f"{case.case_id}: invalid match score")
+        if not math.isclose(
+            hybrid["mean"],
+            0.05 * margin["mean"] + 100.0 * (score["mean"] - 0.5),
+            rel_tol=1e-10,
+            abs_tol=1e-9,
+        ) or not math.isclose(
+            hybrid["delta_vs_reference"],
+            0.05 * margin["delta_vs_reference"]
+            + 100.0 * score["delta_vs_reference"],
+            rel_tol=1e-10,
+            abs_tol=1e-9,
+        ):
+            raise RuntimeError(f"{case.case_id}: inconsistent hybrid metric")
+        if index == 0 and any(
+            metrics[name][key] != 0
+            for name in metrics
+            for key in ("delta_vs_reference", "delta_se")
+        ):
+            raise RuntimeError(f"{case.case_id}: reference delta is nonzero")
+        if index == 0:
+            role = "reference"
+        elif selected_is_extra and row["move"] == selected:
+            role = "actor_selected_extra"
+        elif case.candidates:
+            role = "alternative"
+        else:
+            role = "neutral_policy_alternative"
+        row["role"] = role
+        row["descriptive_signal"] = (
+            "reference" if index == 0 else descriptive_signal(
+                hybrid["delta_vs_reference"], hybrid["delta_se"]
+            )
+        )
+
+    belief = evaluation.get("belief")
+    if case.belief_card is None:
+        if belief is not None:
+            raise RuntimeError(f"{case.case_id}: unexpected belief overlay")
+        return
+    if not isinstance(belief, dict) or (
+        belief.get("valid") is not True
+        or belief.get("kind") != "fixed_k"
+        or belief.get("information_view") is not True
+        or belief.get("complete_state_used_only_as_truth_label") is not True
+        or belief.get("symmetries") != symmetries
+        or not math.isclose(
+            belief.get("alpha", math.nan), belief_alpha,
+            rel_tol=0, abs_tol=1e-6,
+        )
+        or not isinstance(belief.get("n"), int)
+        or not isinstance(belief.get("need"), int)
+        or belief["n"] <= 0
+        or not 0 <= belief["need"] <= belief["n"]
+        or not math.isclose(
+            belief.get("marginal_sum", math.nan), belief["need"],
+            rel_tol=0, abs_tol=2e-4,
+        )
+    ):
+        raise RuntimeError(f"{case.case_id}: invalid fixed-K belief")
+    target = belief.get("target")
+    cards = belief.get("cards")
+    if (
+        not isinstance(target, dict)
+        or target.get("card") != case.belief_card
+        or not isinstance(target.get("marginal"), (int, float))
+        or not 0 <= target["marginal"] <= 1
+        or not isinstance(target.get("held"), bool)
+        or not isinstance(cards, list)
+        or len(cards) != belief["n"]
+    ):
+        raise RuntimeError(f"{case.case_id}: invalid belief target")
+
+
 def run_case(
     case: AuditCase,
     *,
@@ -216,11 +476,12 @@ def run_case(
 ) -> dict[str, Any]:
     worlds = max(requested_worlds, case.min_worlds)
     state_path = ROOT / case.state
+    net_label = _display_path(net_path)
     command = [
         str(helper),
         "--state", case.state,
         "--actor", actor_spec,
-        "--net", str(net_path),
+        "--net", net_label,
         "--seed", str(case.audit_seed),
         "--worlds", str(worlds),
         "--symmetries", str(symmetries),
@@ -237,49 +498,10 @@ def run_case(
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )
     evaluation = json.loads(result.stdout)
-    if evaluation.get("schema") != "lc-commented-ply-eval-v1":
-        raise RuntimeError(f"{case.case_id}: unexpected helper schema")
-    counterfactual = evaluation["counterfactual"]
-    if counterfactual["worlds"] < case.min_worlds and case.candidates:
-        raise RuntimeError(f"{case.case_id}: insufficient paired worlds")
-    continuation = counterfactual["continuation"]
-    if (
-        continuation.get("kind") != "argmax_policy"
-        or continuation.get("symmetries") != symmetries
-        or not continuation.get("exact_group_average")
-        or continuation.get("recursive_actor") is not False
-    ):
-        raise RuntimeError(f"{case.case_id}: invalid continuation contract")
-    selected = evaluation["actor"]["selected"]
-    expected_candidates = list(case.candidates)
-    selected_is_extra = bool(case.candidates) and selected not in expected_candidates
-    if selected_is_extra:
-        expected_candidates.append(selected)
-    actual_candidates = [row["move"] for row in counterfactual["candidates"]]
-    if actual_candidates != expected_candidates:
-        raise RuntimeError(
-            f"{case.case_id}: candidate drift {actual_candidates!r}"
-        )
-    if case.candidates and not counterfactual.get("actor_selected_included"):
-        raise RuntimeError(f"{case.case_id}: actor selection was not graded")
-    for index, row in enumerate(counterfactual["candidates"]):
-        row["role"] = (
-            "reference" if index == 0 else
-            "actor_selected_extra"
-            if selected_is_extra and row["move"] == selected else
-            "alternative"
-        )
-        row["descriptive_signal"] = (
-            "reference" if index == 0 else descriptive_signal(
-                row["delta_vs_reference"], row["delta_se"]
-            )
-        )
-    if case.belief_card is not None:
-        belief = evaluation.get("belief")
-        if not belief or not belief.get("valid") or belief.get("kind") != "fixed_k":
-            raise RuntimeError(f"{case.case_id}: invalid fixed-K belief")
-        if abs(belief["marginal_sum"] - belief["need"]) > 2e-4:
-            raise RuntimeError(f"{case.case_id}: belief marginals violate fixed K")
+    _validate_evaluation(
+        case, evaluation, actor_spec=actor_spec, net_label=net_label,
+        worlds=worlds, symmetries=symmetries, belief_alpha=belief_alpha,
+    )
 
     return {
         "case_id": case.case_id,
@@ -288,14 +510,135 @@ def run_case(
             "displayed_ply": case.ply,
             "state_path": case.state,
             "state_sha256": sha256_file(state_path),
+            "audit_seed": str(case.audit_seed),
+            "paired_worlds": worlds,
         },
         "review_context": {
             "note": case.review,
             "reviewed_moves": list(case.reviewed_moves),
             "used_as_training_label": False,
             "used_as_promotion_gate": False,
+            "nominated_candidates": list(case.candidates),
         },
         "evaluation": evaluation,
+    }
+
+
+def _contract() -> dict[str, Any]:
+    return {
+        "population": "exactly 17 explicit user-commented displayed plies",
+        "case_count": len(CASES),
+        "base_paired_worlds": MIN_PAIRED_WORLDS,
+        "paired_worlds_by_case": {
+            case.case_id: _locked_worlds(case) for case in CASES
+        },
+        "exact_policy_teacher": "policy:data/champion.bin:0:20",
+        "exact_policy_symmetries": DEFAULT_SYMMETRIES,
+        "continuation_scope": "full_remaining_three_round_match",
+        "world_model": "uniform_exact_card_count_plus_future_deals",
+        "current_hidden_worlds_shared_across_actions": True,
+        "future_deals_shared_across_actions": True,
+        "branch_rng_domains_neutral": True,
+        "decision_input": "fresh_agent_information_view_at_every_node",
+        "complete_hidden_state_use": "p13 offline truth label only",
+        "p13_action_panel": "exact_policy20_top_two_plus_actor_if_absent",
+        "p13_belief_overlay": "fixed_k_alpha_1.15_target_Y9",
+        "semantic_wager_deduplication": True,
+        "policy_probability_aggregation": "sum_by_semantic_move",
+        "actor_selected_action_graded_on_all_17": True,
+        "counterfactual_caps": "zero_fail_closed",
+        "hash_algorithm": "fnv1a64",
+        "training_use": "forbidden_diagnostic_only",
+        "promotion_gate": False,
+        "locked_validation_criteria_changed": False,
+    }
+
+
+def _signal_counts(rows: Iterable[dict[str, Any]]) -> dict[str, int]:
+    materialized = list(rows)
+    return {
+        signal: sum(row["descriptive_signal"] == signal
+                    for row in materialized)
+        for signal in (
+            "reference_ahead", "alternative_ahead", "inconclusive", "invalid"
+        )
+    }
+
+
+def _summarize(cases: list[dict[str, Any]]) -> dict[str, Any]:
+    alternative_rows: list[dict[str, Any]] = []
+    actor_extra_rows: list[dict[str, Any]] = []
+    neutral_rows: list[dict[str, Any]] = []
+    nominated_rows: list[dict[str, Any]] = []
+    cap_hits = 0
+    actor_aligned = 0
+    actor_denominator = 0
+    belief_overlays = 0
+    for record in cases:
+        definition = next(
+            case for case in CASES if case.case_id == record["case_id"]
+        )
+        rows = record["evaluation"]["counterfactual"]["candidates"]
+        nominated_rows.extend(rows[:len(definition.candidates)])
+        alternative_rows.extend(
+            row for row in rows if row["role"] == "alternative"
+        )
+        actor_extra_rows.extend(
+            row for row in rows if row["role"] == "actor_selected_extra"
+        )
+        neutral_rows.extend(
+            row for row in rows if row["role"] == "neutral_policy_alternative"
+        )
+        cap_hits += record["evaluation"]["counterfactual"]["cap_hits"]
+        cap_hits += sum(row["cap_hits"] for row in rows)
+        reviewed = record["review_context"]["reviewed_moves"]
+        if reviewed:
+            actor_denominator += 1
+            actor_aligned += record["evaluation"]["actor"]["selected"] in reviewed
+        belief_overlays += record["evaluation"].get("belief") is not None
+    return {
+        "completed_cases": len(cases),
+        "action_panels": len(cases),
+        "belief_overlays": belief_overlays,
+        "total_paired_worlds": sum(
+            record["source"]["paired_worlds"] for record in cases
+        ),
+        "actor_selected_reviewed_move": actor_aligned,
+        "actor_reviewed_move_denominator": actor_denominator,
+        "alternative_signals": _signal_counts(alternative_rows),
+        "actor_selected_extra_signals": _signal_counts(actor_extra_rows),
+        "p13_neutral_alternative_signals": _signal_counts(neutral_rows),
+        "reviewed_candidates_below_two_percent_policy_prior": sum(
+            row["policy_prior"] < 0.02 for row in nominated_rows
+        ),
+        "counterfactual_cap_hits": cap_hits,
+    }
+
+
+def _envelope(
+    *, helper: Path, actor_spec: str, net_path: Path,
+    repository_head: str, cases: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "schema": AUDIT_SCHEMA,
+        "audit_definition_sha256": definition_sha256(),
+        "repository_head": repository_head,
+        "subject": {
+            "actor_spec": actor_spec,
+            "actor_spec_sha256": hashlib.sha256(actor_spec.encode()).hexdigest(),
+            "evaluation_net_path": _display_path(net_path),
+            "checkpoints": _checkpoint_hashes(actor_spec, net_path),
+        },
+        "implementation": {
+            "driver_path": "tools/audit_commented_plies.py",
+            "driver_sha256": sha256_file(Path(__file__).resolve()),
+            "helper_path": _display_path(helper),
+            "helper_sha256": sha256_file(helper),
+        },
+        "contract": _contract(),
+        "selection": {"case_ids": [case["case_id"] for case in cases]},
+        "summary": _summarize(cases),
+        "cases": cases,
     }
 
 
@@ -307,124 +650,202 @@ def build_audit(
     worlds: int = MIN_PAIRED_WORLDS,
     symmetries: int = DEFAULT_SYMMETRIES,
     belief_alpha: float = DEFAULT_BELIEF_ALPHA,
+    selected_cases: Iterable[AuditCase] = CASES,
+    source_commit: str | None = None,
 ) -> dict[str, Any]:
-    if worlds < MIN_PAIRED_WORLDS:
-        raise ValueError(f"worlds must be at least {MIN_PAIRED_WORLDS}")
-    if symmetries not in (1, 5, 10, 20, 120):
-        raise ValueError("invalid exact suit group")
+    _validate_locked_options(worlds, symmetries, belief_alpha)
     if not helper.is_file():
         raise FileNotFoundError(helper)
     if not net_path.is_file():
         raise FileNotFoundError(net_path)
-    cases = [
+    if _display_path(net_path) != "data/champion.bin":
+        raise ValueError("locked continuation net must be data/champion.bin")
+    chosen = tuple(selected_cases)
+    if not chosen:
+        raise ValueError("at least one exact audit case is required")
+    by_id = {case.case_id: case for case in CASES}
+    if len({case.case_id for case in chosen}) != len(chosen) or any(
+        by_id.get(case.case_id) != case for case in chosen
+    ):
+        raise ValueError("selected cases must be unique frozen audit definitions")
+    chosen = tuple(case for case in CASES if case.case_id in {
+        selected.case_id for selected in chosen
+    })
+    head = _git_head()
+    repository_head = source_commit or head
+    if not isinstance(repository_head, str) or not re.fullmatch(
+        r"[0-9a-f]{40}", repository_head
+    ):
+        raise ValueError("source commit must be a full lowercase Git SHA")
+    # The locked workflow executes immutable, SHA-256-sealed source archives
+    # without a .git directory.  Compare when repository metadata is present;
+    # otherwise retain the workflow-supplied source-parent binding verbatim.
+    if source_commit is not None and head is not None and head != source_commit:
+        raise ValueError("source commit does not match checked-out HEAD")
+    records = [
         run_case(
             case, helper=helper, actor_spec=actor_spec,
             net_path=net_path, requested_worlds=worlds,
             symmetries=symmetries, belief_alpha=belief_alpha,
         )
-        for case in CASES
+        for case in chosen
     ]
-    action_cases = [case for case in cases if case["evaluation"]["counterfactual"]["candidates"]]
-    candidate_rows = [
-        row
-        for case in action_cases
-        for row in case["evaluation"]["counterfactual"]["candidates"]
-        if row["role"] != "actor_selected_extra"
-    ]
-    alternative_rows = [
-        row
-        for case in action_cases
-        for row in case["evaluation"]["counterfactual"]["candidates"][1:]
-        if row["role"] == "alternative"
-    ]
-    actor_extra_rows = [
-        row
-        for case in action_cases
-        for row in case["evaluation"]["counterfactual"]["candidates"][1:]
-        if row["role"] == "actor_selected_extra"
-    ]
-    actor_aligned = sum(
-        case["evaluation"]["actor"]["selected"]
-        in case["review_context"]["reviewed_moves"]
-        for case in cases if case["review_context"]["reviewed_moves"]
+    return _envelope(
+        helper=helper, actor_spec=actor_spec, net_path=net_path,
+        repository_head=repository_head, cases=records,
     )
-    cap_hits = sum(
-        row["cap_hits"]
-        for case in action_cases
-        for row in case["evaluation"]["counterfactual"]["candidates"]
-    )
-    return {
-        "schema": "lc-commented-ply-audit-v1",
-        "audit_definition_sha256": definition_sha256(),
-        "repository_head": _git_head(),
-        "subject": {
-            "actor_spec": actor_spec,
-            "actor_spec_sha256": hashlib.sha256(actor_spec.encode()).hexdigest(),
-            "evaluation_net_path": str(net_path),
-            "checkpoints": _checkpoint_hashes(actor_spec, net_path),
-        },
-        "implementation": {
-            "driver_path": "tools/audit_commented_plies.py",
-            "driver_sha256": sha256_file(Path(__file__).resolve()),
-            "helper_path": str(helper),
-            "helper_sha256": sha256_file(helper),
-        },
-        "contract": {
-            "population": "17 explicit user-commented displayed plies only",
-            "case_count": 17,
-            "paired_worlds_minimum": MIN_PAIRED_WORLDS,
-            "requested_worlds": worlds,
-            "exact_policy_symmetries": symmetries,
-            "world_model": "uniform_exact_card_count",
-            "decision_input": "agent_information_view",
-            "complete_hidden_state_use": "p13 offline truth label only",
-            "recursive_rollout_actor_in_counterfactuals": False,
-            "actor_selected_action_graded_for_action_cases": True,
-            "training_use": "forbidden_diagnostic_only",
-            "promotion_gate": False,
-            "locked_validation_criteria_changed": False,
-        },
-        "summary": {
-            "action_cases": len(action_cases),
-            "belief_cases": len(cases) - len(action_cases),
-            "actor_selected_reviewed_move": actor_aligned,
-            "actor_reviewed_move_denominator": sum(
-                bool(case["review_context"]["reviewed_moves"])
-                for case in cases
-            ),
-            "alternative_signals": {
-                signal: sum(row["descriptive_signal"] == signal
-                            for row in alternative_rows)
-                for signal in (
-                    "reference_ahead", "alternative_ahead", "inconclusive",
-                    "invalid",
-                )
-            },
-            "actor_selected_extra_signals": {
-                signal: sum(row["descriptive_signal"] == signal
-                            for row in actor_extra_rows)
-                for signal in (
-                    "reference_ahead", "alternative_ahead", "inconclusive",
-                    "invalid",
-                )
-            },
-            "reviewed_candidates_below_two_percent_policy_prior": sum(
-                row["policy_prior"] < 0.02 for row in candidate_rows
-            ),
-            "counterfactual_cap_hits": cap_hits,
-        },
-        "cases": cases,
+
+
+def _validate_case_record(
+    record: dict[str, Any], *, actor_spec: str, net_label: str
+) -> AuditCase:
+    case_id = record.get("case_id")
+    definition = next((case for case in CASES if case.case_id == case_id), None)
+    if definition is None:
+        raise RuntimeError(f"unknown audit case {case_id!r}")
+    worlds = _locked_worlds(definition)
+    expected_source = {
+        "game_seed": str(definition.source_seed),
+        "displayed_ply": definition.ply,
+        "state_path": definition.state,
+        "state_sha256": sha256_file(ROOT / definition.state),
+        "audit_seed": str(definition.audit_seed),
+        "paired_worlds": worlds,
     }
+    expected_review = {
+        "note": definition.review,
+        "reviewed_moves": list(definition.reviewed_moves),
+        "used_as_training_label": False,
+        "used_as_promotion_gate": False,
+        "nominated_candidates": list(definition.candidates),
+    }
+    if record.get("source") != expected_source:
+        raise RuntimeError(f"{case_id}: source/state binding drift")
+    if record.get("review_context") != expected_review:
+        raise RuntimeError(f"{case_id}: frozen review-context drift")
+    evaluation = record.get("evaluation")
+    if not isinstance(evaluation, dict):
+        raise RuntimeError(f"{case_id}: missing evaluation")
+    _validate_evaluation(
+        definition, evaluation, actor_spec=actor_spec, net_label=net_label,
+        worlds=worlds, symmetries=DEFAULT_SYMMETRIES,
+        belief_alpha=DEFAULT_BELIEF_ALPHA,
+    )
+    return definition
+
+
+def validate_audit_document(
+    audit: dict[str, Any], *, require_full: bool
+) -> None:
+    if audit.get("schema") != AUDIT_SCHEMA:
+        raise RuntimeError("unexpected audit schema")
+    if audit.get("audit_definition_sha256") != definition_sha256():
+        raise RuntimeError("audit definition/state hash drift")
+    if audit.get("contract") != _contract():
+        raise RuntimeError("locked audit contract drift")
+    head = audit.get("repository_head")
+    if not isinstance(head, str) or not re.fullmatch(r"[0-9a-f]{40}", head):
+        raise RuntimeError("invalid repository-head binding")
+    subject = audit.get("subject")
+    implementation = audit.get("implementation")
+    if not isinstance(subject, dict) or not isinstance(implementation, dict):
+        raise RuntimeError("missing provenance")
+    actor_spec = subject.get("actor_spec")
+    if not isinstance(actor_spec, str) or subject != {
+        "actor_spec": actor_spec,
+        "actor_spec_sha256": hashlib.sha256(actor_spec.encode()).hexdigest(),
+        "evaluation_net_path": "data/champion.bin",
+        "checkpoints": _checkpoint_hashes(actor_spec, ROOT / "data/champion.bin"),
+    }:
+        raise RuntimeError("actor/checkpoint binding drift")
+    helper = ROOT / "bin/commented_ply_eval"
+    if implementation != {
+        "driver_path": "tools/audit_commented_plies.py",
+        "driver_sha256": sha256_file(Path(__file__).resolve()),
+        "helper_path": "bin/commented_ply_eval",
+        "helper_sha256": sha256_file(helper),
+    }:
+        raise RuntimeError("audit implementation binding drift")
+    records = audit.get("cases")
+    if not isinstance(records, list) or not records:
+        raise RuntimeError("audit contains no cases")
+    definitions = [
+        _validate_case_record(
+            record, actor_spec=actor_spec, net_label="data/champion.bin"
+        )
+        for record in records
+        if isinstance(record, dict)
+    ]
+    if len(definitions) != len(records):
+        raise RuntimeError("invalid case record")
+    case_ids = [case.case_id for case in definitions]
+    expected_order = [case.case_id for case in CASES if case.case_id in case_ids]
+    if len(set(case_ids)) != len(case_ids) or case_ids != expected_order:
+        raise RuntimeError("audit cases are duplicated or out of frozen order")
+    if audit.get("selection") != {"case_ids": case_ids}:
+        raise RuntimeError("audit selection drift")
+    if audit.get("summary") != _summarize(records):
+        raise RuntimeError("audit summary drift")
+    if require_full and case_ids != [case.case_id for case in CASES]:
+        raise RuntimeError("merged audit does not contain exactly all 17 cases")
+
+
+def merge_audits(fragments: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    documents = list(fragments)
+    if not documents:
+        raise ValueError("at least one audit fragment is required")
+    for document in documents:
+        validate_audit_document(document, require_full=False)
+    first = documents[0]
+    static_keys = (
+        "schema", "audit_definition_sha256", "repository_head", "subject",
+        "implementation", "contract",
+    )
+    for document in documents[1:]:
+        for key in static_keys:
+            if document[key] != first[key]:
+                raise RuntimeError(f"audit fragments disagree on {key}")
+    records_by_id: dict[str, dict[str, Any]] = {}
+    for document in documents:
+        for record in document["cases"]:
+            case_id = record["case_id"]
+            if case_id in records_by_id:
+                raise RuntimeError(f"duplicate audit case {case_id}")
+            records_by_id[case_id] = record
+    expected_ids = [case.case_id for case in CASES]
+    if set(records_by_id) != set(expected_ids):
+        missing = sorted(set(expected_ids) - set(records_by_id))
+        extra = sorted(set(records_by_id) - set(expected_ids))
+        raise RuntimeError(
+            f"merge requires exact-17 population; missing={missing}, extra={extra}"
+        )
+    records = [records_by_id[case_id] for case_id in expected_ids]
+    merged = {
+        key: first[key] for key in static_keys
+    }
+    merged.update({
+        "selection": {"case_ids": expected_ids},
+        "summary": _summarize(records),
+        "cases": records,
+    })
+    validate_audit_document(merged, require_full=True)
+    return merged
 
 
 def _fmt_delta(row: dict[str, Any], reference: str) -> str:
-    low = row["delta_vs_reference"] - 1.96 * row["delta_se"]
-    high = row["delta_vs_reference"] + 1.96 * row["delta_se"]
+    score = row["metrics"]["match_score"]
+    margin = row["metrics"]["final_margin"]
+    hybrid = row["metrics"]["hybrid"]
+    low = 100 * (score["delta_vs_reference"] - 1.96 * score["delta_se"])
+    high = 100 * (score["delta_vs_reference"] + 1.96 * score["delta_se"])
     return (
-        f"{row['move']} {row['delta_vs_reference']:+.2f}±"
-        f"{row['delta_se']:.2f} vs {reference} "
-        f"(95% [{low:+.2f}, {high:+.2f}]; "
-        f"{row['descriptive_signal'].replace('_', ' ')})"
+        f"{row['move']} vs {reference}: match-score "
+        f"{100*score['delta_vs_reference']:+.2f}±"
+        f"{100*score['delta_se']:.2f} pp (95% [{low:+.2f}, {high:+.2f}]); "
+        f"final margin {margin['delta_vs_reference']:+.2f}±"
+        f"{margin['delta_se']:.2f}; hybrid "
+        f"{hybrid['delta_vs_reference']:+.2f}±{hybrid['delta_se']:.2f}; "
+        f"{row['descriptive_signal'].replace('_', ' ')}"
     )
 
 
@@ -437,10 +858,10 @@ def render_markdown(audit: dict[str, Any]) -> str:
         "",
         f"Actor: `{subject['actor_spec']}`  ",
         f"Evaluation network: `{subject['evaluation_net_path']}`  ",
-        f"Evidence: {contract['case_count']} explicit displayed plies; at "
-        f"least {contract['paired_worlds_minimum']} paired hidden worlds per "
-        f"disputed action; exact {contract['exact_policy_symmetries']}-way "
-        "suit-ensemble policy continuations.",
+        f"Evidence: {summary['completed_cases']}/{contract['case_count']} "
+        f"explicit displayed plies; exactly {contract['base_paired_worlds']} "
+        "paired current/future worlds per case, except 2214615196 / 10 at "
+        "2,048; exact policy-20 continuation through the full remaining match.",
         "",
         "> This is diagnostic evidence only. The reviewed moves are excluded "
         "from training and are neither safety gates nor promotion gates. The "
@@ -458,22 +879,22 @@ def render_markdown(audit: dict[str, Any]) -> str:
         label = f"{source['game_seed']} / {source['displayed_ply']}"
         note = case["review_context"]["note"].replace("|", "\\|")
         candidates = evaluation["counterfactual"]["candidates"]
-        if candidates:
-            evidence = "; ".join(
-                _fmt_delta(row, candidates[0]["move"])
-                for row in candidates[1:]
-            )
-        else:
+        evidence = "; ".join(
+            _fmt_delta(row, candidates[0]["move"])
+            for row in candidates[1:]
+        )
+        if evaluation.get("belief") is not None:
             belief = evaluation["belief"]
             target = belief["target"]
             top = belief["cards"][0]
-            evidence = (
+            belief_text = (
                 f"fixed-K {target['card']}={100*target['marginal']:.2f}% "
                 f"vs {100*belief['uniform_marginal']:.2f}% prior; "
                 f"top {top['card']}={100*top['marginal']:.2f}% "
                 f"({'held' if top['held'] else 'not held'}); "
                 f"marginal sum={belief['marginal_sum']:.6f} for K={belief['need']}"
             )
+            evidence += f"; belief overlay: {belief_text}"
         lines.append(f"| {label} | `{actor_move}` | {note} | {evidence} |")
 
     signals = summary["alternative_signals"]
@@ -501,8 +922,17 @@ def render_markdown(audit: dict[str, Any]) -> str:
         "reviewed candidates had policy prior below 2%; they were still evaluated "
         "because this audit is not restricted to the deployed shortlist.",
         "",
-        f"- Counterfactual continuations hit the artificial ply cap "
-        f"{summary['counterfactual_cap_hits']} times.",
+        f"- The p13 policy-neutral action panel has "
+        f"{summary['p13_neutral_alternative_signals']['reference_ahead']} "
+        "reference-ahead, "
+        f"{summary['p13_neutral_alternative_signals']['alternative_ahead']} "
+        "alternative-ahead, and "
+        f"{summary['p13_neutral_alternative_signals']['inconclusive']} "
+        "inconclusive alternatives.",
+        "",
+        f"- Counterfactual cap hits: {summary['counterfactual_cap_hits']}. "
+        "The evaluator aborts the whole case on the first cap rather than "
+        "reporting a truncated value.",
         "",
         "## General-improvement implications",
         "",
@@ -541,10 +971,21 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--symmetries", type=int, default=DEFAULT_SYMMETRIES)
     parser.add_argument("--belief-alpha", type=float,
                         default=DEFAULT_BELIEF_ALPHA)
+    parser.add_argument("--case", action="append", dest="case_ids",
+                        help="run one frozen case; repeat for multiple cases")
+    parser.add_argument("--source-commit",
+                        help="full checked-out Git SHA recorded in evidence")
     parser.add_argument("--output-json", type=Path)
     parser.add_argument("--output-md", type=Path)
-    parser.add_argument("--from-json", type=Path,
-                        help="only regenerate Markdown from canonical JSON")
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument(
+        "--from-json", type=Path,
+        help="validate canonical exact-17 JSON and regenerate Markdown",
+    )
+    source.add_argument(
+        "--merge", type=Path, nargs="+", metavar="SHARD_JSON",
+        help="losslessly merge validated fragments into exact-17 evidence",
+    )
     return parser.parse_args(argv)
 
 
@@ -552,13 +993,33 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
     if args.from_json:
         audit = json.loads(args.from_json.read_text())
+        validate_audit_document(audit, require_full=True)
+    elif args.merge:
+        if args.actor or args.case_ids or args.source_commit:
+            raise SystemExit(
+                "--actor/--case/--source-commit cannot be combined with --merge"
+            )
+        audit = merge_audits(
+            json.loads(path.read_text()) for path in args.merge
+        )
     else:
         if not args.actor:
-            raise SystemExit("--actor is required unless --from-json is used")
+            raise SystemExit(
+                "--actor is required unless --from-json or --merge is used"
+            )
+        by_id = {case.case_id: case for case in CASES}
+        requested_ids = args.case_ids or [case.case_id for case in CASES]
+        if len(set(requested_ids)) != len(requested_ids):
+            raise SystemExit("--case values must be unique")
+        unknown = [case_id for case_id in requested_ids if case_id not in by_id]
+        if unknown:
+            raise SystemExit(f"unknown --case values: {unknown}")
         audit = build_audit(
             helper=_repo_path(args.helper), actor_spec=args.actor,
             net_path=_repo_path(args.net), worlds=args.worlds,
             symmetries=args.symmetries, belief_alpha=args.belief_alpha,
+            selected_cases=(by_id[case_id] for case_id in requested_ids),
+            source_commit=args.source_commit,
         )
     canonical = json.dumps(audit, indent=2, sort_keys=True) + "\n"
     markdown = render_markdown(audit)
