@@ -1,12 +1,10 @@
 {
-  "schema": "lc-flagged-ply-audit-execution-v1",
-  "execute": false,
-  "reference_actor": "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
-  "winner_actor": "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
-  "decision_worlds_per_actor_per_case": 16384,
-  "history_worlds": 20000,
-  "belief_alpha": 1.15,
-  "base_seed": 202608231701,
-  "shard_count": 12,
-  "manifest_sha256": "2ecbf712842d196e032fb2952d1347b8e452875557131ea84afd57dd0c7ff8b6"
+  "schema": "lc-flagged-ply-audit-execution-template-v2",
+  "status": "inert_example_only_do_not_copy_or_edit",
+  "authoritative_final_actor_result": "data/experiments/final_actor_result.json",
+  "canonical_execution": "data/flagged_ply_audit_execution.json",
+  "precondition": "The authoritative final actor result v2 and every result/model/table it binds must already be committed and complete. Its selection_mode is exactly no_challenge, component_final, or composition_final; the helper rederives winner_actor and every actor asset hash.",
+  "preparation": "Run tools/flagged_ply_execution.py prepare-execution against the current HEAD commit/tree. The helper mechanically derives both actors and every hash; this template is not a launch input.",
+  "launch": "Commit only the newly generated canonical execution file as the sole change in one direct-parent commit, then push once to agent/correctness-and-policy-upgrade.",
+  "results": null
 }

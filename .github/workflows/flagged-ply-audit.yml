@@ -1,137 +1,317 @@
-name: Flagged ply audit
+name: Locked flagged-ply audit
 
+# This diagnostic launches exactly once, after authoritative final actor
+# selection, through an addendum-only direct-parent push. There is no manual
+# dispatch path and no actor/world/seed workflow input.
 on:
-  workflow_dispatch:
-    inputs:
-      reference_actor:
-        description: Frozen reference rollout actor spec
-        required: true
-        default: "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
-      candidate_actor:
-        description: Candidate/current-best rollout actor spec
-        required: true
-        default: "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
-      belief_alpha:
-        description: Fixed-cardinality belief diagnostic temperature
-        required: true
-        default: "1.15"
-  # The connector cannot dispatch workflows.  A future commit that *only*
-  # adds this frozen, execute=true addendum is the auditable one-shot launch.
-  # The inert .template.json does not match this path and cannot trigger it.
   push:
+    branches:
+      - agent/correctness-and-policy-upgrade
     paths:
       - data/flagged_ply_audit_execution.json
 
 permissions:
   contents: read
 
+concurrency:
+  group: locked-flagged-ply-audit-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  EXECUTION_PATH: data/flagged_ply_audit_execution.json
+  FINAL_RESULT_PATH: data/experiments/final_actor_result.json
+  PLAN_PATH: data/flagged_ply_audit_plan.json
+  MANIFEST_PATH: data/user_reviewed_plies.json
+  WORKFLOW_PATH: .github/workflows/flagged-ply-audit.yml
+  COMPILER_EXECUTABLE: gcc
+  COMPILER_SEMANTIC_VERSION_COMMAND: 'gcc -dumpfullversion -dumpversion'
+  REQUIRED_COMPILER_SEMANTIC_VERSION: '13.3.0'
+  BUILD_CFLAGS: '-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11'
+  BUILD_LDFLAGS: '-lm -pthread'
+  AUDIT_WORLDS: '16384'
+  HISTORY_WORLDS: '20000'
+  BELIEF_ALPHA: '1.15'
+  BASE_SEED: '202608231701'
+  SHARD_COUNT: '12'
+
 jobs:
-  prepare:
-    name: verify launch configuration
-    runs-on: ubuntu-latest
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
     outputs:
-      reference_actor: ${{ steps.addendum.outputs.reference_actor || inputs.reference_actor }}
-      winner_actor: ${{ steps.addendum.outputs.winner_actor || inputs.candidate_actor }}
-      worlds: ${{ steps.addendum.outputs.worlds || '16384' }}
-      belief_alpha: ${{ steps.addendum.outputs.belief_alpha || inputs.belief_alpha }}
-      history_worlds: ${{ steps.addendum.outputs.history_worlds || '20000' }}
-      base_seed: ${{ steps.addendum.outputs.base_seed || '202608231701' }}
-      shard_count: ${{ steps.addendum.outputs.shard_count || '12' }}
-      execution_sha256: ${{ steps.addendum.outputs.execution_sha256 }}
+      execution_sha: ${{ steps.guard.outputs.execution_sha }}
+      source_commit: ${{ steps.guard.outputs.source_commit }}
+      source_tree: ${{ steps.guard.outputs.source_tree }}
+      reference_actor: ${{ steps.guard.outputs.reference_actor }}
+      winner_actor: ${{ steps.guard.outputs.winner_actor }}
+      final_result_sha: ${{ steps.guard.outputs.final_result_sha }}
+      final_gate_passed: ${{ steps.guard.outputs.final_gate_passed }}
+      selection_mode: ${{ steps.guard.outputs.selection_mode }}
+      plan_sha: ${{ steps.guard.outputs.plan_sha }}
+      workflow_sha: ${{ steps.guard.outputs.workflow_sha }}
+      manifest_sha: ${{ steps.guard.outputs.manifest_sha }}
+      evaluator_manifest_sha: ${{ steps.bind.outputs.evaluator_manifest_sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 0
-      - name: Verify addendum-only one-shot launch
-        if: github.event_name == 'push'
-        id: addendum
+          path: campaign
+
+      - name: Fail closed unless this is the sole addendum-only launch
+        id: guard
+        working-directory: campaign
         env:
-          BEFORE: ${{ github.event.before }}
-          AFTER: ${{ github.sha }}
-        run: >-
-          python3 tools/flagged_ply_execution.py
-          --execution data/flagged_ply_audit_execution.json
-          --before "$BEFORE" --after "$AFTER"
-          --github-output "$GITHUB_OUTPUT"
+          EVENT_BEFORE: ${{ github.event.before }}
+          EVENT_AFTER: ${{ github.event.after }}
+          EVENT_FORCED: ${{ github.event.forced }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = push
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$GITHUB_REF" = refs/heads/agent/correctness-and-policy-upgrade
+          test "$EVENT_FORCED" = false
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$EVENT_AFTER" = "$GITHUB_SHA"
+          test "$(git rev-list --parents -n 1 HEAD | wc -w)" -eq 2
+          SOURCE_COMMIT="$(git rev-parse HEAD^)"
+          SOURCE_TREE="$(git rev-parse 'HEAD^^{tree}')"
+          test "$EVENT_BEFORE" = "$SOURCE_COMMIT"
+          test "$(git diff-tree --no-commit-id --name-status -r HEAD)" = \
+            "$(printf 'A\t%s' "$EXECUTION_PATH")"
+          if git cat-file -e "HEAD^:$EXECUTION_PATH" 2>/dev/null; then
+            echo "execution addendum existed before launch" >&2
+            exit 1
+          fi
+          test "$(git rev-list --all --count -- "$EXECUTION_PATH")" = 1
+          test "$(git cat-file -t "HEAD:$EXECUTION_PATH")" = blob
+          test "$(git cat-file -t "HEAD^:$FINAL_RESULT_PATH")" = blob
+          python3 tools/flagged_ply_execution.py guard-execution \
+            --root . --execution "$EXECUTION_PATH" \
+            --source-parent-commit "$SOURCE_COMMIT" \
+            --source-parent-tree "$SOURCE_TREE" \
+            --github-output "$GITHUB_OUTPUT"
+          EXECUTION_SHA="$(sha256sum "$EXECUTION_PATH" | cut -d' ' -f1)"
+          echo "execution_sha=$EXECUTION_SHA" >> "$GITHUB_OUTPUT"
+          echo "source_commit=$SOURCE_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "source_tree=$SOURCE_TREE" >> "$GITHUB_OUTPUT"
+
+      - name: Materialize and revalidate the exact source parent
+        run: |
+          set -euo pipefail
+          mkdir source
+          git -C campaign archive HEAD^ | tar -x -C source
+          test ! -e "source/$EXECUTION_PATH"
+          test "$(sha256sum "source/$PLAN_PATH" | cut -d' ' -f1)" = \
+            "${{ steps.guard.outputs.plan_sha }}"
+          test "$(sha256sum "source/$WORKFLOW_PATH" | cut -d' ' -f1)" = \
+            "${{ steps.guard.outputs.workflow_sha }}"
+          test "$(sha256sum "source/$MANIFEST_PATH" | cut -d' ' -f1)" = \
+            "${{ steps.guard.outputs.manifest_sha }}"
+          test "$(sha256sum "source/$FINAL_RESULT_PATH" | cut -d' ' -f1)" = \
+            "${{ steps.guard.outputs.final_result_sha }}"
+          python3 source/tools/flagged_ply_execution.py guard-execution \
+            --root source --execution "campaign/$EXECUTION_PATH" \
+            --source-parent-commit "${{ steps.guard.outputs.source_commit }}" \
+            --source-parent-tree "${{ steps.guard.outputs.source_tree }}"
+
+      - name: Compile and test the evaluator exactly once
+        run: |
+          set -euo pipefail
+          test "$COMPILER_EXECUTABLE" = gcc
+          test "$COMPILER_SEMANTIC_VERSION_COMMAND" = \
+            "gcc -dumpfullversion -dumpversion"
+          test "$(gcc -dumpfullversion -dumpversion)" = \
+            "$REQUIRED_COMPILER_SEMANTIC_VERSION"
+          make -C source -j2 CC="$COMPILER_EXECUTABLE" \
+            CFLAGS="$BUILD_CFLAGS" LDFLAGS="$BUILD_LDFLAGS" \
+            bin/flagged_ply_probe bin/history_belief data/champion.bin
+          (cd source && python3 -m unittest tests/test_flagged_ply_audit.py)
+          python3 source/tools/flagged_ply_execution.py guard-execution \
+            --root source --execution "campaign/$EXECUTION_PATH" \
+            --source-parent-commit "${{ steps.guard.outputs.source_commit }}" \
+            --source-parent-tree "${{ steps.guard.outputs.source_tree }}"
+
+      - name: Bind the immutable evaluator transport
+        id: bind
+        run: |
+          set -euo pipefail
+          test -n "${ImageOS:-}"
+          test -n "${ImageVersion:-}"
+          test -n "${RUNNER_OS:-}"
+          test -n "${RUNNER_ARCH:-}"
+          mv source evaluator
+          mkdir -p evaluator/bindings
+          cp "campaign/$EXECUTION_PATH" evaluator/bindings/execution.json
+          cp "evaluator/$PLAN_PATH" evaluator/bindings/plan.json
+          cp "evaluator/$WORKFLOW_PATH" evaluator/bindings/workflow.yml
+          cp "evaluator/$MANIFEST_PATH" evaluator/bindings/manifest.json
+          cp "evaluator/$FINAL_RESULT_PATH" evaluator/bindings/final-actor-result.json
+          python3 - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+          import shutil
+
+          root = Path("evaluator")
+          value = json.loads((root / "data/experiments/final_actor_result.json").read_text())
+          files = {
+              item["path"]: item["sha256"]
+              for item in value["authoritative_results"]
+          }
+          for rows in value["actor_assets"].values():
+              for item in rows:
+                  files[item["path"]] = item["sha256"]
+          for name, expected in sorted(files.items()):
+              source = root / name
+              actual = hashlib.sha256(source.read_bytes()).hexdigest()
+              if actual != expected:
+                  raise SystemExit(f"bound repository artifact drift: {name}")
+              destination = root / "bindings/repository" / name
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copyfile(source, destination)
+          PY
+          {
+            echo "launch_commit=$GITHUB_SHA"
+            echo "source_parent_commit=${{ steps.guard.outputs.source_commit }}"
+            echo "source_parent_tree=${{ steps.guard.outputs.source_tree }}"
+            echo "execution_sha=${{ steps.guard.outputs.execution_sha }}"
+            echo "plan_sha=${{ steps.guard.outputs.plan_sha }}"
+            echo "workflow_sha=${{ steps.guard.outputs.workflow_sha }}"
+            echo "manifest_sha=${{ steps.guard.outputs.manifest_sha }}"
+            echo "final_result_sha=${{ steps.guard.outputs.final_result_sha }}"
+            echo "final_gate_passed=${{ steps.guard.outputs.final_gate_passed }}"
+            echo "selection_mode=${{ steps.guard.outputs.selection_mode }}"
+            echo "reference_actor=${{ steps.guard.outputs.reference_actor }}"
+            echo "winner_actor=${{ steps.guard.outputs.winner_actor }}"
+            echo "compiler_executable=$COMPILER_EXECUTABLE"
+            echo "compiler_semantic_version_command=$COMPILER_SEMANTIC_VERSION_COMMAND"
+            echo "compiler_semantic_version=$(gcc -dumpfullversion -dumpversion)"
+            echo "compiler_banner=$(gcc --version | head -1)"
+            echo "runner_image_os=$ImageOS"
+            echo "runner_image_version=$ImageVersion"
+            echo "runner_os=$RUNNER_OS"
+            echo "runner_arch=$RUNNER_ARCH"
+            echo "uname=$(uname -a)"
+            echo "cflags=$BUILD_CFLAGS"
+            echo "ldflags=$BUILD_LDFLAGS"
+          } > evaluator/BUILD_INFO.txt
+          (cd evaluator && find . -type f ! -name SHA256SUMS.txt -print0 | \
+            sort -z | xargs -0 sha256sum > SHA256SUMS.txt)
+          (cd evaluator && sha256sum -c SHA256SUMS.txt)
+          EVALUATOR_SHA="$(sha256sum evaluator/SHA256SUMS.txt | cut -d' ' -f1)"
+          echo "evaluator_manifest_sha=$EVALUATOR_SHA" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: flagged-ply-audit-evaluator
+          path: evaluator
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 90
 
   audit:
-    name: shard ${{ matrix.shard }}
-    needs: prepare
-    runs-on: ubuntu-latest
+    name: frozen cases shard ${{ matrix.shard }}
+    if: ${{ github.run_attempt == 1 && needs.preflight.result == 'success' }}
+    needs: preflight
+    runs-on: ubuntu-24.04
     timeout-minutes: 360
     strategy:
       fail-fast: false
       matrix:
         shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
     steps:
-      - uses: actions/checkout@v4
-      - name: Build frozen diagnostic worker
-        run: >-
-          make -j2
-          CFLAGS='-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11'
-          bin/flagged_ply_probe bin/history_belief data/champion.bin
-      - name: Run assigned frozen cases
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: flagged-ply-audit-evaluator
+          path: evaluator
+
+      - name: Verify transport and run the exact assigned cases
         env:
-          REFERENCE_ACTOR: ${{ needs.prepare.outputs.reference_actor }}
-          CANDIDATE_ACTOR: ${{ needs.prepare.outputs.winner_actor }}
-          AUDIT_WORLDS: ${{ needs.prepare.outputs.worlds }}
-          BELIEF_ALPHA: ${{ needs.prepare.outputs.belief_alpha }}
-          HISTORY_WORLDS: ${{ needs.prepare.outputs.history_worlds }}
-          BASE_SEED: ${{ needs.prepare.outputs.base_seed }}
-          SHARD_COUNT: ${{ needs.prepare.outputs.shard_count }}
-          EXECUTION_SHA256: ${{ needs.prepare.outputs.execution_sha256 }}
+          REFERENCE_ACTOR: ${{ needs.preflight.outputs.reference_actor }}
+          WINNER_ACTOR: ${{ needs.preflight.outputs.winner_actor }}
         run: |
-          mkdir -p artifacts
-          launch=()
-          if [[ -n "$EXECUTION_SHA256" ]]; then
-            launch+=(--execution-sha256 "$EXECUTION_SHA256")
-          fi
+          set -euo pipefail
+          test "$(sha256sum evaluator/SHA256SUMS.txt | cut -d' ' -f1)" = \
+            "${{ needs.preflight.outputs.evaluator_manifest_sha }}"
+          (cd evaluator && sha256sum -c SHA256SUMS.txt)
+          chmod 755 evaluator/bin/flagged_ply_probe evaluator/bin/history_belief
+          mkdir artifacts
+          cd evaluator
           python3 tools/flagged_ply_audit.py \
             --reference "$REFERENCE_ACTOR" \
-            --candidate "$CANDIDATE_ACTOR" \
+            --candidate "$WINNER_ACTOR" \
             --worlds "$AUDIT_WORLDS" \
             --belief-alpha "$BELIEF_ALPHA" \
             --history-worlds "$HISTORY_WORLDS" \
             --seed "$BASE_SEED" \
             --shard-count "$SHARD_COUNT" \
             --shard-index "${{ matrix.shard }}" \
-            "${launch[@]}" \
-            --output "artifacts/shard-${{ matrix.shard }}.json"
-      - uses: actions/upload-artifact@v4
+            --source-commit "${{ needs.preflight.outputs.source_commit }}" \
+            --source-tree "${{ needs.preflight.outputs.source_tree }}" \
+            --execution-sha256 "${{ needs.preflight.outputs.execution_sha }}" \
+            --evaluator-manifest-sha256 \
+              "${{ needs.preflight.outputs.evaluator_manifest_sha }}" \
+            --authoritative-result-sha256 \
+              "${{ needs.preflight.outputs.final_result_sha }}" \
+            --launch-mode addendum_push \
+            --output "../artifacts/shard-${{ matrix.shard }}.json"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: flagged-ply-audit-shard-${{ matrix.shard }}
           path: artifacts/shard-${{ matrix.shard }}.json
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90
 
   merge:
-    name: merge all 36 frozen cases
-    needs: audit
-    runs-on: ubuntu-latest
+    name: merge all 36 frozen cases and retain complete evidence
+    if: ${{ github.run_attempt == 1 && needs.preflight.result == 'success' && needs.audit.result == 'success' }}
+    needs:
+      - preflight
+      - audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
     permissions:
       actions: read
       contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: flagged-ply-audit-evaluator
+          path: evaluator
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           pattern: flagged-ply-audit-shard-*
           path: artifacts
           merge-multiple: true
-      - name: Verify and merge shards
-        run: >-
-          python3 tools/merge_flagged_ply_audit.py artifacts/shard-*.json
-          --output artifacts/flagged-ply-audit-merged.json
-      - name: Render per-ply evidence report
-        run: >-
-          python3 tools/render_flagged_ply_audit.py
-          artifacts/flagged-ply-audit-merged.json
-          --output artifacts/flagged-ply-audit-merged.md
-      - uses: actions/upload-artifact@v4
+
+      - name: Verify, merge, render, and seal complete evidence
+        run: |
+          set -euo pipefail
+          test "$(sha256sum evaluator/SHA256SUMS.txt | cut -d' ' -f1)" = \
+            "${{ needs.preflight.outputs.evaluator_manifest_sha }}"
+          (cd evaluator && sha256sum -c SHA256SUMS.txt)
+          test "$(find artifacts -maxdepth 1 -name 'shard-*.json' | wc -l)" -eq 12
+          (cd evaluator && python3 tools/merge_flagged_ply_audit.py \
+            ../artifacts/shard-*.json \
+            --output ../artifacts/flagged-ply-audit-merged.json)
+          python3 evaluator/tools/render_flagged_ply_audit.py \
+            artifacts/flagged-ply-audit-merged.json \
+            --output artifacts/flagged-ply-audit-merged.md
+          mkdir -p final-evidence/raw-shards final-evidence/bindings
+          cp artifacts/shard-*.json final-evidence/raw-shards/
+          cp artifacts/flagged-ply-audit-merged.json final-evidence/
+          cp artifacts/flagged-ply-audit-merged.md final-evidence/
+          cp evaluator/BUILD_INFO.txt final-evidence/
+          cp evaluator/SHA256SUMS.txt final-evidence/EVALUATOR_SHA256SUMS.txt
+          cp -R evaluator/bindings/. final-evidence/bindings/
+          (cd final-evidence && find . -type f ! -name SHA256SUMS.txt -print0 | \
+            sort -z | xargs -0 sha256sum > SHA256SUMS.txt)
+          (cd final-evidence && sha256sum -c SHA256SUMS.txt)
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: flagged-ply-audit-complete
-          path: |
-            artifacts/flagged-ply-audit-merged.json
-            artifacts/flagged-ply-audit-merged.md
+          name: flagged-ply-audit-complete-evidence
+          path: final-evidence
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90

@@ -216,7 +216,14 @@ def render(result: dict[str, Any]) -> str:
         f"Candidate rule: {esc(provenance.get('candidate_rule', '—'))}.",
         "",
         f"Source commit: `{esc(provenance.get('source_commit', '—'))}`; "
-        f"execution addendum: `{esc(provenance.get('execution_sha256') or 'manual')}`.",
+        f"tree: `{esc(provenance.get('source_tree', '—'))}`; execution addendum: "
+        f"`{esc(provenance.get('execution_sha256') or 'local')}`.",
+        "",
+        f"Evaluator manifest: "
+        f"`{esc(provenance.get('evaluator_manifest_sha256') or 'local')}`; "
+        f"authoritative actor result: "
+        f"`{esc(provenance.get('authoritative_result_sha256') or 'local')}`; "
+        f"launch mode: `{esc(provenance.get('launch_mode', 'local_unbound'))}`.",
         "",
         f"Reference actor: `{esc(reference.get('spec', '—'))}`. Artifacts: "
         f"{artifacts(reference)}.",

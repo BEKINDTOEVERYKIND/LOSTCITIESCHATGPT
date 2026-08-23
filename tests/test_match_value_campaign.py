@@ -12,6 +12,7 @@ import subprocess
 import tarfile
 import tempfile
 import unittest
+from unittest import mock
 
 from tools.match_value_campaign import (
     BASELINE_512,
@@ -34,6 +35,7 @@ from tools.match_value_campaign import (
     final_gate,
     guard_execution,
     inspect_table,
+    prepare_execution,
     stage1_selection,
     stage2_gate,
     strict_json,
@@ -97,6 +99,39 @@ def workflow_mapping_keys_are_unique(test: unittest.TestCase, text: str) -> None
             stack.append((indent, node))
         if value in {"|", ">"}:
             block_indent = indent
+
+
+def workflow_shell_blocks_parse(test: unittest.TestCase, text: str) -> None:
+    lines = text.splitlines()
+    blocks: list[str] = []
+    index = 0
+    while index < len(lines):
+        match = re.match(r"^(\s*)run:\s*\|\s*$", lines[index])
+        if match is None:
+            index += 1
+            continue
+        indent = len(match.group(1))
+        index += 1
+        body: list[str] = []
+        while index < len(lines):
+            line = lines[index]
+            if line.strip() and len(line) - len(line.lstrip()) <= indent:
+                break
+            body.append(
+                line[indent + 2:] if len(line) >= indent + 2 else ""
+            )
+            index += 1
+        blocks.append("\n".join(body) + "\n")
+    test.assertGreaterEqual(len(blocks), 9)
+    for ordinal, block in enumerate(blocks):
+        result = subprocess.run(
+            ["bash", "-n"], input=block, text=True,
+            capture_output=True, check=False,
+        )
+        test.assertEqual(
+            result.returncode, 0,
+            f"shell block {ordinal}: {result.stderr}",
+        )
 
 
 def panel(
@@ -186,6 +221,49 @@ def table_bytes(projected: bool, *, corrupt_profile: bool = False) -> bytes:
 
 class MatchValueCampaignTests(unittest.TestCase):
     maxDiff = None
+
+    def test_prepare_execution_is_canonical_atomic_no_clobber_cli(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for relative in (
+                "data/experiments/match_value_variant_plan.json",
+                ".github/workflows/match-value-variant.yml",
+                *SOURCE_FILES,
+            ):
+                destination = root / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes((ROOT / relative).read_bytes())
+            world = root / "data/experiments/world800_result.json"
+            world.write_text("{}\n", encoding="utf-8")
+            output = root / (
+                "data/experiments/"
+                "locked_match_value_variant_execution.json"
+            )
+            with mock.patch(
+                "tools.match_value_campaign._world_result",
+                return_value=({}, False, BASELINE_512, 512),
+            ):
+                created = prepare_execution(
+                    root, output, "0" * 40, "1" * 40,
+                )
+                snapshot = output.read_bytes()
+                self.assertEqual(strict_json(output), created)
+                self.assertEqual(list(output.parent.glob(
+                    output.name + ".tmp.*")), [])
+                with self.assertRaises(EvidenceError):
+                    prepare_execution(
+                        root, output, "0" * 40, "1" * 40,
+                    )
+                self.assertEqual(output.read_bytes(), snapshot)
+                with self.assertRaises(EvidenceError):
+                    prepare_execution(
+                        root, root / "execution.json", "0" * 40, "1" * 40,
+                    )
+        help_text = subprocess.check_output(
+            ["python3", "tools/match_value_campaign.py", "--help"],
+            cwd=ROOT, text=True,
+        )
+        self.assertIn("prepare-execution", help_text)
 
     def test_plan_is_the_exact_two_by_two_staged_protocol(self) -> None:
         value = strict_json(PLAN)
@@ -339,6 +417,7 @@ class MatchValueCampaignTests(unittest.TestCase):
     def test_workflow_only_addendum_triggers_and_compiles_builds_once(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
         workflow_mapping_keys_are_unique(self, text)
+        workflow_shell_blocks_parse(self, text)
         self.assertNotIn("workflow_dispatch", text)
         self.assertNotIn("pull_request", text)
         self.assertNotIn("continue-on-error", text)
@@ -358,6 +437,21 @@ class MatchValueCampaignTests(unittest.TestCase):
             "git -C campaign archive HEAD^ | tar -x -C source",
         ):
             self.assertIn(token, text)
+        pinned = {
+            "actions/checkout":
+                "11bd71901bbe5b1630ceea73d27597364c9af683",
+            "actions/upload-artifact":
+                "ea165f8d65b6e75b540449e92b4886f43607fa02",
+            "actions/download-artifact":
+                "d3f86a106a0bac45b974a628896c90dbdf5c8093",
+        }
+        uses = re.findall(
+            r"(?m)^\s*- uses: (actions/[a-z-]+)@([0-9a-f]{40})$", text,
+        )
+        self.assertEqual(len(uses), text.count("uses: actions/"))
+        self.assertEqual({name for name, _ in uses}, set(pinned))
+        for name, revision in uses:
+            self.assertEqual(revision, pinned[name])
         self.assertEqual(text.count("./bin/build_match_value \\"), 1)
         self.assertIn("--samples 16000 --threads 8 --seed 7331001", text)
         self.assertIn("--playout-symmetries 20", text)

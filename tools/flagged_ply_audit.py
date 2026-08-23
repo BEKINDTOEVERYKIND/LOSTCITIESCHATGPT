@@ -15,7 +15,9 @@ from collections import Counter
 import hashlib
 import importlib.util
 import json
+import math
 from pathlib import Path
+import re
 import subprocess
 import sys
 from typing import Any
@@ -40,6 +42,42 @@ class AuditError(RuntimeError):
     """A frozen input or diagnostic worker violated its contract."""
 
 
+_HEX40 = re.compile(r"[0-9a-f]{40}\Z")
+_HEX64 = re.compile(r"[0-9a-f]{64}\Z")
+
+
+def _unique(items: list[tuple[str, Any]]) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, item in items:
+        if key in value:
+            raise ValueError(f"duplicate JSON key {key!r}")
+        value[key] = item
+    return value
+
+
+def _finite(value: Any) -> None:
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError("non-finite JSON number")
+    if isinstance(value, dict):
+        for item in value.values():
+            _finite(item)
+    elif isinstance(value, list):
+        for item in value:
+            _finite(item)
+
+
+def strict_json_bytes(raw: bytes) -> Any:
+    value = json.loads(
+        raw,
+        object_pairs_hook=_unique,
+        parse_constant=lambda token: (_ for _ in ()).throw(
+            ValueError(f"non-standard JSON constant {token}")
+        ),
+    )
+    _finite(value)
+    return value
+
+
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -56,8 +94,8 @@ def case_seed(base: int, case_id: str) -> int:
 def load_manifest(path: Path) -> tuple[dict[str, Any], str]:
     try:
         raw = path.read_bytes()
-        manifest = json.loads(raw)
-    except (OSError, json.JSONDecodeError) as exc:
+        manifest = strict_json_bytes(raw)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
         raise AuditError(f"cannot load manifest {path}: {exc}") from exc
     if manifest.get("schema") != "lc-user-reviewed-ply-corpus-v1":
         raise AuditError("unsupported corpus schema")
@@ -316,27 +354,69 @@ def run_case(case: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
         detail = completed.stderr.strip() or "worker failed without diagnostics"
         raise AuditError(f"{case['id']}: {detail}")
     try:
-        probe = json.loads(completed.stdout)
-    except json.JSONDecodeError as exc:
+        probe = strict_json_bytes(completed.stdout.encode("utf-8"))
+    except (ValueError, json.JSONDecodeError) as exc:
         raise AuditError(f"{case['id']}: worker emitted invalid JSON") from exc
     if probe.get("schema") != "lc-flagged-ply-probe-v1":
         raise AuditError(f"{case['id']}: worker schema mismatch")
-    if int(probe.get("evaluated_moves", 0)) > 5:
+    candidates = probe.get("candidates")
+    evaluated = probe.get("evaluated_moves")
+    legal = probe.get("legal_moves")
+    if not isinstance(candidates, list) or type(evaluated) is not int or \
+            type(legal) is not int or len(candidates) != evaluated:
+        raise AuditError(f"{case['id']}: malformed candidate accounting")
+    if evaluated > 5:
         raise AuditError(f"{case['id']}: worker evaluated more than five moves")
-    if int(probe.get("evaluated_moves", 0)) >= int(probe.get("legal_moves", 0)):
+    if evaluated >= legal:
         # A genuinely forced/small position is allowed.  The corpus positions
         # are not, so equality would expose an accidental exhaustive audit.
-        if int(probe.get("legal_moves", 0)) > 5:
+        if legal > 5:
             raise AuditError(f"{case['id']}: worker scanned all legal moves")
-    admitted = {row["move"] for row in probe.get("candidates", [])}
+    admitted: set[str] = set()
+    for row in candidates:
+        if not isinstance(row, dict) or not isinstance(row.get("move"), str) or \
+                row["move"] in admitted:
+            raise AuditError(f"{case['id']}: malformed/duplicate semantic candidate")
+        admission = row.get("admission")
+        if not isinstance(admission, dict):
+            raise AuditError(f"{case['id']}: candidate admission is absent")
+        ranks = (
+            admission.get("reference_top_move_rank", 0),
+            admission.get("candidate_top_move_rank", 0),
+        )
+        if any(type(rank) is not int or not 0 <= rank <= 3 for rank in ranks) or \
+                ranks == (0, 0):
+            raise AuditError(f"{case['id']}: candidate is outside both policy top-threes")
+        admitted.add(row["move"])
     actors = probe.get("actors")
     if not isinstance(actors, list) or len(actors) != 2:
         raise AuditError(f"{case['id']}: worker omitted an actor")
+    if case["kind"] == "belief" and (evaluated != 0 or candidates):
+        raise AuditError(f"{case['id']}: belief-only case evaluated actions")
     classifications: dict[str, Any] = {}
+    expected_specs = {"reference": args.reference, "candidate": args.candidate}
+    common_worlds: int | None = None
+    seen_labels: set[str] = set()
     for actor in actors:
         label = actor.get("label")
-        if label not in {"reference", "candidate"}:
+        if label not in {"reference", "candidate"} or label in seen_labels:
             raise AuditError(f"{case['id']}: unknown actor label")
+        seen_labels.add(label)
+        if actor.get("spec") != expected_specs[label]:
+            raise AuditError(f"{case['id']}: worker actor identity drift")
+        if case["kind"] == "belief":
+            if actor.get("action_panel") is not False or "rows" in actor:
+                raise AuditError(f"{case['id']}: belief-only case ran an action panel")
+        else:
+            if actor.get("action_panel") is not True or \
+                    actor.get("requested_worlds") != args.worlds or \
+                    not isinstance(actor.get("rows"), list) or \
+                    len(actor["rows"]) != evaluated:
+                raise AuditError(f"{case['id']}: action-panel contract drift")
+            if common_worlds is None:
+                common_worlds = actor.get("worlds")
+            elif actor.get("worlds") != common_worlds:
+                raise AuditError(f"{case['id']}: actors did not share one world panel")
         if actor.get("unfinished_cap_leaves"):
             panel_class = "invalid_unfinished_cap_leaf"
         elif case["kind"] == "belief":
@@ -405,6 +485,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--belief-alpha", type=float, default=1.15)
     parser.add_argument("--seed", type=int, default=202608231701)
     parser.add_argument("--execution-sha256")
+    parser.add_argument("--source-commit")
+    parser.add_argument("--source-tree")
+    parser.add_argument("--evaluator-manifest-sha256")
+    parser.add_argument("--authoritative-result-sha256")
+    parser.add_argument(
+        "--launch-mode", choices=("local_unbound", "addendum_push"),
+        default="local_unbound",
+    )
     parser.add_argument("--shard-index", type=int, default=0)
     parser.add_argument("--shard-count", type=int, default=1)
     parser.add_argument("--case", action="append", default=[])
@@ -427,11 +515,24 @@ def main() -> int:
             raise AuditError("invalid shard index/count")
         if not 0 <= args.seed < 1 << 64:
             raise AuditError("--seed must fit unsigned 64-bit")
-        if args.execution_sha256 is not None and (
-            len(args.execution_sha256) != 64
-            or any(char not in "0123456789abcdef" for char in args.execution_sha256)
+        for label, value, pattern in (
+            ("--source-commit", args.source_commit, _HEX40),
+            ("--source-tree", args.source_tree, _HEX40),
+            ("--execution-sha256", args.execution_sha256, _HEX64),
+            ("--evaluator-manifest-sha256", args.evaluator_manifest_sha256, _HEX64),
+            ("--authoritative-result-sha256", args.authoritative_result_sha256, _HEX64),
         ):
-            raise AuditError("--execution-sha256 must be lowercase SHA-256")
+            if value is not None and pattern.fullmatch(value) is None:
+                raise AuditError(f"{label} has a non-canonical digest")
+        if args.launch_mode == "addendum_push":
+            if None in (
+                args.source_commit, args.source_tree, args.execution_sha256,
+                args.evaluator_manifest_sha256, args.authoritative_result_sha256,
+            ):
+                raise AuditError("bound launch provenance is incomplete")
+            if (args.worlds, args.history_worlds, args.belief_alpha, args.seed,
+                    args.shard_count) != (16384, 20000, 1.15, 202608231701, 12):
+                raise AuditError("bound launch settings differ from the locked audit")
         if not args.probe.is_file():
             raise AuditError(f"probe binary is absent: {args.probe}")
         manifest, manifest_sha = load_manifest(args.manifest)
@@ -473,16 +574,24 @@ def main() -> int:
                     for result in results
                 )),
             }
-        try:
-            source_commit = subprocess.check_output(
-                ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
-            ).strip()
-        except (OSError, subprocess.CalledProcessError):
-            source_commit = None
+        source_commit = args.source_commit
+        source_tree = args.source_tree
+        if source_commit is None:
+            try:
+                source_commit = subprocess.check_output(
+                    ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+                ).strip()
+                source_tree = subprocess.check_output(
+                    ["git", "rev-parse", "HEAD^{tree}"], cwd=ROOT, text=True
+                ).strip()
+            except (OSError, subprocess.CalledProcessError):
+                source_commit = None
+                source_tree = None
         output = {
             "schema": "lc-flagged-ply-audit-v1",
             "provenance": {
                 "source_commit": source_commit,
+                "source_tree": source_tree,
                 "manifest": str(args.manifest.resolve()),
                 "manifest_sha256": manifest_sha,
                 "reference": actor_provenance(args.reference),
@@ -492,6 +601,9 @@ def main() -> int:
                 "history_worlds": args.history_worlds,
                 "base_seed": args.seed,
                 "execution_sha256": args.execution_sha256,
+                "evaluator_manifest_sha256": args.evaluator_manifest_sha256,
+                "authoritative_result_sha256": args.authoritative_result_sha256,
+                "launch_mode": args.launch_mode,
                 "shard_index": args.shard_index,
                 "shard_count": args.shard_count,
                 "candidate_rule": (

@@ -118,6 +118,40 @@ def assert_workflow_mapping_keys_are_unique(test: unittest.TestCase,
             block_indent = indent
 
 
+def assert_workflow_shell_blocks_parse(test: unittest.TestCase,
+                                       text: str) -> None:
+    lines = text.splitlines()
+    blocks: list[str] = []
+    index = 0
+    while index < len(lines):
+        match = re.match(r"^(\s*)run:\s*\|\s*$", lines[index])
+        if match is None:
+            index += 1
+            continue
+        indent = len(match.group(1))
+        index += 1
+        body: list[str] = []
+        while index < len(lines):
+            line = lines[index]
+            if line.strip() and len(line) - len(line.lstrip()) <= indent:
+                break
+            body.append(
+                line[indent + 2:] if len(line) >= indent + 2 else ""
+            )
+            index += 1
+        blocks.append("\n".join(body) + "\n")
+    test.assertGreaterEqual(len(blocks), 9)
+    for ordinal, block in enumerate(blocks):
+        result = subprocess.run(
+            ["bash", "-n"], input=block, text=True,
+            capture_output=True, check=False,
+        )
+        test.assertEqual(
+            result.returncode, 0,
+            f"shell block {ordinal}: {result.stderr}",
+        )
+
+
 class ActionAdvantageCampaignTests(unittest.TestCase):
     maxDiff = None
 
@@ -348,6 +382,7 @@ class ActionAdvantageCampaignTests(unittest.TestCase):
     def test_workflow_is_one_addendum_compile_once_transport(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
         assert_workflow_mapping_keys_are_unique(self, text)
+        assert_workflow_shell_blocks_parse(self, text)
         self.assertNotIn("workflow_dispatch", text)
         self.assertNotIn("continue-on-error", text)
         self.assertIn("on:\n  push:", text)
@@ -373,6 +408,38 @@ class ActionAdvantageCampaignTests(unittest.TestCase):
             'test "$(git diff-tree --no-commit-id --name-status -r HEAD)"',
             text,
         )
+        self.assertIn(
+            "concurrency:\n"
+            "  group: locked-action-advantage-veto-v1-${{ github.ref }}\n"
+            "  cancel-in-progress: false",
+            text,
+        )
+        for token in (
+            'test "$EVENT_FORCED" = false',
+            'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"',
+            'test "$EVENT_AFTER" = "$GITHUB_SHA"',
+            'test "$(git rev-list --parents -n 1 HEAD | wc -w)" -eq 2',
+            'test "$EVENT_BEFORE" = "$SOURCE_COMMIT"',
+            'git cat-file -e "HEAD^:$WORLD_RESULT_PATH"',
+        ):
+            self.assertIn(token, text)
+        pinned = {
+            "actions/checkout":
+                "11bd71901bbe5b1630ceea73d27597364c9af683",
+            "actions/upload-artifact":
+                "ea165f8d65b6e75b540449e92b4886f43607fa02",
+            "actions/download-artifact":
+                "d3f86a106a0bac45b974a628896c90dbdf5c8093",
+        }
+        uses = re.findall(
+            r"(?m)^\s*- uses: (actions/[a-z-]+)@([0-9a-f]{40})$", text,
+        )
+        self.assertEqual(len(uses), text.count("uses: actions/"))
+        self.assertEqual(
+            {name for name, _ in uses}, set(pinned),
+        )
+        for name, revision in uses:
+            self.assertEqual(revision, pinned[name])
         preflight_header = text.split("\n  preflight:", 1)[1].split(
             "\n    steps:", 1
         )[0]
@@ -406,6 +473,33 @@ class ActionAdvantageCampaignTests(unittest.TestCase):
         self.assertIn("(cd transport && sha256sum -c SHA256SUMS.txt)", text)
         self.assertIn("(cd evaluator && sha256sum -c SHA256SUMS.txt)", text)
         self.assertIn("selected.json PREFLIGHT_BUILD_INFO.txt", text)
+        self.assertIn(
+            "no_eligible_threshold_fail_closed_before_safety", text,
+        )
+        self.assertIn(
+            'stream.write("eligible=false\\n")', text,
+        )
+        self.assertIn(
+            "frozen_action_advantage_veto_v1_no_eligible_candidate", text,
+        )
+        self.assertIn("dev/selection-failure.json", text)
+        self.assertIn("dev/DEVELOPMENT_SHA256SUMS.txt", text)
+        self.assertIn(
+            "Fail closed after preserving no-candidate development evidence",
+            text,
+        )
+        self.assertRegex(
+            text,
+            r"(?s)- uses: actions/upload-artifact@[0-9a-f]{40}\n"
+            r"\s+if: \$\{\{ always\(\) \}\}\n"
+            r"\s+with:\n\s+name: action-advantage-v1-development-evidence",
+        )
+        self.assertRegex(
+            text,
+            r"(?s)name: Package the one candidate and immutable evaluator\n"
+            r"\s+if: \$\{\{ success\(\) && "
+            r"steps\.select\.outputs\.eligible == 'true' \}\}",
+        )
         self.assertEqual(text.count("timeout-minutes: 360"), 3)
         self.assertEqual(text.count("/usr/bin/time"), 4)
         self.assertEqual(text.count("wall_s=%e user_s=%U sys_s=%S "), 4)

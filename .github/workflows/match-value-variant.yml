@@ -52,7 +52,7 @@ jobs:
       world_cap: ${{ steps.actors.outputs.world_cap }}
       baseline: ${{ steps.actors.outputs.baseline }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 0
           path: campaign
@@ -255,7 +255,7 @@ jobs:
           echo "arena_sha=$ARENA_SHA" >> "$GITHUB_OUTPUT"
           echo "transport_manifest_sha=$TRANSPORT_SHA" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: match-value-compile-once-transport
           path: transport
@@ -275,7 +275,7 @@ jobs:
         orientation: [candidate-first, baseline-first]
         start: [0, 100]
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: match-value-compile-once-transport
           path: transport
@@ -336,7 +336,7 @@ jobs:
               --provenance "$PROVENANCE")
           sha256sum "raw/$STEM.jsonl" > "raw/$STEM.sha256"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: match-value-stage1-${{ matrix.variant }}-${{ matrix.orientation }}-${{ matrix.start }}
           path: raw
@@ -353,11 +353,11 @@ jobs:
       selected_actor: ${{ steps.select.outputs.selected_actor }}
       selection_sha: ${{ steps.select.outputs.selection_sha }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: match-value-compile-once-transport
           path: transport
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           pattern: match-value-stage1-*
           path: downloads
@@ -464,7 +464,7 @@ jobs:
             xargs -0 sha256sum > merged/SHA256SUMS.txt
           sha256sum -c merged/SHA256SUMS.txt
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: match-value-stage1-complete-evidence
           path: |
@@ -487,11 +487,11 @@ jobs:
         orientation: [candidate-first, baseline-first]
         start: [0, 100, 200, 300, 400]
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: match-value-compile-once-transport
           path: transport
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: match-value-stage1-complete-evidence
           path: stage1
@@ -540,7 +540,7 @@ jobs:
               --provenance "$PROVENANCE")
           sha256sum "raw/$STEM.jsonl" > "raw/$STEM.sha256"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: match-value-stage2-${{ matrix.orientation }}-${{ matrix.start }}
           path: raw
@@ -556,15 +556,15 @@ jobs:
       passed: ${{ steps.gate.outputs.passed }}
       decision_sha: ${{ steps.gate.outputs.decision_sha }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: match-value-compile-once-transport
           path: transport
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: match-value-stage1-complete-evidence
           path: stage1
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           pattern: match-value-stage2-*
           path: downloads
@@ -630,7 +630,7 @@ jobs:
             ! -name SHA256SUMS.txt -print0 | sort -z | \
             xargs -0 sha256sum > merged/SHA256SUMS.txt
           sha256sum -c merged/SHA256SUMS.txt
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: match-value-stage2-complete-evidence
           path: |
@@ -652,11 +652,11 @@ jobs:
         orientation: [candidate-first, baseline-first]
         start: [0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000, 2100, 2200, 2300, 2400]
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: match-value-compile-once-transport
           path: transport
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: match-value-stage2-complete-evidence
           path: stage2
@@ -706,7 +706,7 @@ jobs:
               --provenance "$PROVENANCE")
           sha256sum "raw/$STEM.jsonl" > "raw/$STEM.sha256"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: match-value-final-${{ matrix.orientation }}-${{ matrix.start }}
           path: raw
@@ -719,15 +719,15 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: match-value-compile-once-transport
           path: transport
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: match-value-stage2-complete-evidence
           path: stage2
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           pattern: match-value-final-*
           path: downloads
@@ -803,7 +803,7 @@ jobs:
             sort -z | xargs -0 sha256sum > merged/SHA256SUMS.txt
           sha256sum -c merged/SHA256SUMS.txt
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: match-value-reserved-final-complete-evidence
           path: |

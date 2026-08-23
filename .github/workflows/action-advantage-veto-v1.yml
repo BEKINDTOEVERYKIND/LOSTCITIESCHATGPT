@@ -13,6 +13,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: locked-action-advantage-veto-v1-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   PLAN_PATH: data/experiments/locked_action_advantage_veto_v1_plan.json
   EXECUTION_PATH: data/experiments/locked_action_advantage_veto_v1_execution.json
@@ -49,7 +53,7 @@ jobs:
       world_passed: ${{ steps.guard.outputs.world_passed }}
       transport_manifest_sha: ${{ steps.bind.outputs.transport_manifest_sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 0
           path: campaign
@@ -57,11 +61,22 @@ jobs:
       - name: Fail closed unless this is the one addendum-only launch
         id: guard
         working-directory: campaign
+        env:
+          EVENT_BEFORE: ${{ github.event.before }}
+          EVENT_AFTER: ${{ github.event.after }}
+          EVENT_FORCED: ${{ github.event.forced }}
         run: |
           set -euo pipefail
           test "$GITHUB_EVENT_NAME" = push
           test "$GITHUB_RUN_ATTEMPT" = 1
           test "$GITHUB_REF" = refs/heads/agent/correctness-and-policy-upgrade
+          test "$EVENT_FORCED" = false
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$EVENT_AFTER" = "$GITHUB_SHA"
+          test "$(git rev-list --parents -n 1 HEAD | wc -w)" -eq 2
+          SOURCE_COMMIT="$(git rev-parse HEAD^)"
+          SOURCE_TREE="$(git rev-parse 'HEAD^^{tree}')"
+          test "$EVENT_BEFORE" = "$SOURCE_COMMIT"
           test -f "$EXECUTION_PATH"
           test "$(git diff-tree --no-commit-id --name-only -r HEAD)" = "$EXECUTION_PATH"
           test "$(git diff-tree --no-commit-id --name-status -r HEAD)" = \
@@ -71,8 +86,8 @@ jobs:
             exit 1
           fi
           test "$(git rev-list --all --count -- "$EXECUTION_PATH")" = 1
-          SOURCE_COMMIT="$(git rev-parse HEAD^)"
-          SOURCE_TREE="$(git rev-parse 'HEAD^^{tree}')"
+          test -f "$WORLD_RESULT_PATH"
+          git cat-file -e "HEAD^:$WORLD_RESULT_PATH"
           python3 tools/action_advantage_campaign.py guard-execution \
             --root . --execution "$EXECUTION_PATH" \
             --source-parent-commit "$SOURCE_COMMIT" \
@@ -175,7 +190,7 @@ jobs:
           TRANSPORT_SHA="$(sha256sum transport/SHA256SUMS.txt | cut -d' ' -f1)"
           echo "transport_manifest_sha=$TRANSPORT_SHA" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: action-advantage-v1-transport
           path: transport
@@ -200,7 +215,7 @@ jobs:
       threshold: ${{ steps.select.outputs.threshold }}
       ranker_sha: ${{ steps.select.outputs.ranker_sha }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: action-advantage-v1-transport
           path: transport
@@ -393,10 +408,53 @@ jobs:
               if row["retained"] * 5 >= validation_proposals and
                  row["signed_hybrid_sum"] > 0.0
           ]
+          ranker_sha = sha("dev/ranker.bin")
+          arena_sha = sha("transport/bin/arena")
+          champion_sha = sha("data/champion.bin")
+          records_sha = sha("dev/records.bin")
+          heldout_sha = sha("dev/heldout.json")
           if not eligible:
-              raise SystemExit(
-                  "no threshold retains 20 percent with positive heldout sum"
+              failure = {
+                  "schema_version": 1,
+                  "artifact_kind": (
+                      "frozen_action_advantage_veto_v1_no_eligible_candidate"
+                  ),
+                  "status": (
+                      "no_eligible_threshold_fail_closed_before_safety"
+                  ),
+                  "source_commit": os.environ["SOURCE_COMMIT"],
+                  "source_tree": os.environ["SOURCE_TREE"],
+                  "plan_sha256": os.environ["PLAN_SHA"],
+                  "execution_sha256": os.environ["EXECUTION_SHA"],
+                  "authoritative_world800_result_sha256":
+                      os.environ["WORLD_RESULT_SHA"],
+                  "selected_world_cap": int(os.environ["WORLD_CAP"]),
+                  "arena_sha256": arena_sha,
+                  "champion_sha256": champion_sha,
+                  "records_sha256": records_sha,
+                  "heldout_metrics_sha256": heldout_sha,
+                  "ranker_sha256": ranker_sha,
+                  "validation_proposals": validation_proposals,
+                  "threshold_grid": expected,
+                  "heldout_threshold_metrics": grid,
+                  "eligibility_rule": (
+                      "retained * 5 >= heldout signed proposals and "
+                      "signed_hybrid_sum > 0"
+                  ),
+                  "eligible_thresholds": [],
+                  "candidate_count": 0,
+                  "safety_started": False,
+                  "final_started": False,
+                  "results": None,
+              }
+              Path("dev/selection-failure.json").write_text(
+                  json.dumps(failure, indent=2, sort_keys=True) + "\n",
+                  encoding="utf-8",
               )
+              with Path(os.environ["GITHUB_OUTPUT"]).open(
+                      "a", encoding="utf-8") as stream:
+                  stream.write("eligible=false\n")
+              raise SystemExit(0)
           selected_index, selected = min(
               eligible,
               key=lambda item: (
@@ -407,9 +465,6 @@ jobs:
               ),
           )
           threshold_text = ["0", "0.1", "0.25", "0.5", "1"][selected_index]
-          ranker_sha = sha("dev/ranker.bin")
-          arena_sha = sha("transport/bin/arena")
-          champion_sha = sha("data/champion.bin")
           candidate = os.environ["CANDIDATE_PREFIX"] + threshold_text
           common = (
               f"plan={os.environ['PLAN_SHA']};"
@@ -436,8 +491,8 @@ jobs:
               "selected_world_cap": int(os.environ["WORLD_CAP"]),
               "arena_sha256": arena_sha,
               "champion_sha256": champion_sha,
-              "records_sha256": sha("dev/records.bin"),
-              "heldout_metrics_sha256": sha("dev/heldout.json"),
+              "records_sha256": records_sha,
+              "heldout_metrics_sha256": heldout_sha,
               "ranker_sha256": ranker_sha,
               "threshold_grid": expected,
               "eligibility_rule": "retained * 5 >= heldout signed proposals and signed_hybrid_sum > 0",
@@ -458,6 +513,7 @@ jobs:
           )
           outputs = Path(os.environ["GITHUB_OUTPUT"])
           with outputs.open("a", encoding="utf-8") as stream:
+              stream.write("eligible=true\n")
               stream.write(f"candidate={candidate}\n")
               stream.write(f"baseline={os.environ['BASELINE']}\n")
               stream.write(f"safety_provenance={safety}\n")
@@ -465,9 +521,17 @@ jobs:
               stream.write(f"threshold={threshold_text}\n")
               stream.write(f"ranker_sha={ranker_sha}\n")
           PY
-          sha256sum dev/selected.json > dev/selected.sha256
+          if test -f dev/selected.json; then
+            test ! -e dev/selection-failure.json
+            sha256sum dev/selected.json > dev/selected.sha256
+          else
+            test -f dev/selection-failure.json
+            sha256sum dev/selection-failure.json > \
+              dev/selection-failure.sha256
+          fi
 
       - name: Package the one candidate and immutable evaluator
+        if: ${{ success() && steps.select.outputs.eligible == 'true' }}
         run: |
           set -euo pipefail
           mkdir -p evaluator/bin evaluator/data/models evaluator/tools evaluator/bindings
@@ -485,19 +549,39 @@ jobs:
           (cd evaluator && sha256sum -c SHA256SUMS.txt)
           cp evaluator/SHA256SUMS.txt dev/EVALUATOR_SHA256SUMS.txt
 
-      - uses: actions/upload-artifact@v4
+      - name: Bind the complete development evidence before upload
+        if: ${{ always() && (steps.select.outputs.eligible == 'true' || steps.select.outputs.eligible == 'false') }}
+        run: |
+          set -euo pipefail
+          (cd dev && find . -maxdepth 1 -type f \
+            ! -name DEVELOPMENT_SHA256SUMS.txt -print0 | \
+            sort -z | xargs -0 sha256sum > DEVELOPMENT_SHA256SUMS.txt)
+          (cd dev && sha256sum -c DEVELOPMENT_SHA256SUMS.txt)
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: ${{ always() }}
         with:
           name: action-advantage-v1-development-evidence
           path: dev
           if-no-files-found: error
           retention-days: 30
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: ${{ success() && steps.select.outputs.eligible == 'true' }}
         with:
           name: action-advantage-v1-evaluator
           path: evaluator
           if-no-files-found: error
           retention-days: 30
+
+      - name: Fail closed after preserving no-candidate development evidence
+        if: ${{ always() && steps.select.outputs.eligible == 'false' }}
+        run: |
+          set -euo pipefail
+          test -f dev/selection-failure.json
+          test -f dev/DEVELOPMENT_SHA256SUMS.txt
+          echo "no eligible action-advantage threshold; safety is forbidden" >&2
+          exit 1
 
   safety_evaluate:
     if: ${{ github.run_attempt == 1 && needs.train_and_freeze.result == 'success' }}
@@ -511,7 +595,7 @@ jobs:
         orientation: [candidate-first, baseline-first]
         start: [0, 20, 40, 60, 80, 100, 120, 140, 160, 180]
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: action-advantage-v1-evaluator
           path: evaluator
@@ -551,7 +635,7 @@ jobs:
               --provenance "$PROVENANCE"
           sha256sum "${OUT}.jsonl" > "${OUT}.sha256"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: action-advantage-v1-safety-${{ matrix.orientation }}-${{ matrix.start }}
           path: raw
@@ -566,12 +650,12 @@ jobs:
     outputs:
       passed: ${{ steps.decision.outputs.passed }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: action-advantage-v1-evaluator
           path: evaluator
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           pattern: action-advantage-v1-safety-*
           path: downloads
@@ -628,7 +712,7 @@ jobs:
             sort -z | xargs -0 sha256sum > merged/SHA256SUMS.txt
           sha256sum -c merged/SHA256SUMS.txt
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: action-advantage-v1-safety-final-evidence
           path: |
@@ -650,7 +734,7 @@ jobs:
         orientation: [candidate-first, baseline-first]
         start: [0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000, 2100, 2200, 2300, 2400]
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: action-advantage-v1-evaluator
           path: evaluator
@@ -690,7 +774,7 @@ jobs:
               --provenance "$PROVENANCE"
           sha256sum "${OUT}.jsonl" > "${OUT}.sha256"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: action-advantage-v1-final-${{ matrix.orientation }}-${{ matrix.start }}
           path: raw
@@ -705,12 +789,12 @@ jobs:
     outputs:
       passed: ${{ steps.decision.outputs.passed }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: action-advantage-v1-evaluator
           path: evaluator
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           pattern: action-advantage-v1-final-*
           path: downloads
@@ -767,7 +851,7 @@ jobs:
             sort -z | xargs -0 sha256sum > merged/SHA256SUMS.txt
           sha256sum -c merged/SHA256SUMS.txt
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: action-advantage-v1-promotion-final-evidence
           path: |

@@ -402,9 +402,8 @@ def expected_execution(
     }
 
 
-def guard_execution(
-    root: Path, execution_path: Path, source_commit: str,
-    source_tree: str,
+def _execution_from_locked_inputs(
+    root: Path, source_commit: str, source_tree: str,
 ) -> dict[str, Any]:
     _canonical_sha(source_commit, 160, "source commit")
     _canonical_sha(source_tree, 160, "source tree")
@@ -413,10 +412,35 @@ def guard_execution(
     world_path = root / WORLD_RESULT_PATH
     _, passed, winner, world_cap = _world_result(world_path)
     world_sha = sha256(world_path)
-    actual = strict_json(execution_path)
-    expected = expected_execution(
+    return expected_execution(
         root, source_commit, source_tree, world_sha, passed, winner, world_cap,
     )
+
+
+def prepare_execution(
+    root: Path, execution_path: Path, source_commit: str,
+    source_tree: str,
+) -> dict[str, Any]:
+    """Atomically create the sole canonical launch addendum without clobbering."""
+    canonical = (root / EXECUTION_PATH).resolve()
+    if execution_path.resolve() != canonical:
+        raise EvidenceError("execution output must use the canonical path")
+    expected = _execution_from_locked_inputs(
+        root, source_commit, source_tree,
+    )
+    execution_path.parent.mkdir(parents=True, exist_ok=True)
+    _write_json(execution_path, expected)
+    return expected
+
+
+def guard_execution(
+    root: Path, execution_path: Path, source_commit: str,
+    source_tree: str,
+) -> dict[str, Any]:
+    expected = _execution_from_locked_inputs(
+        root, source_commit, source_tree,
+    )
+    actual = strict_json(execution_path)
     if actual != expected:
         raise EvidenceError("execution addendum does not exactly match locked inputs")
     return expected
@@ -865,12 +889,14 @@ def _parse() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     command = parser.add_subparsers(dest="command", required=True)
 
-    guard = command.add_parser("guard-execution")
-    guard.add_argument("--root", type=Path, default=Path("."))
-    guard.add_argument("--execution", type=Path, required=True)
-    guard.add_argument("--source-commit", required=True)
-    guard.add_argument("--source-tree", required=True)
-    guard.add_argument("--output", type=Path)
+    for name in ("prepare-execution", "guard-execution"):
+        execution = command.add_parser(name)
+        execution.add_argument("--root", type=Path, default=Path("."))
+        execution.add_argument("--execution", type=Path, required=True)
+        execution.add_argument("--source-commit", required=True)
+        execution.add_argument("--source-tree", required=True)
+        if name == "guard-execution":
+            execution.add_argument("--output", type=Path)
 
     tables = command.add_parser("table-manifest")
     tables.add_argument("--raw", type=Path, required=True)
@@ -921,7 +947,11 @@ def _parse() -> argparse.Namespace:
 def main() -> int:
     args = _parse()
     try:
-        if args.command == "guard-execution":
+        if args.command == "prepare-execution":
+            prepare_execution(
+                args.root, args.execution, args.source_commit, args.source_tree,
+            )
+        elif args.command == "guard-execution":
             value = guard_execution(
                 args.root, args.execution, args.source_commit, args.source_tree,
             )
