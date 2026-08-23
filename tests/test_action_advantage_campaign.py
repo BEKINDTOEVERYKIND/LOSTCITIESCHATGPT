@@ -264,7 +264,24 @@ class ActionAdvantageCampaignTests(unittest.TestCase):
     def test_unchanged_actor_gates_and_fresh_namespaces(self) -> None:
         plan = strict_json(PLAN)
         firewall = plan["seed_firewall"]
-        self.assertEqual(firewall["development_namespace"], "20260901")
+        self.assertEqual(firewall["development_namespace"], "20260903")
+        self.assertEqual(
+            plan["development_data"]["generator_seed"], "202609030101"
+        )
+        self.assertEqual(plan["training"]["split_seed"], "202609030201")
+        self.assertEqual(
+            firewall["burned_development_seeds"],
+            {
+                "generator_seed": "202609010101",
+                "split_seed_used_by_smoke": "1",
+                "reason": (
+                    "a two-match local implementation smoke generated and "
+                    "inspected records in the original namespace before launch; "
+                    "the entire original development namespace is excluded from "
+                    "campaign evidence"
+                ),
+            },
+        )
         self.assertEqual(firewall["safety_final_namespace"], "20260902")
         seeds = [
             firewall["safety"]["candidate_first"],
@@ -274,6 +291,10 @@ class ActionAdvantageCampaignTests(unittest.TestCase):
         ]
         self.assertEqual(len(seeds), len(set(seeds)))
         self.assertTrue(all(seed.startswith("20260902") for seed in seeds))
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("DEVELOPMENT_SEED: '202609030101'", text)
+        self.assertIn("SPLIT_SEED: '202609030201'", text)
+        self.assertNotIn("DEVELOPMENT_SEED: '202609010101'", text)
 
         safety = plan["safety_screen"]
         self.assertEqual(safety["pairs_per_orientation"], 200)
@@ -301,7 +322,6 @@ class ActionAdvantageCampaignTests(unittest.TestCase):
             "zero capped rounds, gaps, overlaps, incomplete footers, malformed rows, hash failures, provenance drift, or operational errors",
         ])
 
-        text = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("needs.safety_merge.outputs.passed == 'true'", text)
         self.assertIn("needs.safety_merge.result == 'success'", text)
         self.assertIn("needs.final_evaluate.result == 'success'", text)

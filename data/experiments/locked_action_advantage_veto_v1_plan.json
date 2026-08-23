@@ -32,7 +32,7 @@
   "development_data": {
     "source": "generated maintained-actor self-play only",
     "proposal_population": "every zero-cap top-policy-prefix pair authorized by maintained primary-plus-fresh confirmation; collection occurs at the ranker gate even if a later low-prior challenger becomes the actor's final move",
-    "generator_seed": "202609010101",
+    "generator_seed": "202609030101",
     "source_matches": 64,
     "completion_rule": "finish all 64 predeclared generated matches; no proposal cap, early stop, or adaptive extension",
     "eligible_ply_low": 14,
@@ -54,7 +54,7 @@
   },
   "training": {
     "split": "source_match_id is an indivisible group; deterministic 750/250 train/heldout assignment",
-    "split_seed": "202609010201",
+    "split_seed": "202609030201",
     "validation_permille": 250,
     "epochs": 24,
     "batch": 32,
@@ -96,7 +96,12 @@
     "optional_stopping": false
   },
   "seed_firewall": {
-    "development_namespace": "20260901",
+    "development_namespace": "20260903",
+    "burned_development_seeds": {
+      "generator_seed": "202609010101",
+      "split_seed_used_by_smoke": "1",
+      "reason": "a two-match local implementation smoke generated and inspected records in the original namespace before launch; the entire original development namespace is excluded from campaign evidence"
+    },
     "safety_final_namespace": "20260902",
     "safety": {
       "candidate_first": "202609020301",
@@ -106,7 +111,7 @@
       "candidate_first": "202609020401",
       "baseline_first": "202609020402"
     },
-    "rule": "development, threshold calibration, safety, and final namespaces are disjoint; safety and final seeds are untouched before their one locked stage"
+    "rule": "the burned local-smoke namespace, fresh development and threshold-calibration namespace, and safety/final namespace are disjoint; safety and final seeds are untouched before their one locked stage"
   },
   "safety_screen": {
     "execute_after_threshold_freeze": true,
