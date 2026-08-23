@@ -1,0 +1,693 @@
+{
+  "artifact_kind": "immutable_exact_17_audit_definition_lock",
+  "branch": "agent/correctness-and-policy-upgrade",
+  "build": {
+    "cflags": "-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11",
+    "compiler": "gcc",
+    "compiler_semantic_version_command": "gcc -dumpfullversion -dumpversion",
+    "ldflags": "-lm -pthread",
+    "required_compiler_semantic_version": "13.3.0",
+    "runner": "ubuntu-24.04"
+  },
+  "case_rows": [
+    {
+      "audit_seed": "202608230103",
+      "belief_card": null,
+      "candidates": [
+        "Bx p deck",
+        "Bx p W"
+      ],
+      "case_id": "ui-221-p3",
+      "min_worlds": 1024,
+      "ply": 3,
+      "review": "Low W2 pickup should not rival the deck.",
+      "reviewed_moves": [
+        "Bx p deck"
+      ],
+      "source_seed": "2214615196",
+      "state": "data/probes/ui_seed2214615196_p3.state",
+      "state_sha256": "36ecf180f669e167c09b095899d94f7de2df8a5b5580e01f423242b6d99c02da"
+    },
+    {
+      "audit_seed": "202608230104",
+      "belief_card": null,
+      "candidates": [
+        "Bx p deck",
+        "Bx p W"
+      ],
+      "case_id": "ui-221-p4",
+      "min_worlds": 1024,
+      "ply": 4,
+      "review": "Low W2 pickup should not rival the deck.",
+      "reviewed_moves": [
+        "Bx p deck"
+      ],
+      "source_seed": "2214615196",
+      "state": "data/probes/ui_seed2214615196_p4.state",
+      "state_sha256": "c953df436306d2f2b46c5412621ef127fc4faad355361c0c790a8c93f9122456"
+    },
+    {
+      "audit_seed": "202608230108",
+      "belief_card": null,
+      "candidates": [
+        "B3 p deck",
+        "B3 p W"
+      ],
+      "case_id": "ui-221-p8",
+      "min_worlds": 1024,
+      "ply": 8,
+      "review": "Low W2 pickup should not rival the deck.",
+      "reviewed_moves": [
+        "B3 p deck"
+      ],
+      "source_seed": "2214615196",
+      "state": "data/probes/ui_seed2214615196_p8.state",
+      "state_sha256": "d89468885bde9770052bd802ee5ce99c5a6f988394d34d9cab9d47245a385302"
+    },
+    {
+      "audit_seed": "202608230110",
+      "belief_card": null,
+      "candidates": [
+        "Wx p deck",
+        "Wx p W"
+      ],
+      "case_id": "ui-221-p10",
+      "min_worlds": 2048,
+      "ply": 10,
+      "review": "The W2 pickup was called overrated; prior evidence was inconclusive and must be reported honestly.",
+      "reviewed_moves": [
+        "Wx p deck"
+      ],
+      "source_seed": "2214615196",
+      "state": "data/probes/ui_seed2214615196_p10.state",
+      "state_sha256": "f93318b6831131a95392ad0a8bceed4a0021c35a5992fcf2cb429ea7eebbb217"
+    },
+    {
+      "audit_seed": "202608230112",
+      "belief_card": null,
+      "candidates": [
+        "W4 p deck",
+        "W4 p R"
+      ],
+      "case_id": "ui-221-p12",
+      "min_worlds": 1024,
+      "ply": 12,
+      "review": "Prefer the deck to the low R2 pickup.",
+      "reviewed_moves": [
+        "W4 p deck"
+      ],
+      "source_seed": "2214615196",
+      "state": "data/probes/ui_seed2214615196_p12.state",
+      "state_sha256": "5846c87400090f42414a7ae544b4e562f3856d31f54fe8612ae288481ebc2cb0"
+    },
+    {
+      "audit_seed": "202608230113",
+      "belief_card": "Y9",
+      "candidates": [],
+      "case_id": "ui-221-p13",
+      "min_worlds": 1024,
+      "ply": 13,
+      "review": "Audit the exact-cardinality belief rather than an independent-card approximation.",
+      "reviewed_moves": [],
+      "source_seed": "2214615196",
+      "state": "data/probes/ui_seed2214615196_p13.state",
+      "state_sha256": "4e1ceaf963b1ddc518bc900d52f9615bb984dd42fc75580d72b1b0851dd900d4",
+      "view": "data/probes/ui_seed2214615196_p13.view.json",
+      "view_sha256": "a9ef8595235d5b1de3e168c13cbe57fe4943fd703cce665d1acee68b46944725"
+    },
+    {
+      "audit_seed": "202608230116",
+      "belief_card": null,
+      "candidates": [
+        "Y2 d deck",
+        "W7 p deck",
+        "Yx d deck"
+      ],
+      "case_id": "ui-221-p16",
+      "min_worlds": 1024,
+      "ply": 16,
+      "review": "Preserve White options instead of committing W7 early.",
+      "reviewed_moves": [
+        "Y2 d deck"
+      ],
+      "source_seed": "2214615196",
+      "state": "data/probes/ui_seed2214615196_p16.state",
+      "state_sha256": "e6edd1da85d41b44d26e2b2d110a5469b4be14c517d7272006c1317a08c1fce1"
+    },
+    {
+      "audit_seed": "202608230120",
+      "belief_card": null,
+      "candidates": [
+        "W3 d deck",
+        "W7 p deck",
+        "Wx d deck"
+      ],
+      "case_id": "ui-221-p20",
+      "min_worlds": 1024,
+      "ply": 20,
+      "review": "W7 was the concern; W3 and the wager discard were both reviewed, with no forced ordering between close discards.",
+      "reviewed_moves": [
+        "W3 d deck",
+        "Wx d deck"
+      ],
+      "source_seed": "2214615196",
+      "state": "data/probes/ui_seed2214615196_p20.state",
+      "state_sha256": "5282e4e8ef372d0fc72dfd5125af4b32c5abcc655ec94fd9cc33fabb52c19d01"
+    },
+    {
+      "audit_seed": "202608230214",
+      "belief_card": null,
+      "candidates": [
+        "R4 d deck",
+        "G7 p deck",
+        "B3 d deck"
+      ],
+      "case_id": "showcase-572-p14",
+      "min_worlds": 1024,
+      "ply": 14,
+      "review": "Evaluate both suggested alternatives against the recorded R4 discard; do not force-rank G7 versus B3.",
+      "reviewed_moves": [
+        "G7 p deck",
+        "B3 d deck"
+      ],
+      "source_seed": "5726968372613385",
+      "state": "data/probes/showcase_5726968372613385_p14.state",
+      "state_sha256": "b6c77e8b81d641bc0e9a92385980373ca2994874bcae869bc1fa5e94c9eb6b15"
+    },
+    {
+      "audit_seed": "202608230215",
+      "belief_card": null,
+      "candidates": [
+        "B5 d deck",
+        "W4 d deck"
+      ],
+      "case_id": "showcase-572-p15",
+      "min_worlds": 1024,
+      "ply": 15,
+      "review": "Preserve W4 and discard B5.",
+      "reviewed_moves": [
+        "B5 d deck"
+      ],
+      "source_seed": "5726968372613385",
+      "state": "data/probes/showcase_5726968372613385_p15.state",
+      "state_sha256": "3d46c45bac79b78d0d37b198ab7440a9f835c69469bc6b0f8f99aca265e8a12b"
+    },
+    {
+      "audit_seed": "202608230217",
+      "belief_card": null,
+      "candidates": [
+        "B5 d R",
+        "R8 p R"
+      ],
+      "case_id": "showcase-572-p17",
+      "min_worlds": 1024,
+      "ply": 17,
+      "review": "Discard B5 and take R4 rather than prematurely play R8.",
+      "reviewed_moves": [
+        "B5 d R"
+      ],
+      "source_seed": "5726968372613385",
+      "state": "data/probes/showcase_5726968372613385_p17.state",
+      "state_sha256": "48dcd397d6378a3340b65e0fa7636685e01f6675bb082679ce4de0e688afb3d3"
+    },
+    {
+      "audit_seed": "202608230232",
+      "belief_card": null,
+      "candidates": [
+        "W10 p deck",
+        "Bx p deck",
+        "R10 p deck"
+      ],
+      "case_id": "showcase-572-p32",
+      "min_worlds": 1024,
+      "ply": 32,
+      "review": "Compare the third Blue wager with safe ten plays.",
+      "reviewed_moves": [
+        "W10 p deck",
+        "R10 p deck"
+      ],
+      "source_seed": "5726968372613385",
+      "state": "data/probes/showcase_5726968372613385_p32.state",
+      "state_sha256": "af77ac75182db847db1b09e2fc53a75e44def177305120becc6e7f691044a63a"
+    },
+    {
+      "audit_seed": "202608230321",
+      "belief_card": null,
+      "candidates": [
+        "Bx d deck",
+        "Bx d G",
+        "G5 p deck"
+      ],
+      "case_id": "ui-725-p21",
+      "min_worlds": 1024,
+      "ply": 21,
+      "review": "Avoid overvaluing G5; audit the clean Blue-wager discard with both relevant draw sources.",
+      "reviewed_moves": [
+        "Bx d deck",
+        "Bx d G"
+      ],
+      "source_seed": "725402798",
+      "state": "data/probes/ui_seed725402798_p21.state",
+      "state_sha256": "7868250ed7bfa0340c3810aee4e6c4987b9045e99f832c8362d9d2884d748b12"
+    },
+    {
+      "audit_seed": "202608230322",
+      "belief_card": null,
+      "candidates": [
+        "R2 d deck",
+        "R7 p deck"
+      ],
+      "case_id": "ui-725-p22",
+      "min_worlds": 1024,
+      "ply": 22,
+      "review": "Discard R2 rather than commit R7 early.",
+      "reviewed_moves": [
+        "R2 d deck"
+      ],
+      "source_seed": "725402798",
+      "state": "data/probes/ui_seed725402798_p22.state",
+      "state_sha256": "c70dcdecbeca53a1c1c37c7536e98b3a5a1854fe42dcbe7eff2634dd3ea4809d"
+    },
+    {
+      "audit_seed": "202608230323",
+      "belief_card": null,
+      "candidates": [
+        "Wx d deck",
+        "G5 p deck"
+      ],
+      "case_id": "ui-725-p23",
+      "min_worlds": 1024,
+      "ply": 23,
+      "review": "Avoid overvaluing G5 when the White wager can be discarded.",
+      "reviewed_moves": [
+        "Wx d deck"
+      ],
+      "source_seed": "725402798",
+      "state": "data/probes/ui_seed725402798_p23.state",
+      "state_sha256": "49aa9380b2bcc49b3d55fb971b79e910ec98b71eba1b4be7e03b499d21ca80d7"
+    },
+    {
+      "audit_seed": "202608230325",
+      "belief_card": null,
+      "candidates": [
+        "Y4 p B",
+        "Y4 p deck"
+      ],
+      "case_id": "ui-725-p25",
+      "min_worlds": 1024,
+      "ply": 25,
+      "review": "The face-up Blue wager pickup must be evaluated even when it falls outside the policy prefix.",
+      "reviewed_moves": [
+        "Y4 p B"
+      ],
+      "source_seed": "725402798",
+      "state": "data/probes/ui_seed725402798_p25.state",
+      "state_sha256": "ad53445e1ef4d114cdb0a29547180f4e2f47019a77c168d7733a4deaf4ea0cd2"
+    },
+    {
+      "audit_seed": "202608230444",
+      "belief_card": null,
+      "candidates": [
+        "W10 p deck",
+        "W10 p G"
+      ],
+      "case_id": "ui-956-p44",
+      "min_worlds": 1024,
+      "ply": 44,
+      "review": "End the round through the last deck card instead of gifting another turn for a Green-wager pickup.",
+      "reviewed_moves": [
+        "W10 p deck"
+      ],
+      "source_seed": "95647345759839",
+      "state": "data/probes/ui_seed95647345759839_p44.state",
+      "state_sha256": "a1417203cff95c13bddc947c87e401b440e4f9c4f3489fcfcb6a792dc2ac6447"
+    }
+  ],
+  "cases": {
+    "action_panel_cases": 17,
+    "case_count": 17,
+    "case_ids": [
+      "ui-221-p3",
+      "ui-221-p4",
+      "ui-221-p8",
+      "ui-221-p10",
+      "ui-221-p12",
+      "ui-221-p13",
+      "ui-221-p16",
+      "ui-221-p20",
+      "showcase-572-p14",
+      "showcase-572-p15",
+      "showcase-572-p17",
+      "showcase-572-p32",
+      "ui-725-p21",
+      "ui-725-p22",
+      "ui-725-p23",
+      "ui-725-p25",
+      "ui-956-p44"
+    ],
+    "definition_sha256": "c065a0d0e86f1db392b9e6e7382518cff947770be519417d899c21a965b223b5",
+    "fixed_k_belief_cases": 1,
+    "nominated_action_cases": 16
+  },
+  "definition": {
+    "commit": "fbc98083f58eb9a377357bd83bea2bfe7191828a",
+    "tree": "fe85da127d56991123841424786b9a835aca42de"
+  },
+  "definition_files": [
+    {
+      "git_mode": "100644",
+      "path": ".github/workflows/commented-ply-audit.yml",
+      "sha256": "86421257266f6db2b43617f1f6ef5185089e35c1e9c4e00b2af45b32f66e0b05",
+      "size": 28096
+    },
+    {
+      "git_mode": "100644",
+      "path": "Makefile",
+      "sha256": "a6693a95854bf0d76958887adaa66174a5987300d41039666ae82727b7962ec3",
+      "size": 10140
+    },
+    {
+      "git_mode": "100644",
+      "path": "data/experiments/locked_commented_ply_audit_plan.json",
+      "sha256": "3eb528d30d85f4e6f65fe250a1f1693882320aefe00bdab942819c6c8eecae9c",
+      "size": 13396
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/agent.c",
+      "sha256": "c840a8b8f90fc82af674943f9fec06747cad296ccf6a43570ddebe02a19e77b9",
+      "size": 29670
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/agent.h",
+      "sha256": "d2fb9678d437ee8c47bea47f83eb62640e0da6d1372d17f509f2904f4155fc56",
+      "size": 23182
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/features.c",
+      "sha256": "6db470ca045abd5f06a5f9657e25e1a1220c1a25bd54830b7ac52d834ab901f3",
+      "size": 6430
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/features.h",
+      "sha256": "eff2f2958dbf7045e313f44fcc9c44051667b0b0bafe971ebeeb5641db71ee99",
+      "size": 2566
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/heuristic.c",
+      "sha256": "c4f544d8495b548ad7c25ef2551064f4bfcb60eb63b0e96d7391713cf577c9d4",
+      "size": 4123
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/heuristic.h",
+      "sha256": "afe303f8253e84fb6320821ccf905b97e4969473d8be80d65ef9b6b20a7bdf42",
+      "size": 665
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/late_resolver.c",
+      "sha256": "f61467779975ffcaba986078ebdc275b0d8cd7bc4774045b704a02013d54142b",
+      "size": 34134
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/late_resolver.h",
+      "sha256": "979a9915919e5fdfa4c323ed5b9da576e82731a1ad88a0930c8347742720e64b",
+      "size": 4510
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/lc.c",
+      "sha256": "7ed33651a77651e73b70eba7d90f6e7a8de2d4d491c1c176aadf48889c889de3",
+      "size": 9766
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/lc.h",
+      "sha256": "1d5227abf42a1c2f2a883b35015e69836f7467b60791ce32d9ca21cb7bfb09a7",
+      "size": 7772
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/match.c",
+      "sha256": "0f7b4bad13631da876d7379af61e4d61d91c59c546cf92790cbeba7b1230b14d",
+      "size": 10174
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/match.h",
+      "sha256": "9e1c44370b383b2875d04ad96e9b3e46b6e37e9e93eb104a91fe9d041b2bed79",
+      "size": 1813
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/match_value.c",
+      "sha256": "400bc1f3d5ae419e1226671bb52e4458d823ede6b31620abcf98e6c7c8d97f24",
+      "size": 15993
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/match_value.h",
+      "sha256": "ca80f267eb2ec4187b518aae31f7546adaf698dbd82ea3e00792c52efe9e54a2",
+      "size": 5051
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/net.c",
+      "sha256": "f932f3b679b238238ab409bf1f4eac1315cc5beff0efeff24f2fe7204175a551",
+      "size": 21571
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/net.h",
+      "sha256": "d29623943ba6411496da270285d26451f402e1b709056718527f49916a0f2a49",
+      "size": 6223
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/planner.c",
+      "sha256": "a3359632ccf9d9b1fec0efe069a988167713d88abbc29d6581e9f93142364636",
+      "size": 12601
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/planner.h",
+      "sha256": "08894bc723d4f9ab6475a3faf4fd264d283bad13d0807db27f989e314c52af75",
+      "size": 2965
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/rollout.c",
+      "sha256": "fed250b276fd47010f33bc3bf4f681d332a56621eb37a3c422f89ecc2d3c7ded",
+      "size": 174457
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/search.c",
+      "sha256": "41cfd853bab77e1252339608134db851df266af01c09daaa1fccf34b0fe11d70",
+      "size": 8509
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/search.h",
+      "sha256": "edbc8ebd54afc243b04baf7d29352fb04f6ceaebf78c8943d71e001d1a3cfe0f",
+      "size": 15133
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/spec.c",
+      "sha256": "791d403e6ca246553b5d41323d8456839274bf8334e38463c0050eaaf09b10bd",
+      "size": 18311
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/spec.h",
+      "sha256": "46fb47ec7e02d487f7c04e0318e9973c6c5d6ee604e3605ab67d5563c884d273",
+      "size": 15011
+    },
+    {
+      "git_mode": "100644",
+      "path": "tests/test_commented_ply_audit.py",
+      "sha256": "ca09dd46441afcd669db0d74ec9658867bcdc2ee88da3efeb491b194b3ea4577",
+      "size": 18129
+    },
+    {
+      "git_mode": "100644",
+      "path": "tests/test_commented_ply_execution.py",
+      "sha256": "0acf79aaddb7c28818ac99e15b5b326b722aee81f3c559ee2799f63d4cae4b7c",
+      "size": 18320
+    },
+    {
+      "git_mode": "100644",
+      "path": "tools/audit_commented_plies.py",
+      "sha256": "c8db97995fefd3cb975f0cc46127e329d23065fa5e071d7b3fe7c16e637a0b12",
+      "size": 43705
+    },
+    {
+      "git_mode": "100644",
+      "path": "tools/commented_ply_eval.c",
+      "sha256": "3bb8a50002f954c7f7db775270f2cb1e6a5fa8fce8875c9a6fe9a6e68b4d33fd",
+      "size": 35122
+    },
+    {
+      "git_mode": "100644",
+      "path": "tools/commented_ply_execution.py",
+      "sha256": "089f2c20a0f2cdd7652f14eb64ffc991cea32cb1ab43775d1ab77d1003619bdb",
+      "size": 30915
+    },
+    {
+      "git_mode": "100644",
+      "path": "tools/flagged_ply_execution.py",
+      "sha256": "8c0b91fb2297563900c39e59d2c279431bb3abf4407b60714a50515e31374ab0",
+      "size": 33860
+    },
+    {
+      "git_mode": "100644",
+      "path": "tools/gate_actor_panel.py",
+      "sha256": "50ae52c66698d04cd4cc13af35c3d0eaed72e37bd76657dae12aa10f09dcc2ed",
+      "size": 11652
+    },
+    {
+      "git_mode": "100644",
+      "path": "tools/match_value_campaign.py",
+      "sha256": "96f0783374f8e26f2f79008e5976d9db1130157feed092ea519c5c5911ce4690",
+      "size": 44252
+    },
+    {
+      "git_mode": "100644",
+      "path": "tools/merge_arena.py",
+      "sha256": "9cad23c9e6550ea36d7721acf8e64144a44058083ad4aeb5bb5613a3a79139fb",
+      "size": 28665
+    }
+  ],
+  "locked_artifacts": [
+    {
+      "git_mode": "100644",
+      "path": "data/probes/showcase_5726968372613385_p14.state",
+      "sha256": "b6c77e8b81d641bc0e9a92385980373ca2994874bcae869bc1fa5e94c9eb6b15",
+      "size": 275
+    },
+    {
+      "git_mode": "100644",
+      "path": "data/probes/showcase_5726968372613385_p15.state",
+      "sha256": "3d46c45bac79b78d0d37b198ab7440a9f835c69469bc6b0f8f99aca265e8a12b",
+      "size": 278
+    },
+    {
+      "git_mode": "100644",
+      "path": "data/probes/showcase_5726968372613385_p17.state",
+      "sha256": "48dcd397d6378a3340b65e0fa7636685e01f6675bb082679ce4de0e688afb3d3",
+      "size": 284
+    },
+    {
+      "git_mode": "100644",
+      "path": "data/probes/showcase_5726968372613385_p32.state",
+      "sha256": "af77ac75182db847db1b09e2fc53a75e44def177305120becc6e7f691044a63a",
+      "size": 320
+    },
+    {
+      "git_mode": "100644",
+      "path": "data/probes/ui_seed2214615196_p10.state",
+      "sha256": "f93318b6831131a95392ad0a8bceed4a0021c35a5992fcf2cb429ea7eebbb217",
+      "size": 262
+    },
+    {
+      "git_mode": "100644",
+      "path": "data/probes/ui_seed2214615196_p12.state",
+      "sha256": "5846c87400090f42414a7ae544b4e562f3856d31f54fe8612ae288481ebc2cb0",
+      "size": 269
+    },
+    {
+      "git_mode": "100644",
+      "path": "data/probes/ui_seed2214615196_p13.state",
+      "sha256": "4e1ceaf963b1ddc518bc900d52f9615bb984dd42fc75580d72b1b0851dd900d4",
+      "size": 272
+    },
+    {
+      "git_mode": "100644",
+      "path": "data/probes/ui_seed2214615196_p13.view.json",
+      "sha256": "a9ef8595235d5b1de3e168c13cbe57fe4943fd703cce665d1acee68b46944725",
+      "size": 1095
+    },
+    {
+      "git_mode": "100644",
+      "path": "data/probes/ui_seed2214615196_p16.state",
+      "sha256": "e6edd1da85d41b44d26e2b2d110a5469b4be14c517d7272006c1317a08c1fce1",
+      "size": 281
+    },
+    {
+      "git_mode": "100644",
+      "path": "data/probes/ui_seed2214615196_p20.state",
+      "sha256": "5282e4e8ef372d0fc72dfd5125af4b32c5abcc655ec94fd9cc33fabb52c19d01",
+      "size": 290
+    },
+    {
+      "git_mode": "100644",
+      "path": "data/probes/ui_seed2214615196_p3.state",
+      "sha256": "36ecf180f669e167c09b095899d94f7de2df8a5b5580e01f423242b6d99c02da",
+      "size": 240
+    },
+    {
+      "git_mode": "100644",
+      "path": "data/probes/ui_seed2214615196_p4.state",
+      "sha256": "c953df436306d2f2b46c5412621ef127fc4faad355361c0c790a8c93f9122456",
+      "size": 243
+    },
+    {
+      "git_mode": "100644",
+      "path": "data/probes/ui_seed2214615196_p8.state",
+      "sha256": "d89468885bde9770052bd802ee5ce99c5a6f988394d34d9cab9d47245a385302",
+      "size": 256
+    },
+    {
+      "git_mode": "100644",
+      "path": "data/probes/ui_seed725402798_p21.state",
+      "sha256": "7868250ed7bfa0340c3810aee4e6c4987b9045e99f832c8362d9d2884d748b12",
+      "size": 296
+    },
+    {
+      "git_mode": "100644",
+      "path": "data/probes/ui_seed725402798_p22.state",
+      "sha256": "c70dcdecbeca53a1c1c37c7536e98b3a5a1854fe42dcbe7eff2634dd3ea4809d",
+      "size": 299
+    },
+    {
+      "git_mode": "100644",
+      "path": "data/probes/ui_seed725402798_p23.state",
+      "sha256": "49aa9380b2bcc49b3d55fb971b79e910ec98b71eba1b4be7e03b499d21ca80d7",
+      "size": 302
+    },
+    {
+      "git_mode": "100644",
+      "path": "data/probes/ui_seed725402798_p25.state",
+      "sha256": "ad53445e1ef4d114cdb0a29547180f4e2f47019a77c168d7733a4deaf4ea0cd2",
+      "size": 308
+    },
+    {
+      "git_mode": "100644",
+      "path": "data/probes/ui_seed95647345759839_p44.state",
+      "sha256": "a1417203cff95c13bddc947c87e401b440e4f9c4f3489fcfcb6a792dc2ac6447",
+      "size": 366
+    },
+    {
+      "git_mode": "100644",
+      "path": "data/champion.bin",
+      "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+      "size": 2823748
+    }
+  ],
+  "results": null,
+  "schema": "lc-commented-ply-audit-definition-lock-v1",
+  "status": "sealed_before_authoritative_actor_selection",
+  "teacher_checkpoint": {
+    "git_mode": "100644",
+    "path": "data/champion.bin",
+    "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+    "size": 2823748
+  }
+}
