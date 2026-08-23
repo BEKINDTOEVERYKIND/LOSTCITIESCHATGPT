@@ -652,6 +652,8 @@ int main(int argc, char **argv)
                 !gen.continuation_net || gen.continuation_net == loaded_root;
             int veto_shared_root =
                 loaded_root && gen.veto_continuation_net == loaded_root;
+            int ranker_shared_root =
+                loaded_root && gen.action_ranker_net == loaded_root;
             gen.net = net;
             gen.owns_net = 0;
             if (shared_continuation) {
@@ -661,6 +663,10 @@ int main(int argc, char **argv)
             if (veto_shared_root) {
                 gen.veto_continuation_net = net;
                 gen.owns_veto_continuation_net = 0;
+            }
+            if (ranker_shared_root) {
+                gen.action_ranker_net = net;
+                gen.owns_action_ranker_net = 0;
             }
             free((void *)loaded_root);
         }
@@ -714,7 +720,7 @@ int main(int argc, char **argv)
                ga / gdone, gp / gdone);
         fflush(stdout);
         if (gen.owns_net || gen.owns_continuation_net ||
-            gen.owns_veto_continuation_net)
+            gen.owns_veto_continuation_net || gen.owns_action_ranker_net)
             spec_release(&gen);
         free(jobs); free(th);
 

@@ -11,6 +11,7 @@ void agent_default(Agent *a, AgentKind k, const Net *net)
     a->net = net;
     a->continuation_net = net;
     a->veto_continuation_net = NULL;
+    a->action_ranker_net = NULL;
     a->draw_samples = 6;
     a->temp = 0.0f;
     a->eps = 0.0f;
@@ -54,6 +55,7 @@ void agent_default(Agent *a, AgentKind k, const Net *net)
     a->deck2_replan_cores = 0;
     a->bounded_late_root = 0;
     a->bounded_late_min = 1.0f;
+    a->action_ranker_min = 0.0f;
     switch (k) {
     case AG_RANDOM: a->name = "random"; break;
     case AG_HEUR:   a->name = "heuristic"; break;
@@ -482,6 +484,60 @@ int suit_permutations(int requested, uint8_t out[120][NSUIT])
         n++;
     }
     return n;
+}
+
+int policy_residual_log_odds_sym(const Net *root, const Net *ranker,
+                                 const State *st, Move baseline,
+                                 Move proposal, int symmetries,
+                                 double *out_score)
+{
+    if (out_score) *out_score = 0.0;
+    if (!root || !ranker || !st || !out_score) return 0;
+
+    Move legal[MAX_MOVES];
+    int nlegal = lc_moves(st, legal);
+    int have_baseline = 0, have_proposal = 0;
+    uint16_t baseline_pack = MOVE_PACK(baseline);
+    uint16_t proposal_pack = MOVE_PACK(proposal);
+    for (int i = 0; i < nlegal; i++) {
+        uint16_t packed = MOVE_PACK(legal[i]);
+        if (packed == baseline_pack) have_baseline = 1;
+        if (packed == proposal_pack) have_proposal = 1;
+    }
+    if (!have_baseline || !have_proposal) return 0;
+
+    uint8_t perms[120][NSUIT];
+    int nsym = suit_permutations(symmetries, perms);
+    double total = 0.0;
+    for (int k = 0; k < nsym; k++) {
+        State ps;
+        lc_permute_suits(st, &ps, perms[k]);
+        Features f;
+        feat_extract(&ps, ps.turn, &f);
+        NetAct root_act, ranker_act;
+        net_trunk(root, &f, &root_act);
+        net_trunk(ranker, &f, &ranker_act);
+
+        Move pbase = lc_permute_move(baseline, perms[k]);
+        Move pproposal = lc_permute_move(proposal, perms[k]);
+        uint16_t packed[2] = { MOVE_PACK(pbase), MOVE_PACK(pproposal) };
+        float root_logit[2], ranker_logit[2];
+        net_policy_act(root, &root_act, packed, 2, root_logit);
+        net_policy_act(ranker, &ranker_act, packed, 2, ranker_logit);
+        for (int i = 0; i < 2; i++)
+            if (!lc_float_isfinite(root_logit[i]) ||
+                !lc_float_isfinite(ranker_logit[i]))
+                return 0;
+        double residual =
+            ((double)ranker_logit[1] - (double)ranker_logit[0]) -
+            ((double)root_logit[1] - (double)root_logit[0]);
+        if (!lc_double_isfinite(residual)) return 0;
+        total += residual;
+    }
+    double score = total / (double)nsym;
+    if (!lc_double_isfinite(score)) return 0;
+    *out_score = score;
+    return 1;
 }
 
 static uint64_t trajectory_mix64(uint64_t x)

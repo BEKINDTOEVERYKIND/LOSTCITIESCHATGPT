@@ -17,7 +17,7 @@ static Net *load_net(const char *path)
     return n;
 }
 
-enum { ROLLOUT_TAIL_FIELDS = 40 };
+enum { ROLLOUT_TAIL_FIELDS = 41 };
 
 static int valid_suit_group(int n)
 {
@@ -83,8 +83,16 @@ static void validate_rollout(const Agent *a, const char *label)
         (a->bounded_late_root == 0 || a->bounded_late_root == 1) &&
         isfinite(a->bounded_late_min) && a->bounded_late_min >= 0.0f &&
         a->bounded_late_min <= 1000.0f &&
+        lc_float_isfinite(a->action_ranker_min) &&
+        a->action_ranker_min >= 0.0f &&
+        a->action_ranker_min <= 1000.0f &&
         (!a->veto_continuation_net ||
-         (a->net && a->continuation_net && a->policy_prefix_mode >= 2)) &&
+         (a->net && a->continuation_net && a->policy_prefix_mode >= 2 &&
+          !a->action_ranker_net)) &&
+        (!a->action_ranker_net ||
+         (a->net && a->continuation_net && a->policy_prefix_mode >= 2 &&
+          !a->veto_continuation_net)) &&
+        (a->action_ranker_net || a->action_ranker_min == 0.0f) &&
         (!a->bounded_late_root ||
          (a->exact_terminal == 1 && a->no_belief &&
           a->deck2_replan_worlds == 0 && a->deck2_replan_cores == 0 &&
@@ -159,10 +167,17 @@ static void parse_rollout_tail(const char *tail, Agent *a, const char *label)
         case 37: a->deck2_replan_cores = atoi(v); break;
         case 38: a->bounded_late_root = atoi(v); break;
         case 39: a->bounded_late_min = (float)atof(v); break;
+        case 40: a->action_ranker_min = (float)atof(v); break;
         }
         v = strtok_r(NULL, ":", &save);
     }
     free(buf);
+    if (field > 40 && !a->action_ranker_net) {
+        fprintf(stderr,
+                "agent '%s' has action-ranker field 41 without a ranker role\n",
+                label);
+        exit(1);
+    }
     validate_rollout(a, label);
 }
 
@@ -185,8 +200,12 @@ void spec_release(Agent *a)
     const Net *root = a->net;
     const Net *continuation = a->continuation_net;
     const Net *veto = a->veto_continuation_net;
+    const Net *ranker = a->action_ranker_net;
+    if (a->owns_action_ranker_net && ranker &&
+        ranker != veto && ranker != continuation && ranker != root)
+        free((void *)ranker);
     if (a->owns_veto_continuation_net && veto &&
-        veto != continuation && veto != root)
+        veto != ranker && veto != continuation && veto != root)
         free((void *)veto);
     if (a->owns_continuation_net && continuation && continuation != root)
         free((void *)continuation);
@@ -194,9 +213,11 @@ void spec_release(Agent *a)
     a->net = NULL;
     a->continuation_net = NULL;
     a->veto_continuation_net = NULL;
+    a->action_ranker_net = NULL;
     a->owns_net = 0;
     a->owns_continuation_net = 0;
     a->owns_veto_continuation_net = 0;
+    a->owns_action_ranker_net = 0;
 }
 
 void spec_parse(const char *spec, Agent *a)
@@ -226,20 +247,26 @@ void spec_parse(const char *spec, Agent *a)
     if (!strcmp(tok, "net") || !strcmp(tok, "mcts") || !strcmp(tok, "policy") ||
         !strcmp(tok, "rollout") || !strcmp(tok, "rolloutu") ||
         !strcmp(tok, "rollout2") || !strcmp(tok, "rolloutu2") ||
-        !strcmp(tok, "rollout3") || !strcmp(tok, "rolloutu3")) {
+        !strcmp(tok, "rollout3") || !strcmp(tok, "rolloutu3") ||
+        !strcmp(tok, "rollout4") || !strcmp(tok, "rolloutu4")) {
         int is_mcts = !strcmp(tok, "mcts");
         int is_policy = !strcmp(tok, "policy");
         int is_rollout = !strcmp(tok, "rollout") || !strcmp(tok, "rolloutu") ||
                          !strcmp(tok, "rollout2") || !strcmp(tok, "rolloutu2") ||
-                         !strcmp(tok, "rollout3") || !strcmp(tok, "rolloutu3");
+                         !strcmp(tok, "rollout3") || !strcmp(tok, "rolloutu3") ||
+                         !strcmp(tok, "rollout4") || !strcmp(tok, "rolloutu4");
         int has_continuation_path =
             !strcmp(tok, "rollout2") || !strcmp(tok, "rolloutu2") ||
-            !strcmp(tok, "rollout3") || !strcmp(tok, "rolloutu3");
+            !strcmp(tok, "rollout3") || !strcmp(tok, "rolloutu3") ||
+            !strcmp(tok, "rollout4") || !strcmp(tok, "rolloutu4");
         int has_veto_path =
             !strcmp(tok, "rollout3") || !strcmp(tok, "rolloutu3");
+        int has_ranker_path =
+            !strcmp(tok, "rollout4") || !strcmp(tok, "rolloutu4");
         int is_uniform = !strcmp(tok, "rolloutu") ||
                          !strcmp(tok, "rolloutu2") ||
-                         !strcmp(tok, "rolloutu3");
+                         !strcmp(tok, "rolloutu3") ||
+                         !strcmp(tok, "rolloutu4");
         char *path = strtok_r(NULL, ":", &save);
         if (!path) { fprintf(stderr, "agent '%s' needs a network path\n", tok); exit(1); }
         Net *n = load_net(path);
@@ -276,6 +303,23 @@ void spec_parse(const char *spec, Agent *a)
                 } else {
                     a->veto_continuation_net = load_net(veto_path);
                     a->owns_veto_continuation_net = 1;
+                }
+            }
+            if (has_ranker_path) {
+                char *ranker_path = strtok_r(NULL, ":", &save);
+                if (!ranker_path) {
+                    fprintf(stderr,
+                            "agent '%s' needs an action-ranker network path\n",
+                            tok);
+                    exit(1);
+                }
+                if (strcmp(path, ranker_path) == 0) {
+                    a->action_ranker_net = n;
+                } else if (strcmp(continuation_path, ranker_path) == 0) {
+                    a->action_ranker_net = a->continuation_net;
+                } else {
+                    a->action_ranker_net = load_net(ranker_path);
+                    a->owns_action_ranker_net = 1;
                 }
             }
             a->no_belief = is_uniform;

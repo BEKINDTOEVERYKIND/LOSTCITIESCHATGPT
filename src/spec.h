@@ -19,7 +19,7 @@
  *            [:prefix_confirm_min[:confirm_temp
  *            [:action_core_count[:exact_terminal[:deck2_replan_worlds
  *            [:deck2_replan_cores[:bounded_late_root
- *            [:bounded_late_min]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]
+ *            [:bounded_late_min[:action_ranker_min]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]
  *                 objective: 0 margin; 1 final match result; 2 final hybrid
  *                 symmetries: 1, 5, 10, 20, or 120 exact suit relabellings
  *                 sample: continuation mode 0 exact-group argmax, 1 random-
@@ -120,6 +120,11 @@
  *                   must exceed in both bounded horizons (default 1 point).
  *                   This is intentionally independent of the ordinary
  *                   policy-prefix confirmation thresholds.
+ *                 action_ranker_min: minimum signed residual log-odds by
+ *                   which a rollout4/rolloutu4 direct pair ranker must
+ *                   support the already primary+fresh-confirmed proposal
+ *                   over candidate zero (default 0).  Other rollout kinds
+ *                   require this field to remain zero.
  *   rolloutu:PATH[...]                 (same, but uniform world sampling: the
  *                                       ablation for the learned hand beliefs)
  *   rollout2:ROOT_PATH:CONT_PATH[...]  (root policy/value/belief/shortlist use
@@ -137,6 +142,17 @@
  *   rolloutu3:ROOT_PATH:CONT_PATH:VETO_PATH[...]
  *                                      (same veto-only third controller with
  *                                       uniform hidden-world sampling)
+ *   rollout4:ROOT_PATH:CONT_PATH:RANKER_PATH[...]
+ *                                      (after the maintained primary and
+ *                                       fresh panels confirm a proposal, a
+ *                                       direct signed pair ranker evaluates
+ *                                       only proposal versus candidate zero;
+ *                                       it may retain or veto, never introduce
+ *                                       a move.  Its score is the suit-averaged
+ *                                       ranker-minus-root residual log-odds)
+ *   rolloutu4:ROOT_PATH:CONT_PATH:RANKER_PATH[...]
+ *                                      (same direct ranker veto with uniform
+ *                                       hidden-world sampling)
  *   mcts:PATH[:dets[:sims[:root_width[:node_width[:symmetries]]]]]
  *                                      (symmetry averaging is root-only)
  */
@@ -189,7 +205,7 @@ void spec_parse(const char *spec, Agent *a);
 
 /* Release checkpoints owned by spec_parse().  Caller-owned live networks
  * passed to agent_default/spec_parse_selfrollout are never freed.  Aliased
- * root/continuation checkpoints are freed exactly once. */
+ * root/continuation/veto/ranker checkpoints are freed exactly once. */
 void spec_release(Agent *a);
 
 /* Parses selfrollout[:ROLLOUT_TAIL] into *a using the caller-owned live

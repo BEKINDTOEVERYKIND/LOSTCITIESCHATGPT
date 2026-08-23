@@ -63,6 +63,11 @@ typedef struct {
     int prefix_veto_numerical_agreement; /* veto repeated proposed leader       */
     int prefix_veto_gate_passed; /* veto controller's paired gate passed         */
     int prefix_veto_passed; /* veto retained the already confirmed proposal      */
+    int prefix_ranker_attempted; /* direct signed proposal-vs-zero ranker consulted */
+    int prefix_ranker_valid; /* ranker produced a finite information-safe score */
+    int prefix_ranker_passed; /* ranker retained the confirmed proposal          */
+    double prefix_ranker_score; /* ranker-minus-root residual proposal log-odds */
+    double prefix_ranker_threshold; /* configured minimum residual support      */
     int metric_kind;        /* SEARCH_METRIC_* meaning of q[]               */
     int planner_turns;      /* own visible-card turns used by scheduler      */
     int planner_score;      /* best guaranteed current-hand score            */
@@ -164,6 +169,15 @@ Move search_move(const struct Agent *a, const State *st, Rng *rng,
  * configured rollout selection objective. */
 Move rollout_move(const struct Agent *a, const State *st, Rng *rng,
                   float *out_value, SearchStats *stats);
+
+/* Deterministic, information-set-safe final gate for rollout4/rolloutu4.
+ * The complete referee state is sanitized internally before either network
+ * is evaluated.  Only baseline and proposal are scored, and the function has
+ * no RNG input.  Returns 1 only when a finite score meets the configured
+ * threshold; invalid inference fails closed to candidate zero. */
+int rollout_action_ranker_veto(const struct Agent *a,
+                               const State *complete, Move baseline,
+                               Move proposal, double *score, int *valid);
 
 /* Exact flat policy-prefix admission used by the production rollout actor.
  * Ties retain legal-move enumeration order.  baseline is always unique at

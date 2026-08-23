@@ -2342,6 +2342,31 @@ static int confirm_trusted_prefix(
     return *agreement_out ? proposed : 0;
 }
 
+int rollout_action_ranker_veto(const struct Agent *a,
+                               const State *complete, Move baseline,
+                               Move proposal, double *score, int *valid)
+{
+    if (score) *score = 0.0;
+    if (valid) *valid = 0;
+    if (!a || !complete || !a->net || !a->action_ranker_net ||
+        !lc_float_isfinite(a->action_ranker_min) ||
+        a->action_ranker_min < 0.0f)
+        return 0;
+
+    /* Explicit information boundary: neither checkpoint may inspect the
+     * referee's hidden opponent hand or future deck order. */
+    State view;
+    agent_information_view(complete, complete->turn, &view);
+    double ranker_score = 0.0;
+    if (!policy_residual_log_odds_sym(
+            a->net, a->action_ranker_net, &view, baseline, proposal,
+            a->symmetries, &ranker_score))
+        return 0;
+    if (score) *score = ranker_score;
+    if (valid) *valid = 1;
+    return ranker_score >= (double)a->action_ranker_min;
+}
+
 static Move rollout_move_impl(const struct Agent *a, const State *st,
                               Rng *rng, float *out_value,
                               SearchStats *stats, int use_eval_plan)
@@ -2368,6 +2393,7 @@ static Move rollout_move_impl(const struct Agent *a, const State *st,
         stats->policy_top = -1;
         stats->metric_kind = SEARCH_METRIC_NETWORK_VALUE;
         stats->late_resolver_practical_min = a->bounded_late_min;
+        stats->prefix_ranker_threshold = a->action_ranker_min;
         for (int i = 0; i < MAX_MOVES; i++) stats->qw[i] = -1.0;
     }
     Move mv[MAX_MOVES];
@@ -3277,6 +3303,10 @@ static Move rollout_move_impl(const struct Agent *a, const State *st,
     double prefix_veto_se[MAX_CAND] = { 0 };
     double prefix_veto_delta[MAX_CAND] = { 0 };
     double prefix_veto_dse[MAX_CAND] = { 0 };
+    int prefix_ranker_attempted = 0;
+    int prefix_ranker_valid = 0;
+    int prefix_ranker_passed = 0;
+    double prefix_ranker_score = 0.0;
     if (a->policy_prefix_mode >= 2 && proposed_reference != 0) {
         uint64_t prefix_seed =
             confirm_seed_base ^ UINT64_C(0xE7037ED1A0B428DB);
@@ -3326,6 +3356,20 @@ static Move rollout_move_impl(const struct Agent *a, const State *st,
                 &prefix_veto_gate_passed, &work);
             prefix_veto_passed = veto_reference == proposed_reference;
             if (!prefix_veto_passed) reference = 0;
+        }
+
+        /* The rollout4 ranker receives exactly the maintained baseline and
+         * proposal after the maintained primary+fresh consensus.  It does
+         * not enumerate alternatives, sample worlds, or consume RNG; it can
+         * only retain the proposal or send the decision to candidate zero. */
+        if (primary_prefix_confirmed &&
+            reference == proposed_reference &&
+            work.unfinished_cap_leaves == 0 && a->action_ranker_net) {
+            prefix_ranker_attempted = 1;
+            prefix_ranker_passed = rollout_action_ranker_veto(
+                a, st, mv[order[0]], mv[order[proposed_reference]],
+                &prefix_ranker_score, &prefix_ranker_valid);
+            if (!prefix_ranker_passed) reference = 0;
         }
         prefix_confirmed = reference == proposed_reference;
     }
@@ -3548,6 +3592,7 @@ static Move rollout_move_impl(const struct Agent *a, const State *st,
         confirmed = 0;
         prefix_confirmed = 0;
         prefix_veto_passed = 0;
+        prefix_ranker_passed = 0;
     }
     float bestq = (float)(sumobj[best] / reps);
     if (stats) {
@@ -3580,6 +3625,11 @@ static Move rollout_move_impl(const struct Agent *a, const State *st,
             prefix_veto_numerical_agreement;
         stats->prefix_veto_gate_passed = prefix_veto_gate_passed;
         stats->prefix_veto_passed = prefix_veto_passed;
+        stats->prefix_ranker_attempted = prefix_ranker_attempted;
+        stats->prefix_ranker_valid = prefix_ranker_valid;
+        stats->prefix_ranker_passed = prefix_ranker_passed;
+        stats->prefix_ranker_score = prefix_ranker_score;
+        stats->prefix_ranker_threshold = a->action_ranker_min;
         stats->metric_kind = SEARCH_METRIC_ROLLOUT;
         stats->confirmed = confirmed;
         stats->confirm_worlds = confirm_worlds;

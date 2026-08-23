@@ -37,18 +37,26 @@ Its one-sided 95% match-score lower bound was 50.8221%, and both reciprocal
 orientations were positive. The exact locked result is recorded in
 [`data/experiments/role_coherent_result.json`](data/experiments/role_coherent_result.json).
 
-A subsequent locked test asked whether the continuation-v2 objective-0/shared
-model could improve this actor only as an independent veto. It could not. On
-the complete 200-pair-per-orientation safety panel, the veto actor scored
-**48.5625% ± 1.4372% SE** and **−1.0788 ± 1.6474 points per match**; its two
-reciprocal orientations were 50.125% and 47.000%, with zero capped rounds.
-That failed the predeclared combined-score, combined-margin, and second-
-orientation requirements. The workflow therefore did not run the locked final
-or consume either final seed, and the maintained actor above remains
-unchanged. The immutable result and independently verified evidence binding
-are in
-[`data/experiments/controller_veto_v3_result.json`](data/experiments/controller_veto_v3_result.json).
+A later locked campaign tested whether the independently trained
+continuation-v2 objective-0/shared checkpoint could safely veto an authorized
+rollout change by returning to policy candidate zero. The complete valid
+200-pair-per-orientation safety screen was negative:
 
+| controller-veto-v3 safety block | candidate match score | candidate margin/match | W/L/D |
+| --- | ---: | ---: | ---: |
+| candidate first | 50.125% | +0.6275 | 200/199/1 |
+| baseline first, inverted | 47.000% | -2.7850 | 186/210/4 |
+| equal-weight combined | **48.5625%** | **-1.0788** | 386/409/5 |
+
+All raw inputs validated and all 800 matches completed with zero capped
+rounds, but the second orientation missed the 47.5% floor and both combined
+efficacy point estimates were below their locked thresholds. Workflow run
+`32589655623` therefore succeeded as an evidence-producing workflow while its
+safety gate returned false. The conditional final panel was not run,
+neither reserved final seed was consumed, `rolloutu3` was not promoted, and
+the maintained actor above is unchanged. The immutable, independently verified
+artifact binding and negative result are recorded in
+[`data/experiments/controller_veto_v3_result.json`](data/experiments/controller_veto_v3_result.json).
 The previous actor had itself been supported by these earlier tests:
 
 | comparison | seed | mirrored pairs | margin/match | match score | W/L/D |

@@ -367,6 +367,18 @@ int main(int argc, char **argv)
                    : (ss.prefix_veto_passed
                        ? "confirmed override retained"
                        : "confirmed override rejected"));
+        printf("action ranker veto: %s; role: direct signed ranker veto "
+               "only (cannot introduce a move); attempted: %s; "
+               "valid: %s; score: %+.6f; threshold: %.6f; result: %s\n",
+               evaluator.action_ranker_net ? "configured" : "disabled",
+               ss.prefix_ranker_attempted ? "yes" : "no",
+               ss.prefix_ranker_valid ? "yes" : "no",
+               ss.prefix_ranker_score, ss.prefix_ranker_threshold,
+               !ss.prefix_ranker_attempted ? "not reached"
+                   : (!ss.prefix_ranker_valid ? "invalid score; rejected"
+                       : (ss.prefix_ranker_passed
+                           ? "confirmed override retained"
+                           : "confirmed override rejected")));
         if (ss.late_resolver_attempted) {
             printf("bounded late resolver: %s; support %d; %d candidates; "
                    "H2 best %d value %+.3f delta %+.3f; "

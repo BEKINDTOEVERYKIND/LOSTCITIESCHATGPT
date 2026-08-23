@@ -14,11 +14,14 @@ CORE    := $(SRC)/lc.c $(SRC)/features.c $(SRC)/net.c $(SRC)/heuristic.c \
 
 all: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_role_coherence \
 	$(BIN)/test_late_resolver $(BIN)/test_rl_support \
+	$(BIN)/test_action_ranker $(BIN)/test_action_advantage \
 	$(BIN)/test_continuation_arena_support \
 	$(BIN)/arena $(BIN)/train \
 	$(BIN)/bench $(BIN)/probe $(BIN)/rl $(BIN)/ladder $(BIN)/play \
 	$(BIN)/showgame $(BIN)/dumpfeat $(BIN)/analyze $(BIN)/searchcmp \
-	$(BIN)/qpair $(BIN)/mine $(BIN)/robust_distill $(BIN)/symmetrize \
+	$(BIN)/qpair $(BIN)/commented_ply_eval \
+	$(BIN)/mine $(BIN)/robust_distill $(BIN)/action_advantage \
+	$(BIN)/train_advantage_veto $(BIN)/symmetrize \
 	$(BIN)/net_average \
 	$(BIN)/history_belief $(BIN)/planprobe $(BIN)/planarena \
 	$(BIN)/belief_eval $(BIN)/test_belief_eval $(BIN)/continuation_arena \
@@ -32,6 +35,18 @@ $(BIN)/test_engine: tests/test_engine.c $(SRC)/lc.c $(HDRS) | $(BIN)
 
 $(BIN)/test_runtime: tests/test_runtime.c tools/train_target.h $(CORE) $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
+
+$(BIN)/test_action_ranker: tests/test_action_ranker.c $(CORE) $(HDRS) \
+	$(DATA)/champion.bin $(DATA)/c8.bin $(DATA)/best.bin | $(BIN)
+	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
+
+# White-box signed-loss test includes the head-only trainer so it can prove
+# both residual direction and byte-exact freezing without widening its CLI ABI.
+$(BIN)/test_action_advantage: tests/test_action_advantage.c \
+	tools/train_advantage_veto.c tools/action_advantage_format.c \
+	$(CORE) $(HDRS) | $(BIN)
+	$(CC) $(CFLAGS) -o $@ \
+		$(filter-out tools/train_advantage_veto.c,$(filter %.c,$^)) $(LDFLAGS)
 
 # White-box role-coherence tests include rollout.c directly so they can trace
 # its fixed-permutation policy calls without adding hooks to the gameplay ABI.
@@ -72,9 +87,12 @@ $(BIN)/bench: tools/bench.c $(CORE) $(HDRS) | $(BIN)
 
 test: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_role_coherence \
 	$(BIN)/test_late_resolver $(BIN)/test_rl_support \
+	$(BIN)/test_action_ranker $(BIN)/test_action_advantage \
 	$(BIN)/test_continuation_arena_support \
 	$(BIN)/test_belief_eval \
-	$(BIN)/belief_eval $(BIN)/rl $(BIN)/arena $(BIN)/continuation_arena \
+	$(BIN)/belief_eval $(BIN)/rl $(BIN)/arena $(BIN)/qpair \
+	$(BIN)/commented_ply_eval \
+	$(BIN)/continuation_arena \
 	$(BIN)/net_average \
 	$(DATA)/champion.bin
 	./$(BIN)/test_engine
@@ -82,6 +100,8 @@ test: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_role_coherence \
 	./$(BIN)/test_role_coherence
 	./$(BIN)/test_late_resolver
 	./$(BIN)/test_rl_support
+	./$(BIN)/test_action_ranker
+	./$(BIN)/test_action_advantage
 	./$(BIN)/test_continuation_arena_support
 	./$(BIN)/test_belief_eval
 	python3 -m unittest tests/test_rl_population.py
@@ -91,6 +111,9 @@ test: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_role_coherence \
 	python3 -m unittest tests/test_actor_panel.py
 	python3 -m unittest tests/test_controller_veto_v3.py
 	python3 -m unittest tests/test_world800_campaign.py
+	python3 -m unittest tests/test_action_advantage_campaign.py
+	python3 -m unittest tests/test_action_ranker_veto.py
+	python3 -m unittest tests/test_commented_ply_audit.py
 	python3 -m unittest tests/test_continuation_arena.py
 	python3 -m unittest tests/test_select_continuation_v2.py
 	python3 -m unittest tests/test_net_average.py
@@ -146,10 +169,21 @@ $(BIN)/searchcmp: tools/searchcmp.c $(CORE) $(HDRS) | $(BIN)
 $(BIN)/qpair: tools/qpair.c $(CORE) $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
 
+$(BIN)/commented_ply_eval: tools/commented_ply_eval.c $(CORE) $(HDRS) | $(BIN)
+	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
+
 $(BIN)/mine: tools/mine.c $(CORE) $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
 
 $(BIN)/robust_distill: tools/robust_distill.c $(CORE) $(HDRS) | $(BIN)
+	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
+
+$(BIN)/action_advantage: tools/action_advantage.c \
+	tools/action_advantage_format.c $(CORE) $(HDRS) | $(BIN)
+	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
+
+$(BIN)/train_advantage_veto: tools/train_advantage_veto.c \
+	tools/action_advantage_format.c $(CORE) $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
 
 $(BIN)/history_belief: tools/history_belief.c $(CORE) $(HDRS) | $(BIN)

@@ -220,6 +220,7 @@ int main(int argc, char **argv)
                             "          [--pair-start N] [--raw-pairs FILE [--raw-only] [--provenance ID]]\n"
                             "  SPEC = random | heur | policy:... | rolloutu:... |\n"
                             "         rolloutu2:ROOT:CONT:... | rolloutu3:ROOT:CONT:VETO:... |\n"
+                            "         rolloutu4:ROOT:CONT:RANKER:... |\n"
                             "         net:... | mcts:...\n"
                             "  See src/spec.h for the complete positional tails.\n",
                     argv[0]);

@@ -180,9 +180,12 @@ static const char *search_status(const SearchStats *ss, Move recommended)
             return "selected_by_exact_terminal";
         return "skipped_policy_confidence";
     }
-    /* The veto panel is only reachable after the first fresh controller
-     * accepted the proposal.  prefix_confirmed reflects the final combined
-     * decision and is therefore cleared when this second controller rejects. */
+    /* Final vetoes are reachable only after the fresh maintained controller
+     * accepted the proposal.  prefix_confirmed is the combined decision. */
+    if (ss->prefix_ranker_attempted && !ss->prefix_ranker_passed)
+        return ss->prefix_ranker_valid
+            ? "failed_action_ranker_veto"
+            : "invalid_action_ranker_veto";
     if (ss->prefix_veto_attempted && !ss->prefix_veto_passed)
         return "failed_controller_veto";
     if (ss->confirmed && ss->n > 0 &&
@@ -341,6 +344,35 @@ static void j_controller_veto(FILE *fp, const Agent *a,
             ss->prefix_veto_gate_passed ? "true" : "false",
             ss->prefix_veto_passed ? "true" : "false",
             delta, dse, outcome);
+}
+
+static void j_action_ranker_veto(FILE *fp, const Agent *a,
+                                 const SearchStats *ss)
+{
+    int enabled = a && a->kind == AG_ROLLOUT &&
+        a->action_ranker_net != NULL;
+    const char *outcome = !enabled
+        ? "not_configured"
+        : (!ss->prefix_ranker_attempted
+            ? "not_reached"
+            : (!ss->prefix_ranker_valid
+                ? "invalid_score_rejected"
+                : (ss->prefix_ranker_passed
+                    ? "retained_confirmed_override"
+                    : "rejected_confirmed_override")));
+    fprintf(fp,
+            "{\"enabled\":%s,"
+            "\"role\":\"direct_signed_ranker_veto_only\","
+            "\"may_introduce_move\":false,\"attempted\":%s,"
+            "\"baseline\":0,\"proposed\":%d,"
+            "\"valid\":%s,\"score\":%.6f,\"threshold\":%.6f,"
+            "\"passed\":%s,\"outcome\":\"%s\"}",
+            enabled ? "true" : "false",
+            ss->prefix_ranker_attempted ? "true" : "false",
+            ss->prefix_proposed,
+            ss->prefix_ranker_valid ? "true" : "false",
+            ss->prefix_ranker_score, ss->prefix_ranker_threshold,
+            ss->prefix_ranker_passed ? "true" : "false", outcome);
 }
 
 static const char *late_selection_reason(const SearchStats *ss)
@@ -863,6 +895,8 @@ int main(int argc, char **argv)
             actor.kind == AG_ROLLOUT && actor.bounded_late_root);
         fputs(",\"controller_veto\":", pf);
         j_controller_veto(pf, &actor, &actor_ss);
+        fputs(",\"action_ranker_veto\":", pf);
+        j_action_ranker_veto(pf, &actor, &actor_ss);
         fputc('}', pf);
 
         fprintf(pf, ",\"actor_value\":%.3f,"
@@ -1052,6 +1086,8 @@ int main(int argc, char **argv)
         j_late_resolver(pf, &ss, evaluator.bounded_late_root);
         fputs(",\"controller_veto\":", pf);
         j_controller_veto(pf, &evaluator, &ss);
+        fputs(",\"action_ranker_veto\":", pf);
+        j_action_ranker_veto(pf, &evaluator, &ss);
         fputc('}', pf);
 
         /* the card that will be drawn: read before lc_apply */

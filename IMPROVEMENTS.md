@@ -964,30 +964,37 @@ reserved final seeds.
 
 ## Remaining high-value work
 
-1. Build a frozen ply-14+ root-ranking corpus from live actor states, keep only
-   top-policy semantic action cores, and select continuation methods by paired
-   regret under an independent stronger oracle. Include veto-disagreement
-   strata so a future gate is calibrated rather than hand-tuned; do not retune
-   the rejected veto on its untouched final seeds. The reciprocal full actor
-   must remain the only promotion endpoint.
-2. Give earlier-round MCTS one consistent utility. Final-round terminals are
+1. Train a paired root-action-advantage veto instead of reusing a checkpoint
+   trained to be a continuation policy. Build a frozen ply-14+ corpus at live
+   actor disagreements; compare candidate zero with the already authorized
+   challenger under identical hidden worlds, player-role maps, deals, and
+   move-keyed randomness; and learn the signed full-match advantage/regret
+   directly under an independent stronger oracle. The veto must remain
+   subtractive—it may retain the challenger or abstain to candidate zero, but
+   may not add or rank a new move.
+2. Precommit that one method with fresh development, safety, and final seed
+   namespaces. Preserve the same reciprocal whole-actor endpoint, exact input
+   validation, zero-cap requirement, orientation floors, and confidence-bound
+   promotion gates; the failed controller-veto-v3 thresholds and reserved
+   identities must not be relaxed or recycled.
+3. Give earlier-round MCTS one consistent utility. Final-round terminals are
    now exact, but rounds 0/1 still mix match-trained network leaves with
    current-round terminal margins. A separate round-margin value head or an
    explicit continuation through future deals is required.
-3. Replace current-round rollout utility in early rounds with either remaining
+4. Replace current-round rollout utility in early rounds with either remaining
    match simulation or a learned round-end continuation table.
-4. Train v6 with the frozen-opponent/KL path over several independent seeds,
+5. Train v6 with the frozen-opponent/KL path over several independent seeds,
    select on fixed validation deals,
    and report only once on a locked final set.
-5. Revisit learned-world search only together with a better continuation
+6. Revisit learned-world search only together with a better continuation
    policy or a separately validated root method. The corrected posterior beats
    the card-count prior on held-out metrics, but a direct flat-rollout ablation
    lost match score; the decision audit therefore remains uniform.
-6. Measure and report the 300-ply cap rate. Consider an explicit repetition or
+7. Measure and report the 300-ply cap rate. Consider an explicit repetition or
    adjudication rule for evaluation.
-7. Replace raw native C-struct persistence with a canonical endian-stable,
+8. Replace raw native C-struct persistence with a canonical endian-stable,
    checksummed parameter format.
-8. Make complete PPO checkpoint generation invariant to `--threads`. Match
+9. Make complete PPO checkpoint generation invariant to `--threads`. Match
    evaluation and trajectory suit-map selection are thread-stable, but PPO's
    worker-local gameplay/reservoir streams and floating gradient reduction
    still make fixed-seed training depend on the configured worker count; use

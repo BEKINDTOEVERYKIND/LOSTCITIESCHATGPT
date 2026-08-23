@@ -27,9 +27,13 @@ typedef struct Agent {
     const Net *veto_continuation_net; /* optional independent controller used
                                          only to veto an already confirmed
                                          trusted-prefix override; NULL off */
+    const Net *action_ranker_net; /* optional direct signed pair ranker used
+                                     only to veto an already confirmed
+                                     trusted-prefix override; NULL off */
     unsigned owns_net : 1; /* set only for checkpoints loaded by spec_parse */
     unsigned owns_continuation_net : 1;
     unsigned owns_veto_continuation_net : 1;
+    unsigned owns_action_ranker_net : 1;
     int draw_samples;   /* deck-draw samples per decision (AG_NET)         */
     float temp;         /* >0: sample instead of taking the best move      */
     float eps;          /* probability of a uniformly random legal move    */
@@ -81,6 +85,9 @@ typedef struct Agent {
     float bounded_late_min; /* practical objective gain required in both
                                bounded horizons before a challenger may
                                replace the literal policy baseline */
+    float action_ranker_min; /* minimum signed residual log-odds by which the
+                                direct pair ranker must support an already
+                                confirmed proposal over candidate zero */
     int semantic_cand;  /* AG_ROLLOUT: add at most one useful pile pickup for
                            each of a top policy play/discard action, plus one
                            isolated one-sided-wager discard (0/1); these are
@@ -259,6 +266,17 @@ int  policy_probs_perm_plan(const Net *net, const State *st, Move *mv,
 /* Fill an exact subgroup of suit relabellings.  Invalid sizes return only the
  * identity.  The returned maps send original suit -> permuted suit. */
 int  suit_permutations(int requested, uint8_t out[120][NSUIT]);
+
+/* Direct pair score for a ranker checkpoint fine-tuned from root.  For every
+ * exact suit relabelling, compute the proposal-vs-baseline raw policy-logit
+ * difference in ranker and subtract the same difference in root, then average
+ * those residual log-odds.  Only the two supplied legal moves are evaluated;
+ * softmax normalization and unrelated legal moves cannot affect the score.
+ * Returns 1 with a finite score, otherwise 0. */
+int policy_residual_log_odds_sym(const Net *root, const Net *ranker,
+                                 const State *st, Move baseline,
+                                 Move proposal, int symmetries,
+                                 double *out_score);
 
 /* Deterministically choose one member of an exact suit group for a global
  * trajectory id.  Supported group sizes are 1, 5, 10, 20 and 120; zero is an

@@ -1,0 +1,143 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "locked_action_advantage_veto_v1_actor_campaign",
+  "status": "precommitted_before_candidate_generation_or_actor_efficacy",
+  "source_binding": {
+    "rule": "the execution addendum's sole parent commit and tree are the only build source",
+    "launch": "one future addendum-only push; retries and workflow_dispatch are forbidden",
+    "branch": "agent/correctness-and-policy-upgrade"
+  },
+  "build": {
+    "runner": "ubuntu-24.04",
+    "compiler": "gcc (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0",
+    "cflags": "-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11",
+    "ldflags": "-lm -pthread",
+    "rule": "compile arena, action_advantage, and train_advantage_veto exactly once in preflight; every later job transports and SHA-256 verifies those executables, the evidence scripts, and champion.bin; no later job checks out source or invokes a compiler"
+  },
+  "method": {
+    "name": "direct signed paired action-advantage residual veto",
+    "baseline_actor": "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+    "candidate_template": "rolloutu4:data/champion.bin:data/champion.bin:data/models/action_advantage_veto_v1.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1:0:0:0:1:{heldout_threshold}",
+    "candidate_tail_fields_before_threshold": 40,
+    "veto_rule": "only after the maintained primary panel and independent fresh panel agree on the same nonbaseline proposal, compare the ranker's signed residual log-odds for exactly that proposal versus candidate zero; retain at or above the frozen threshold and otherwise return candidate zero",
+    "invariants": [
+      "the ranker cannot add, replace, reorder, or widen the maintained top-policy candidate set",
+      "the ranker evaluates exactly two already-selected actions and cannot select any third action",
+      "the ranker consumes no RNG and sees only the acting player's sanitized information view",
+      "the baseline, primary panel, fresh confirmation panel, top-policy-moves-only boundary, continuation checkpoint, and all rollout settings remain byte-for-byte and field-for-field unchanged",
+      "trunk, value head, and belief head remain byte-identical to champion.bin; only policy action heads may train",
+      "the three indistinguishable physical wager copies remain byte-identical in every trained policy row"
+    ]
+  },
+  "development_data": {
+    "source": "generated maintained-actor self-play only",
+    "proposal_population": "every zero-cap top-policy-prefix pair authorized by maintained primary-plus-fresh confirmation; collection occurs at the ranker gate even if a later low-prior challenger becomes the actor's final move",
+    "generator_seed": "202609010101",
+    "source_matches": 64,
+    "completion_rule": "finish all 64 predeclared generated matches; no proposal cap, early stop, or adaptive extension",
+    "eligible_ply_low": 14,
+    "anchor_stride": 8,
+    "label_worlds": 256,
+    "label_threads": 4,
+    "minimum_label_worlds": 256,
+    "teacher_actor": "policy:data/champion.bin:0:20",
+    "teacher_declaration": "an exact 20-symmetry champion policy acts at every continuation node through the complete remaining three-round match; it is a practical counterfactual teacher and is not claimed to equal recursively re-rooted production rolloutu continuation value",
+    "pairing": "proposal and candidate-zero branches share each uniformly sampled hidden world, every future deal, and every branch-neutral deterministic RNG domain",
+    "label": "signed proposal-minus-candidate-zero full-remaining-match hybrid delta, with match and margin components and paired SE retained",
+    "prohibited_inputs": [
+      "all data/probes/*.state files",
+      "all user-commented ply states, judgments, expected moves, audit reports, and hand-written corrections",
+      "referee opponent hands or future decks",
+      "saved games, imported positions, human labels, and campaign safety or final games"
+    ],
+    "enforcement": "the generation job receives only the transported executables and champion.bin; no repository checkout or probe file is present, and action_advantage exposes no state/probe input option"
+  },
+  "training": {
+    "split": "source_match_id is an indivisible group; deterministic 750/250 train/heldout assignment",
+    "split_seed": "202609010201",
+    "validation_permille": 250,
+    "epochs": 24,
+    "batch": 32,
+    "learning_rate": 0.00002,
+    "anchor_kl": 1.0,
+    "pair_scale": 1.0,
+    "label_scale": 12.5,
+    "huber_delta": 1.0,
+    "max_pair_weight": 4.0,
+    "weight_decay": 0.0,
+    "max_validation_kl": 0.01,
+    "max_state_kl": 0.05,
+    "fail_closed": [
+      "nonempty train and heldout source-match groups",
+      "at least twenty heldout signed proposals",
+      "the generated record header exactly matches all locked generator, actor, teacher, model, completion, world, thread, phase, and symmetry identities",
+      "every stored champion logit is recomputed and must exactly match champion.bin before fitting",
+      "heldout weighted pair-Huber loss strictly improves from champion initialization",
+      "mean and maximum heldout policy KL satisfy the predeclared caps",
+      "every frozen non-policy byte matches champion.bin"
+    ]
+  },
+  "threshold_calibration": {
+    "data": "heldout development records only",
+    "predeclared_grid": [0.0, 0.1, 0.25, 0.5, 1.0],
+    "runtime_boundary_rule": "heldout retention comparisons use the exact float32 threshold parsed into Agent.action_ranker_min; canonical decimal identities remain 0, 0.1, 0.25, 0.5, and 1",
+    "eligibility": "retain at least 20 percent of heldout signed proposals and have strictly positive retained signed_hybrid_sum; stop before safety if no grid point is eligible",
+    "selection": "among eligible grid points, lexicographically minimize (oracle_regret, mistakes, negative signed_hybrid_sum, negative threshold)",
+    "freeze": "the one selected threshold, ranker SHA-256, candidate actor string, and safety/final provenance are written and hashed before any safety game starts",
+    "forbidden": "no threshold, ranker, actor field, or method may change after safety begins; safety/final evidence cannot select or tune anything"
+  },
+  "multiplicity": {
+    "rankers": 1,
+    "thresholds_entering_safety": 1,
+    "candidate_actors": 1,
+    "safety_looks": 1,
+    "final_looks": 1,
+    "unplanned_retries": 0,
+    "optional_stopping": false
+  },
+  "seed_firewall": {
+    "development_namespace": "20260901",
+    "safety_final_namespace": "20260902",
+    "safety": {
+      "candidate_first": "202609020301",
+      "baseline_first": "202609020302"
+    },
+    "final": {
+      "candidate_first": "202609020401",
+      "baseline_first": "202609020402"
+    },
+    "rule": "development, threshold calibration, safety, and final namespaces are disjoint; safety and final seeds are untouched before their one locked stage"
+  },
+  "safety_screen": {
+    "execute_after_threshold_freeze": true,
+    "rounds": 3,
+    "pairs_per_orientation": 200,
+    "matches_total": 800,
+    "pairs_per_shard": 20,
+    "pair_starts": [0, 20, 40, 60, 80, 100, 120, 140, 160, 180],
+    "gate": [
+      "equal-weight reciprocal combined candidate match score >= 0.5",
+      "equal-weight reciprocal combined candidate point margin > 0",
+      "candidate match score in each reciprocal orientation after inversion >= 0.475",
+      "zero capped rounds, gaps, overlaps, incomplete footers, malformed rows, hash failures, provenance drift, or operational errors"
+    ]
+  },
+  "final_promotion": {
+    "execute_only_if_safety_passes": true,
+    "rounds": 3,
+    "pairs_per_orientation": 2500,
+    "matches_total": 10000,
+    "pairs_per_shard": 100,
+    "pair_starts": [0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000, 2100, 2200, 2300, 2400],
+    "confidence_z": 1.645,
+    "promotion_gate": [
+      "combined candidate match score - 1.645 * orientation-stratified pair-clustered SE > 0.5",
+      "combined candidate point margin - 1.645 * orientation-stratified pair-clustered SE > 0",
+      "candidate match-score point estimate > 0.5 in each reciprocal orientation after inversion",
+      "zero capped rounds, gaps, overlaps, incomplete footers, malformed rows, hash failures, provenance drift, or operational errors"
+    ]
+  },
+  "inspection_rule": "No safety or final efficacy estimate is parsed until every immutable raw shard and sidecar expected for that stage is uploaded and the complete set validates. Final is conditional only on the single safety decision. User-commented plies are audited after the maintained actor is decided and are never training, selection, safety, or promotion evidence.",
+  "decision_rule": "replace the maintained actor only if the one candidate passes both unchanged gates; otherwise retain the maintained actor without reinterpretation or retry",
+  "results": null
+}
