@@ -1,0 +1,470 @@
+name: Locked 800-world actor panel
+
+# This file is deliberately inert when first published.  The one permitted
+# launch is a later commit which adds only locked_world800_execution.json.
+# There is no manual trigger, and a rerun cannot consume the reserved seeds.
+on:
+  push:
+    branches:
+      - agent/correctness-and-policy-upgrade
+    paths:
+      - data/experiments/locked_world800_execution.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: locked-world800-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  SOURCE_COMMIT: 08f9e1a5218e03c399b257b852efe20b0089c7b0
+  SOURCE_TREE: c70405a09b88919b228f96d19d84d83875d4fea4
+  PLAN_PATH: data/experiments/locked_world800_plan.json
+  PLAN_SHA: 3f7d4e8b4be2c58268c9f85ade126a7f15357ab30bf146d71b3c6dc247e74e34
+  EXECUTION_PATH: data/experiments/locked_world800_execution.json
+  PARENT_RESULT_PATH: data/experiments/role_coherent_result.json
+  PARENT_RESULT_SHA: 9ae1caa83b9a2ffef715a6c90c3987e386795a00cd92bd19f000f8d2ca1811fb
+  MODEL_PATH: data/champion.bin
+  MODEL_SHA: af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417
+  MERGER_SHA: 9cad23c9e6550ea36d7721acf8e64144a44058083ad4aeb5bb5613a3a79139fb
+  SHARD_VALIDATOR_SHA: bca430a94af64180436c7fb60d29b2e86ec4b3567ab3aabb09984aabee054855
+  EVAL_CFLAGS: '-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11'
+  EVAL_LDFLAGS: '-lm -pthread'
+  CANDIDATE: 'rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1'
+  BASELINE: 'rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1'
+  CANDIDATE_SEED: '202608221501'
+  BASELINE_SEED: '202608221502'
+
+jobs:
+  build_evaluator:
+    if: ${{ github.run_attempt == 1 }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    outputs:
+      arena_sha: ${{ steps.build.outputs.arena_sha }}
+      execution_sha: ${{ steps.guard.outputs.execution_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          path: campaign
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_COMMIT }}
+          path: source
+
+      - name: Fail closed unless this is the one addendum-only launch
+        id: guard
+        working-directory: campaign
+        env:
+          EVENT_BEFORE: ${{ github.event.before }}
+          EVENT_AFTER: ${{ github.event.after }}
+          EVENT_FORCED: ${{ github.event.forced }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = push
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$GITHUB_REF" = refs/heads/agent/correctness-and-policy-upgrade
+          test "$EVENT_FORCED" = false
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$EVENT_AFTER" = "$GITHUB_SHA"
+          test "$(git rev-list --parents -n 1 HEAD | wc -w)" -eq 2
+          PARENT="$(git rev-parse HEAD^)"
+          test "$EVENT_BEFORE" = "$PARENT"
+          test -f "$EXECUTION_PATH"
+          test "$(git diff-tree --no-commit-id --name-only -r HEAD)" = \
+            "$EXECUTION_PATH"
+          test "$(git diff-tree --no-commit-id --name-status -r HEAD)" = \
+            "$(printf 'A\t%s' "$EXECUTION_PATH")"
+          if git cat-file -e "HEAD^:$EXECUTION_PATH" 2>/dev/null; then
+            echo "execution addendum existed before the launch commit" >&2
+            exit 1
+          fi
+          test "$(git rev-list --all --count -- "$EXECUTION_PATH")" = 1
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          import subprocess
+          from pathlib import Path
+
+          def reject_constant(token):
+              raise ValueError(f"non-standard JSON constant {token}")
+
+          def unique(items):
+              result = {}
+              for key, value in items:
+                  if key in result:
+                      raise ValueError(f"duplicate JSON key {key}")
+                  result[key] = value
+              return result
+
+          execution_path = Path(os.environ["EXECUTION_PATH"])
+          value = json.loads(
+              execution_path.read_text(encoding="utf-8"),
+              object_pairs_hook=unique,
+              parse_constant=reject_constant,
+          )
+          parent = subprocess.check_output(
+              ["git", "rev-parse", "HEAD^"], text=True
+          ).strip()
+          workflow = Path(".github/workflows/world800.yml")
+          workflow_sha = hashlib.sha256(workflow.read_bytes()).hexdigest()
+          starts = list(range(0, 2500, 100))
+          expected = {
+              "schema_version": 1,
+              "artifact_kind": "locked_world800_execution",
+              "status": "launch_bound_before_world800_efficacy",
+              "source_parent_commit": parent,
+              "workflow": {
+                  "path": str(workflow),
+                  "sha256": workflow_sha,
+              },
+              "plan": {
+                  "path": os.environ["PLAN_PATH"],
+                  "sha256": os.environ["PLAN_SHA"],
+              },
+              "authoritative_parent_result": {
+                  "path": os.environ["PARENT_RESULT_PATH"],
+                  "sha256": os.environ["PARENT_RESULT_SHA"],
+                  "promotion_gate_passed": True,
+                  "selected_family": "role_coherent_mode4_prefix3",
+              },
+              "source": {
+                  "commit": os.environ["SOURCE_COMMIT"],
+                  "tree": os.environ["SOURCE_TREE"],
+              },
+              "build": {
+                  "runner": "ubuntu-24.04",
+                  "compiler": "gcc",
+                  "cflags": os.environ["EVAL_CFLAGS"],
+                  "ldflags": os.environ["EVAL_LDFLAGS"],
+                  "single_evaluator_binary": True,
+              },
+              "model": {
+                  "path": os.environ["MODEL_PATH"],
+                  "sha256": os.environ["MODEL_SHA"],
+              },
+              "evidence_tools": {
+                  "merge_arena_sha256": os.environ["MERGER_SHA"],
+                  "validate_actor_shards_sha256": os.environ[
+                      "SHARD_VALIDATOR_SHA"
+                  ],
+              },
+              "actors": {
+                  "selection_rule": "role_coherent_parent_pass",
+                  "candidate": os.environ["CANDIDATE"],
+                  "baseline": os.environ["BASELINE"],
+              },
+              "final": {
+                  "rounds": 3,
+                  "mirrored_deals": True,
+                  "threads_per_shard": 4,
+                  "pairs_per_orientation": 2500,
+                  "shards_per_orientation": 25,
+                  "pairs_per_shard": 100,
+                  "starts": starts,
+                  "candidate_first_seed": os.environ["CANDIDATE_SEED"],
+                  "baseline_first_seed": os.environ["BASELINE_SEED"],
+                  "gate_z": 1.645,
+                  "gate": (
+                      "score-z*SE>0.5; each orientation score>0.5; "
+                      "combined margin>0; zero caps; exact raw validity"
+                  ),
+              },
+              "inspection_rule": (
+                  "No efficacy parse, merge, gate, or selection occurs until "
+                  "all 50 immutable raw shards, hash sidecars, and timing "
+                  "sidecars have completed and structurally validated."
+              ),
+              "results": None,
+          }
+          if value != expected:
+              raise SystemExit(
+                  "execution addendum does not exactly match the locked campaign"
+              )
+          if re.fullmatch(r"[0-9a-f]{40}", parent) is None:
+              raise SystemExit("noncanonical source-parent commit")
+          PY
+          EXECUTION_SHA="$(sha256sum "$EXECUTION_PATH" | cut -d' ' -f1)"
+          echo "execution_sha=$EXECUTION_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Verify the frozen plan, parent selection, tools, and source
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$(git -C campaign rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(sha256sum campaign/$PLAN_PATH | cut -d' ' -f1)" = "$PLAN_SHA"
+          test "$(sha256sum campaign/$PARENT_RESULT_PATH | cut -d' ' -f1)" = "$PARENT_RESULT_SHA"
+          test "$(sha256sum campaign/tools/merge_arena.py | cut -d' ' -f1)" = "$MERGER_SHA"
+          test "$(sha256sum campaign/tools/validate_actor_shards.py | cut -d' ' -f1)" = "$SHARD_VALIDATOR_SHA"
+          test "$(git -C source rev-parse HEAD)" = "$SOURCE_COMMIT"
+          test "$(git -C source rev-parse 'HEAD^{tree}')" = "$SOURCE_TREE"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          result = json.loads(
+              Path("campaign", os.environ["PARENT_RESULT_PATH"]).read_text(
+                  encoding="utf-8"
+              )
+          )
+          if result.get("artifact_kind") != \
+                  "completed_role_coherent_distributed_result":
+              raise SystemExit("wrong authoritative parent artifact")
+          if result.get("status") != "complete_valid_gate_passed":
+              raise SystemExit("authoritative parent is not complete and valid")
+          locked = result.get("locked_inputs", {})
+          evidence = result.get("evidence", {})
+          decision = result.get("decision", {})
+          candidate = result.get("candidate", {})
+          if locked.get("source_commit") != os.environ["SOURCE_COMMIT"] or \
+                  locked.get("model_sha256") != os.environ["MODEL_SHA"]:
+              raise SystemExit("authoritative parent source/model mismatch")
+          if evidence.get("capped_rounds") != 0 or \
+                  evidence.get("gaps_overlaps_or_malformed_rows") != 0 or \
+                  evidence.get("all_raw_inputs_reopened_and_exactly_remerged") \
+                  is not True:
+              raise SystemExit("authoritative parent evidence is invalid")
+          if decision.get("promotion_gate_passed") is not True or \
+                  candidate.get("spec") != os.environ["BASELINE"]:
+              raise SystemExit("role-coherent family was not selected")
+          expected_tail = os.environ["BASELINE"].split(":", 2)[2]
+          if decision.get("mechanically_selected_tail") != expected_tail:
+              raise SystemExit("authoritative selected tail mismatch")
+          PY
+
+      - name: Build and bind exactly one evaluator from the frozen source
+        id: build
+        run: |
+          set -euo pipefail
+          test ! -e source/bin/arena
+          test ! -e source/data/champion.bin
+          make -C source CC=gcc \
+            CFLAGS="$EVAL_CFLAGS" LDFLAGS="$EVAL_LDFLAGS" \
+            bin/arena data/champion.bin
+          test "$(sha256sum source/$MODEL_PATH | cut -d' ' -f1)" = "$MODEL_SHA"
+          mkdir -p evaluator
+          cp source/bin/arena evaluator/arena
+          cp "source/$MODEL_PATH" evaluator/champion.bin
+          chmod 755 evaluator/arena
+          ARENA_SHA="$(sha256sum evaluator/arena | cut -d' ' -f1)"
+          ARENA_SIZE="$(stat -c %s evaluator/arena)"
+          MODEL_SIZE="$(stat -c %s evaluator/champion.bin)"
+          {
+            echo "launch_commit=$GITHUB_SHA"
+            echo "source_parent_commit=$(git -C campaign rev-parse HEAD^)"
+            echo "execution_sha=${{ steps.guard.outputs.execution_sha }}"
+            echo "source_commit=$SOURCE_COMMIT"
+            echo "source_tree=$SOURCE_TREE"
+            echo "plan_sha=$PLAN_SHA"
+            echo "parent_result_sha=$PARENT_RESULT_SHA"
+            echo "compiler=$(gcc --version | head -1)"
+            echo "cflags=$EVAL_CFLAGS"
+            echo "ldflags=$EVAL_LDFLAGS"
+            echo "threads_per_shard=4"
+            echo "arena_size=$ARENA_SIZE"
+            echo "model_size=$MODEL_SIZE"
+            uname -a
+            sha256sum evaluator/arena evaluator/champion.bin
+          } > evaluator/BUILD_INFO.txt
+          test "$(sha256sum evaluator/champion.bin | cut -d' ' -f1)" = "$MODEL_SHA"
+          echo "arena_sha=$ARENA_SHA" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: world800-evaluator
+          path: evaluator
+          if-no-files-found: error
+          retention-days: 30
+
+  evaluate:
+    if: ${{ github.run_attempt == 1 }}
+    needs: build_evaluator
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        orientation: [candidate-first, baseline-first]
+        start: [0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000, 2100, 2200, 2300, 2400]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: world800-evaluator
+          path: evaluator
+
+      - name: Run one immutable 100-pair shard
+        env:
+          ORIENTATION: ${{ matrix.orientation }}
+          PAIR_START: ${{ matrix.start }}
+          ARENA_SHA: ${{ needs.build_evaluator.outputs.arena_sha }}
+          EXECUTION_SHA: ${{ needs.build_evaluator.outputs.execution_sha }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$(sha256sum evaluator/arena | cut -d' ' -f1)" = "$ARENA_SHA"
+          test "$(sha256sum evaluator/champion.bin | cut -d' ' -f1)" = "$MODEL_SHA"
+          grep -Fx "source_commit=$SOURCE_COMMIT" evaluator/BUILD_INFO.txt
+          grep -Fx "source_tree=$SOURCE_TREE" evaluator/BUILD_INFO.txt
+          grep -Fx "plan_sha=$PLAN_SHA" evaluator/BUILD_INFO.txt
+          grep -Fx "parent_result_sha=$PARENT_RESULT_SHA" evaluator/BUILD_INFO.txt
+          grep -Fx "execution_sha=$EXECUTION_SHA" evaluator/BUILD_INFO.txt
+          mkdir -p bin data raw
+          cp evaluator/arena bin/arena
+          cp evaluator/champion.bin data/champion.bin
+          chmod 755 bin/arena
+          if [ "$ORIENTATION" = candidate-first ]; then
+            AGENT_A="$CANDIDATE"
+            AGENT_B="$BASELINE"
+            SEED="$CANDIDATE_SEED"
+          elif [ "$ORIENTATION" = baseline-first ]; then
+            AGENT_A="$BASELINE"
+            AGENT_B="$CANDIDATE"
+            SEED="$BASELINE_SEED"
+          else
+            exit 1
+          fi
+          PROVENANCE="stage=world800_final;plan=$PLAN_SHA;execution=$EXECUTION_SHA;parent_result=$PARENT_RESULT_SHA;source=$SOURCE_COMMIT;tree=$SOURCE_TREE;arena=$ARENA_SHA;model=$MODEL_SHA;threads=4"
+          OUT="raw/${ORIENTATION}-${PAIR_START}"
+          /usr/bin/time \
+            -f 'wall_s=%e user_s=%U sys_s=%S max_rss_kb=%M exit=%x' \
+            -o "${OUT}.time" \
+            ./bin/arena -a "$AGENT_A" -b "$AGENT_B" \
+              -n 100 -t 4 -s "$SEED" -r 3 --pair-start "$PAIR_START" \
+              --raw-pairs "${OUT}.jsonl" --raw-only \
+              --provenance "$PROVENANCE"
+          sha256sum "${OUT}.jsonl" > "${OUT}.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: world800-raw-${{ matrix.orientation }}-${{ matrix.start }}
+          path: raw
+          if-no-files-found: error
+          retention-days: 30
+
+  merge:
+    if: ${{ github.run_attempt == 1 }}
+    needs: [build_evaluator, evaluate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: campaign
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: world800-evaluator
+          path: evaluator
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: world800-raw-*
+          path: downloads
+          merge-multiple: true
+
+      - name: Validate all 50 shards before any efficacy merge
+        env:
+          ARENA_SHA: ${{ needs.build_evaluator.outputs.arena_sha }}
+          EXECUTION_SHA: ${{ needs.build_evaluator.outputs.execution_sha }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$(git -C campaign rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(sha256sum campaign/$PLAN_PATH | cut -d' ' -f1)" = "$PLAN_SHA"
+          test "$(sha256sum campaign/$PARENT_RESULT_PATH | cut -d' ' -f1)" = "$PARENT_RESULT_SHA"
+          test "$(sha256sum campaign/tools/merge_arena.py | cut -d' ' -f1)" = "$MERGER_SHA"
+          test "$(sha256sum campaign/tools/validate_actor_shards.py | cut -d' ' -f1)" = "$SHARD_VALIDATOR_SHA"
+          test "$(sha256sum evaluator/arena | cut -d' ' -f1)" = "$ARENA_SHA"
+          test "$(sha256sum evaluator/champion.bin | cut -d' ' -f1)" = "$MODEL_SHA"
+          PROVENANCE="stage=world800_final;plan=$PLAN_SHA;execution=$EXECUTION_SHA;parent_result=$PARENT_RESULT_SHA;source=$SOURCE_COMMIT;tree=$SOURCE_TREE;arena=$ARENA_SHA;model=$MODEL_SHA;threads=4"
+          mkdir -p merged bindings
+          python3 campaign/tools/validate_actor_shards.py \
+            --directory downloads --candidate "$CANDIDATE" --baseline "$BASELINE" \
+            --provenance "$PROVENANCE" \
+            --candidate-first-seed "$CANDIDATE_SEED" \
+            --baseline-first-seed "$BASELINE_SEED" \
+            --starts 0,100,200,300,400,500,600,700,800,900,1000,1100,1200,1300,1400,1500,1600,1700,1800,1900,2000,2100,2200,2300,2400 \
+            --pairs-per-shard 100 --rounds 3 \
+            --output merged/structural-validation.json
+
+      - name: Perform the one permitted efficacy merge and exact locked gate
+        env:
+          PROVENANCE: stage=world800_final;plan=${{ env.PLAN_SHA }};execution=${{ needs.build_evaluator.outputs.execution_sha }};parent_result=${{ env.PARENT_RESULT_SHA }};source=${{ env.SOURCE_COMMIT }};tree=${{ env.SOURCE_TREE }};arena=${{ needs.build_evaluator.outputs.arena_sha }};model=${{ env.MODEL_SHA }};threads=4
+        run: |
+          set -euo pipefail
+          python3 campaign/tools/merge_arena.py block \
+            --expect-start 0 --expect-pairs 2500 \
+            --output merged/candidate-first.json \
+            downloads/candidate-first-*.jsonl
+          python3 campaign/tools/merge_arena.py block \
+            --expect-start 0 --expect-pairs 2500 \
+            --output merged/baseline-first.json \
+            downloads/baseline-first-*.jsonl
+          python3 campaign/tools/merge_arena.py reciprocal \
+            --first merged/candidate-first.json \
+            --second merged/baseline-first.json \
+            --gate-z 1.645 --require-positive-margin \
+            --output merged/reciprocal.json
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          result = json.loads(
+              Path("merged/reciprocal.json").read_text(encoding="utf-8")
+          )
+          expected_gate = {
+              "critical_z": 1.645,
+              "require_positive_margin": True,
+              "require_each_orientation_above_half": True,
+              "require_raw_input_validation": True,
+          }
+          if result.get("promotion_gate_configuration") != expected_gate:
+              raise SystemExit("world800 gate configuration drift")
+          if result.get("candidate") != os.environ["CANDIDATE"] or \
+                  result.get("baseline") != os.environ["BASELINE"] or \
+                  result.get("provenance") != os.environ["PROVENANCE"]:
+              raise SystemExit("world800 result identity drift")
+          candidate = result.get("candidate_result", {})
+          if candidate.get("capped_rounds") != 0:
+              raise SystemExit("cap-terminated round reached the gate")
+          if result.get("raw_input_validation", {}).get("status") != "validated":
+              raise SystemExit("raw inputs did not revalidate")
+          passed = result.get("promotion_gate_passed")
+          if type(passed) is not bool:
+              raise SystemExit("missing exact promotion decision")
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open(
+                  "a", encoding="utf-8") as stream:
+              stream.write(f"Locked world800 promotion gate passed: {passed}\n")
+          PY
+
+      - name: Bind and hash all evidence inputs and outputs
+        run: |
+          set -euo pipefail
+          cp "campaign/$PLAN_PATH" bindings/locked_world800_plan.json
+          cp "campaign/$EXECUTION_PATH" bindings/locked_world800_execution.json
+          cp "campaign/$PARENT_RESULT_PATH" bindings/role_coherent_result.json
+          cp campaign/.github/workflows/world800.yml bindings/world800.yml
+          cp campaign/tools/merge_arena.py bindings/merge_arena.py
+          cp campaign/tools/validate_actor_shards.py bindings/validate_actor_shards.py
+          find downloads merged bindings evaluator -type f ! -name SHA256SUMS.txt \
+            -print0 | sort -z | xargs -0 sha256sum > merged/SHA256SUMS.txt
+          sha256sum -c merged/SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: world800-final-evidence
+          path: |
+            downloads
+            merged
+            bindings
+            evaluator
+          if-no-files-found: error
+          retention-days: 30

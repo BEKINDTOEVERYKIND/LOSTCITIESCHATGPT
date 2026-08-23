@@ -36,6 +36,19 @@ matches with seats swapped):
 Its one-sided 95% match-score lower bound was 50.8221%, and both reciprocal
 orientations were positive. The exact locked result is recorded in
 [`data/experiments/role_coherent_result.json`](data/experiments/role_coherent_result.json).
+
+A subsequent locked test asked whether the continuation-v2 objective-0/shared
+model could improve this actor only as an independent veto. It could not. On
+the complete 200-pair-per-orientation safety panel, the veto actor scored
+**48.5625% ± 1.4372% SE** and **−1.0788 ± 1.6474 points per match**; its two
+reciprocal orientations were 50.125% and 47.000%, with zero capped rounds.
+That failed the predeclared combined-score, combined-margin, and second-
+orientation requirements. The workflow therefore did not run the locked final
+or consume either final seed, and the maintained actor above remains
+unchanged. The immutable result and independently verified evidence binding
+are in
+[`data/experiments/controller_veto_v3_result.json`](data/experiments/controller_veto_v3_result.json).
+
 The previous actor had itself been supported by these earlier tests:
 
 | comparison | seed | mirrored pairs | margin/match | match score | W/L/D |

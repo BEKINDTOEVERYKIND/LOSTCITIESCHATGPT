@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "artifact_kind": "locked_controller_veto_v3_execution",
-  "status": "launch_bound_before_actor_efficacy",
+  "status": "complete_rejected_at_predeclared_safety_gate",
   "source_parent_commit": "b970e5f8e602d1090d3078701eb70931008ac6b6",
   "workflow": {
     "path": ".github/workflows/controller-veto-v3.yml",
@@ -81,5 +81,18 @@
     "gate": "score-z*SE>0.5; margin-z*SE>0; each orientation candidate score>0.5; zero caps; exact validity"
   },
   "inspection_rule": "No automated efficacy parse, merge, gate, or selection occurs until every immutable raw shard and sidecar expected for that stage has been uploaded and the complete shard set validates. Shard artifacts are transport only and must not be used for optional stopping.",
-  "results": null
+  "results": {
+    "path": "data/experiments/controller_veto_v3_result.json",
+    "sha256": "efc0ae1c675a4dfced0b13fb3cac95ce80dd045ae041bc371d1c743e0296d741",
+    "workflow_run_id": 32589655623,
+    "evidence_artifact_id": 9480365159,
+    "safety_gate_passed": false,
+    "match_score": 0.485625,
+    "margin_per_match": -1.07875,
+    "orientation_match_scores": [0.50125, 0.47],
+    "locked_final_executed": false,
+    "reserved_final_seeds_consumed": [],
+    "candidate_promoted": false,
+    "maintained_actor_unchanged": true
+  }
 }

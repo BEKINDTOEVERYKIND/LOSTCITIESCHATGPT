@@ -941,37 +941,53 @@ It is the continuation-v2 objective-0/shared soup: useful as a differently
 trained second opinion, but explicitly not a promoted continuation policy.
 Parser ownership/aliasing, no-op compatibility, identical-world reproduction,
 disagreeing-controller fallback, gameplay-RNG preservation, analyzer/Q-pair
-telemetry, and three-checkpoint viewer provenance are regression-tested. The
-maintained champion remains unchanged until a fresh reciprocal whole-actor
-test clears the predeclared promotion gate.
+telemetry, and three-checkpoint viewer provenance are regression-tested.
+
+The fresh reciprocal safety test completed and rejected the method. Across
+200 mirrored pairs in each orientation (800 matches), the candidate scored
+48.5625% ± 1.4372% SE and −1.0788 ± 1.6474 points per match. Its reciprocal
+match scores were 50.125% and 47.000%; all 400 pairs were structurally valid
+and no round capped. It therefore failed the locked combined-score,
+combined-margin, and second-orientation floor. The final test was skipped, its
+two reserved seeds were not consumed, and neither the checkpoint nor the veto
+controller was promoted. Exact run, artifact, source, checksum, merge, and
+gate provenance is retained in
+`data/experiments/controller_veto_v3_result.json`.
+
+This is a clean method-level negative result, not evidence that an independent
+controller can never help. It shows that this controller and unconditional
+agreement-veto rule did not reliably distinguish harmful primary overrides:
+one orientation was near parity while the reciprocal orientation fell to 47%.
+Any successor should be learned or calibrated on frozen root-action regret,
+then evaluated as one new locked method rather than tuning this veto on the
+reserved final seeds.
 
 ## Remaining high-value work
 
-1. Complete the fresh reciprocal whole-actor gate for the independent-
-   controller veto. Promote it only if match-score and margin lower bounds and
-   both actor orientations clear parity with zero capped rounds.
-2. Build a frozen ply-14+ root-ranking corpus from live actor states, keep only
+1. Build a frozen ply-14+ root-ranking corpus from live actor states, keep only
    top-policy semantic action cores, and select continuation methods by paired
-   regret under an independent stronger oracle. The reciprocal full actor must
-   remain the only promotion endpoint.
-3. Give earlier-round MCTS one consistent utility. Final-round terminals are
+   regret under an independent stronger oracle. Include veto-disagreement
+   strata so a future gate is calibrated rather than hand-tuned; do not retune
+   the rejected veto on its untouched final seeds. The reciprocal full actor
+   must remain the only promotion endpoint.
+2. Give earlier-round MCTS one consistent utility. Final-round terminals are
    now exact, but rounds 0/1 still mix match-trained network leaves with
    current-round terminal margins. A separate round-margin value head or an
    explicit continuation through future deals is required.
-4. Replace current-round rollout utility in early rounds with either remaining
+3. Replace current-round rollout utility in early rounds with either remaining
    match simulation or a learned round-end continuation table.
-5. Train v6 with the frozen-opponent/KL path over several independent seeds,
+4. Train v6 with the frozen-opponent/KL path over several independent seeds,
    select on fixed validation deals,
    and report only once on a locked final set.
-6. Revisit learned-world search only together with a better continuation
+5. Revisit learned-world search only together with a better continuation
    policy or a separately validated root method. The corrected posterior beats
    the card-count prior on held-out metrics, but a direct flat-rollout ablation
    lost match score; the decision audit therefore remains uniform.
-7. Measure and report the 300-ply cap rate. Consider an explicit repetition or
+6. Measure and report the 300-ply cap rate. Consider an explicit repetition or
    adjudication rule for evaluation.
-8. Replace raw native C-struct persistence with a canonical endian-stable,
+7. Replace raw native C-struct persistence with a canonical endian-stable,
    checksummed parameter format.
-9. Make complete PPO checkpoint generation invariant to `--threads`. Match
+8. Make complete PPO checkpoint generation invariant to `--threads`. Match
    evaluation and trajectory suit-map selection are thread-stable, but PPO's
    worker-local gameplay/reservoir streams and floating gradient reduction
    still make fixed-seed training depend on the configured worker count; use

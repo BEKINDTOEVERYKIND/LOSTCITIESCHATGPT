@@ -1,10 +1,10 @@
 """Fail-closed contracts for the locked controller-veto-v3 actor campaign.
 
-The workflow and plan are committed before any actor efficacy is generated.
-The execution addendum is deliberately absent from that commit and is the
-only path allowed to launch the campaign.  Consequently the addendum checks
-below are conditional on that future file existing, while every precommitted
-identity and execution rule is always required.
+The workflow and plan were committed before any actor efficacy was generated.
+The one-file execution addendum launched the campaign; after completion it may
+point to the immutable result, which retains the exact launch-addendum digest.
+Every precommitted identity, execution rule, and negative disposition remains
+machine-checked.
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ WORKFLOW = ROOT / ".github/workflows/controller-veto-v3.yml"
 EXECUTION = (
     ROOT / "data/experiments/locked_controller_veto_v3_execution.json"
 )
+RESULT = ROOT / "data/experiments/controller_veto_v3_result.json"
 
 SOURCE_COMMIT = "cda70a217d776bdfb2c1457bfe8c0f5f0dbfed22"
 SOURCE_TREE = "d006e7b0c1030f30ac135cdc489e2ea64e934ac0"
@@ -356,6 +357,7 @@ class ControllerVetoV3ProtocolTests(unittest.TestCase):
         if not EXECUTION.exists():
             self.skipTest("execution addendum intentionally not committed yet")
         execution = strict_json(EXECUTION)
+        completed = RESULT.exists()
         parent = execution.get("source_parent_commit")
         self.assertIsInstance(parent, str)
         self.assertRegex(parent, r"^[0-9a-f]{40}$")
@@ -364,7 +366,11 @@ class ControllerVetoV3ProtocolTests(unittest.TestCase):
         expected = {
             "schema_version": 1,
             "artifact_kind": "locked_controller_veto_v3_execution",
-            "status": "launch_bound_before_actor_efficacy",
+            "status": (
+                "complete_rejected_at_predeclared_safety_gate"
+                if completed
+                else "launch_bound_before_actor_efficacy"
+            ),
             "source_parent_commit": parent,
             "workflow": {
                 "path": WORKFLOW.relative_to(ROOT).as_posix(),
@@ -458,12 +464,32 @@ class ControllerVetoV3ProtocolTests(unittest.TestCase):
                 ),
             },
             "inspection_rule": inspection_rule,
-            "results": None,
+            "results": (
+                {
+                    "path": RESULT.relative_to(ROOT).as_posix(),
+                    "sha256": sha256(RESULT.read_bytes()),
+                    "workflow_run_id": 32589655623,
+                    "evidence_artifact_id": 9480365159,
+                    "safety_gate_passed": False,
+                    "match_score": 0.485625,
+                    "margin_per_match": -1.07875,
+                    "orientation_match_scores": [0.50125, 0.47],
+                    "locked_final_executed": False,
+                    "reserved_final_seeds_consumed": [],
+                    "candidate_promoted": False,
+                    "maintained_actor_unchanged": True,
+                }
+                if completed
+                else None
+            ),
         }
         self.assertEqual(execution, expected)
 
-        # Once the addendum is the committed HEAD, independently prove the
-        # same one-path mutation that the workflow's launch guard requires.
+        # In the launch state, independently prove the same one-path mutation
+        # that the workflow's guard requires.  The completed state is instead
+        # bound to the archived launch digest and immutable result above.
+        if completed:
+            return
         try:
             committed = tracked_bytes(EXECUTION.relative_to(ROOT).as_posix())
         except subprocess.CalledProcessError:
@@ -482,6 +508,53 @@ class ControllerVetoV3ProtocolTests(unittest.TestCase):
                     ["git", "rev-parse", "HEAD^"], cwd=ROOT, text=True
                 ).strip(),
             )
+
+    def test_completed_result_is_bound_and_fail_closed(self) -> None:
+        if not RESULT.exists():
+            self.skipTest("locked campaign result not recorded yet")
+        result = strict_json(RESULT)
+        self.assertEqual(result["schema_version"], 1)
+        self.assertEqual(
+            result["status"], "rejected_at_predeclared_safety_gate"
+        )
+        self.assertEqual(result["workflow"]["run_id"], 32589655623)
+        self.assertEqual(
+            result["workflow"]["launch_commit"],
+            "0f172d1df8444164970dfa551fc9c07f8dae957d",
+        )
+        self.assertEqual(
+            result["source_binding"]["locked_actor_source_commit"],
+            SOURCE_COMMIT,
+        )
+        self.assertEqual(
+            result["source_binding"]["locked_actor_source_tree"], SOURCE_TREE
+        )
+        self.assertEqual(
+            result["evidence"]["github_artifact_digest"],
+            "sha256:cb9fcaa8f766a9a718432a05168951d8b37230d2130096ea729f055251d7508b",
+        )
+        self.assertEqual(result["candidate_result"]["match_score"], 0.485625)
+        self.assertEqual(
+            result["candidate_result"]["margin_per_match"], -1.07875
+        )
+        self.assertEqual(
+            result["candidate_result"]["orientation_match_scores"],
+            [0.50125, 0.47],
+        )
+        self.assertFalse(result["locked_safety_gate"]["passed"])
+        self.assertTrue(result["locked_safety_gate"]["raw_inputs_validated"])
+        self.assertTrue(result["locked_safety_gate"]["zero_capped_rounds"])
+        self.assertFalse(result["disposition"]["locked_final_executed"])
+        self.assertEqual(result["disposition"]["final_seeds_consumed"], [])
+        self.assertEqual(
+            result["disposition"]["reserved_final_seeds"],
+            [FINAL_SEEDS["candidate_first"], FINAL_SEEDS["baseline_first"]],
+        )
+        self.assertFalse(result["disposition"]["candidate_promoted"])
+        self.assertTrue(
+            result["independent_verification"]
+            ["substantive_statistics_and_gate_reproduced_exactly"]
+        )
 
 
 if __name__ == "__main__":

@@ -90,6 +90,7 @@ test: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_role_coherence \
 	python3 -m unittest tests/test_merge_arena.py
 	python3 -m unittest tests/test_actor_panel.py
 	python3 -m unittest tests/test_controller_veto_v3.py
+	python3 -m unittest tests/test_world800_campaign.py
 	python3 -m unittest tests/test_continuation_arena.py
 	python3 -m unittest tests/test_select_continuation_v2.py
 	python3 -m unittest tests/test_net_average.py
@@ -103,6 +104,9 @@ history-belief-test: $(BIN)/history_belief $(DATA)/champion.bin
 controller-veto-v3-test:
 	python3 -m unittest tests/test_controller_veto_v3.py
 
+world800-test: $(DATA)/champion.bin
+	python3 -m unittest tests/test_world800_campaign.py
+
 belief-eval-test: $(BIN)/belief_eval $(BIN)/test_belief_eval \
 	$(DATA)/champion.bin
 	./$(BIN)/test_belief_eval
@@ -113,7 +117,7 @@ clean:
 	rm -f $(DATA)/champion.bin
 
 .PHONY: all test audit-test history-belief-test controller-veto-v3-test \
-	belief-eval-test clean
+	world800-test belief-eval-test clean
 
 $(BIN)/probe: tools/probe.c $(CORE) $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
