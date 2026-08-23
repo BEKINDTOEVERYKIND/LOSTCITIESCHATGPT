@@ -26,8 +26,8 @@ MAX_SAFE_JSON_INTEGER = (1 << 53) - 1
 MAX_VIEWER_NUMBER = 1e9
 LATE_SERIALIZATION_TOLERANCE = 1e-7
 DEFAULT_ACTOR = (
-    "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:"
-    "3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
+    "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:"
+    "3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
 )
 DEFAULT_EVALUATOR = (
     "rolloutu:data/champion.bin:2048:5:0.01:0:1:14:0:0:0:0:"

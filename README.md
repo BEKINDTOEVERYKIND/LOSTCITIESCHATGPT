@@ -14,28 +14,31 @@ unchanged.
 The maintained playing agent uses the exact 20-way champion policy for the
 first 14 actions of each round. Beginning at zero-based `round_ply=14` (the
 15th displayed action), it evaluates at most five policy-ranked moves with at
-least 2% prior on 512 shared uniform hidden worlds. In every world, each player
+least 2% prior on 800 shared uniform hidden worlds. In every world, each player
 gets an independently stratified suit mapping that remains fixed for the whole
 trajectory. If that primary panel prefers a move other than the raw policy
-leader, a fresh role-coherent 512-world panel must independently select the
+leader, a fresh role-coherent 800-world panel must independently select the
 same leader; disagreement falls back to the policy. This is the exact deployed
 specification:
 
 ```text
-rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1
+rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1
 ```
 
-This role-coherent actor passed a locked reciprocal promotion against the
-previous maintained actor (each mirrored pair is two complete three-round
-matches with seats swapped):
+The locked world-count campaign promoted this 800+800 actor over the previously
+maintained 512+512 actor. Each mirrored pair is two complete three-round
+matches with seats swapped:
 
 | comparison | mirrored pairs | margin/match | match score | W/L/D |
 | --- | ---: | ---: | ---: | ---: |
-| role-coherent actor vs previous actor | 2,000 | **+2.744 ± 0.753 SE** | **51.8375% ± 0.6173% SE** | 2064/1917/19 |
+| 800+800 actor vs 512+512 actor | 5,000 | **+2.2427 ± 0.4714 SE** | **51.2100% ± 0.3906% SE** | 5098/4856/46 |
 
-Its one-sided 95% match-score lower bound was 50.8221%, and both reciprocal
-orientations were positive. The exact locked result is recorded in
-[`data/experiments/role_coherent_result.json`](data/experiments/role_coherent_result.json).
+Its locked one-sided match-score lower bound at z=1.645 was 50.5674%; the two
+orientation point estimates were 51.54% and 50.88%, the combined margin was
+positive, and all 10,000 matches had exact validity with zero capped rounds.
+The exact locked result and independently verified archive manifest are
+recorded in [`data/experiments/world800_result.json`](data/experiments/world800_result.json)
+and [`data/experiments/world800_archive_manifest.json`](data/experiments/world800_archive_manifest.json).
 
 A later locked campaign tested whether the independently trained
 continuation-v2 objective-0/shared checkpoint could safely veto an authorized
@@ -54,7 +57,7 @@ efficacy point estimates were below their locked thresholds. Workflow run
 `32589655623` therefore succeeded as an evidence-producing workflow while its
 safety gate returned false. The conditional final panel was not run,
 neither reserved final seed was consumed, `rolloutu3` was not promoted, and
-the maintained actor above is unchanged. The immutable, independently verified
+the then-maintained actor was unchanged. The immutable, independently verified
 artifact binding and negative result are recorded in
 [`data/experiments/controller_veto_v3_result.json`](data/experiments/controller_veto_v3_result.json).
 The previous actor had itself been supported by these earlier tests:
@@ -190,7 +193,7 @@ inconsistency is why the resolver is audit-only and has not been promoted to
 live self-play.
 
 The tracked [interactive match viewer](web/viewer.html) embeds the precommitted
-random seed's self-play match under the maintained actor, with no result
+random seed's self-play match under the then-maintained 512+512 actor, with no result
 screening or seed replacement: seed `181292076812167`, 143 plies, final score
 P1 191–P2 172. The seed was drawn once before generation and the match was not
 retried or filtered. The actor, deals, and independent post-game audit use
@@ -532,9 +535,9 @@ a reliable phase gate. The maintained agent instead uses a round-ply cutoff
 selected by direct match play: rollout is off for zero-based plies 0–13 (the
 first 14 displayed actions) and on beginning with the 15th action.
 At each searched position it evaluates at most five policy moves with at least
-2% prior on 512 shared uniform hidden worlds. Ordinary prefix moves are not
+2% prior on 800 shared uniform hidden worlds. Ordinary prefix moves are not
 accepted through a noisy significance threshold: if the primary numerical
-leader differs from the raw policy, a fresh 512-world panel with balanced,
+leader differs from the raw policy, a fresh 800-world panel with balanced,
 trajectory-fixed suit mappings must select the same leader. Otherwise the
 actor falls back to the raw policy. The older 3.5-SE/two-point gates remain
 available only for purposefully added low-prior research challengers, none of
@@ -664,8 +667,8 @@ at deck three; publicly known opponent cards can make either support smaller.
 Separate deterministic panel domains choose their own unique order. This outer
 census prevents duplicate worlds from masquerading as additional evidence.
 
-Concretely, the maintained live actor requests 512 outer worlds: deck two is
-still the complete 90-assignment census, while deck three uses 512 unique
+Concretely, the maintained live actor requests 800 outer worlds: deck two is
+still the complete 90-assignment census, while deck three uses 800 unique
 assignments from support of at most 990. The deep audit requests 2,048, so it
 exhausts both supports. Its historical recursive-replan fields are both zero.
 

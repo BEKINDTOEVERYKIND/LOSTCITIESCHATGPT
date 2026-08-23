@@ -89,6 +89,10 @@ def challenger_late_stub(gate_passed: bool) -> dict:
 
 class ShowcaseProvenanceTests(unittest.TestCase):
     ACTOR = "policy:data/c8.bin:0:20"
+    TRACKED_ACTOR = (
+        "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:"
+        "20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
+    )
     TRACKED_AUDIT = (
         "rolloutu:data/champion.bin:2048:5:0.01:0:1:14:0:0:0:0:3.5:2:4:"
         "20:0:0:20:1:0:2048:1:0:0:0:0:0:0:3:1:0:0:2:1:0:3:1:0:0:1"
@@ -97,15 +101,14 @@ class ShowcaseProvenanceTests(unittest.TestCase):
         "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417"
     )
 
-    def test_default_actor_matches_locked_role_coherent_promotion(self) -> None:
+    def test_default_actor_matches_locked_world800_promotion(self) -> None:
         result = json.loads(
-            (ROOT / "data/experiments/role_coherent_result.json").read_text(
+            (ROOT / "data/experiments/world800_result.json").read_text(
                 encoding="utf-8"
             )
         )
-        self.assertEqual(result["status"], "complete_valid_gate_passed")
-        self.assertTrue(result["decision"]["promotion_gate_passed"])
-        self.assertEqual(showcase.DEFAULT_ACTOR, result["candidate"]["spec"])
+        self.assertTrue(result["promotion_gate_passed"])
+        self.assertEqual(showcase.DEFAULT_ACTOR, result["candidate"])
 
     @classmethod
     def analyzer_result(cls):
@@ -291,8 +294,8 @@ class ShowcaseProvenanceTests(unittest.TestCase):
             )
             self.assertIn("root shortlist", meta["root_model_role"])
             self.assertIn("after", meta["continuation_model_role"])
-            self.assertEqual(meta["actor_worlds"], 512)
-            self.assertEqual(meta["actor_confirmation_worlds"], 512)
+            self.assertEqual(meta["actor_worlds"], 800)
+            self.assertEqual(meta["actor_confirmation_worlds"], 800)
             self.assertEqual(meta["actor_root_width"], 5)
             self.assertEqual(meta["actor_search_from_round_ply"], 14)
             run.assert_called_once()
@@ -389,7 +392,7 @@ class ShowcaseProvenanceTests(unittest.TestCase):
             )
             self.assertIn("veto veto.bin", meta["actor_label"])
             self.assertIn("conservative veto", meta["veto_model_role"])
-            self.assertEqual(meta["actor_worlds"], 512)
+            self.assertEqual(meta["actor_worlds"], 800)
             self.assertEqual(meta["actor_root_width"], 5)
             self.assertEqual(meta["actor_search_from_round_ply"], 14)
 
@@ -923,7 +926,7 @@ class ShowcaseProvenanceTests(unittest.TestCase):
         self.assertEqual(match.group(1), standalone_text)
         tracked = json.loads(standalone_text)
         meta = tracked["meta"]
-        self.assertEqual(meta["actor"], showcase.DEFAULT_ACTOR)
+        self.assertEqual(meta["actor"], self.TRACKED_ACTOR)
         self.assertEqual(meta["evaluator"], self.TRACKED_AUDIT)
         self.assertEqual(meta["seed"], 181292076812167)
         self.assertEqual(meta["match_id"], "181292076812167-af2b2c237d21")

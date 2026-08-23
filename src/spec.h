@@ -175,9 +175,9 @@
 /*
  * Strongest locked play-time configuration.  The 20-way policy acts directly
  * for the first 14 actions of each round.  Beginning at zero-based round ply
- * 14 (the 15th action), a 512-world primary panel compares at most five policy
+ * 14 (the 15th action), an 800-world primary panel compares at most five policy
  * moves with at least 2% prior.  If it proposes a different
- * leader, both the primary worlds and a fresh balanced 512-world panel give
+ * leader, both the primary worlds and a fresh balanced 800-world panel give
  * the two players independently stratified suit mappings that remain fixed
  * for each complete trajectory; both panels must select the same move.  The
  * exact one-card-deck solver is intrinsic to rollout and is also used at the
@@ -190,8 +190,8 @@
  * user-facing C defaults on this measured configuration.
  */
 #define LC_CHAMPION_AGENT_SPEC \
-    "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:" \
-    "0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
+    "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:" \
+    "0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
 
 /* Higher-compute post-game review.  It retains the match-tested ply-14 phase
  * boundary, then spends its ordinary rollout worlds on at most three distinct

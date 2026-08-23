@@ -409,7 +409,7 @@ rolloutu:data/champion.bin:2048:5:0.01:0:1:14:0:0:0:0:3.5:2:2:20:0:0:20:1:0:2048
   2,048-world request exhausts one 90-assignment deck-two census and up to 990
   deck-three assignments; public opponent-card knowledge can reduce either
   support. Duplicate assignments no longer inflate the apparent sample size.
-  The maintained live actor requests 512 outer worlds (90 at deck two, 512
+  The maintained live actor requests 800 outer worlds (90 at deck two, 800
   unique assignments from at-most-990 support at deck three); the deep audit
   requests 2,048 and exhausts both supports. The maintained audit's historical
   recursive-replan fields are both zero.

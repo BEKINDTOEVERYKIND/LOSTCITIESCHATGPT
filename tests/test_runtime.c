@@ -2114,7 +2114,7 @@ static void test_rollout_spec_tail(void)
     Agent champion;
     spec_parse(LC_CHAMPION_AGENT_SPEC, &champion);
     CHECK(champion.kind == AG_ROLLOUT && champion.no_belief &&
-          champion.dets == 512 && champion.root_width == 5 &&
+          champion.dets == 800 && champion.root_width == 5 &&
           fabsf(champion.cand_floor - 0.02f) < 1e-6f &&
           champion.gate == 0.0f && champion.min_cand == 1 &&
           champion.ply_lo == 14 && champion.ply_hi == 0 &&
@@ -2126,7 +2126,7 @@ static void test_rollout_spec_tail(void)
           champion.cand_mass == 0.0f && champion.batch_dets == 0 &&
           champion.playout_symmetries == 20 &&
           champion.discard_guard == 1 && champion.deck_max == 0 &&
-          champion.confirm_dets == 512 && champion.playout_prune == 1 &&
+          champion.confirm_dets == 800 && champion.playout_prune == 1 &&
           champion.plan_deck_max == 0 && champion.plan_block_gap == 0 &&
           champion.semantic_cand == 0 && champion.confirm_exact5 == 0 &&
           champion.draw_variant_cores == 0 &&

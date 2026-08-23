@@ -1,0 +1,85 @@
+{
+  "artifact_kind": "verified_world800_archive_manifest",
+  "authoritative_result": {
+    "artifact_kind": "locked_reciprocal_arena_result",
+    "byte_for_byte_source": "merged/reciprocal.json",
+    "path": "data/experiments/world800_result.json",
+    "schema_version": 1,
+    "sha256": "798a4f0948295445d25dd34cb1a8e3f96794e24f032a76a82df7c92485da4db8"
+  },
+  "evaluator": {
+    "arena_sha256": "a0cda590f597656c96808649407fda61c6c8fc4e1b3c8812a5d3d02e80157cb5",
+    "arena_size_bytes": 353960,
+    "build_info_sha256": "a30327d90fb513aad6c13d7570b40a89b4fe101c5099643b7e0bcf11c2d05c13",
+    "compiler": "gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+    "model_sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+    "model_size_bytes": 2823748,
+    "runner_uname": "Linux runnervm76f27 6.17.0-1022-azure #22-Ubuntu SMP Mon Jul 27 17:24:03 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux"
+  },
+  "gate": {
+    "capped_rounds": 0,
+    "critical_z": 1.645,
+    "margin_per_game": 2.2427,
+    "match_score": 0.5121,
+    "match_score_pair_clustered_se": 0.003906359412233214,
+    "orientation_match_scores": [
+      0.5154,
+      0.5088
+    ],
+    "promotion_gate_lower_bound": 0.5056740387668763,
+    "promotion_gate_passed": true,
+    "selected_actor": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+    "selected_worlds": 800
+  },
+  "github": {
+    "artifact_digest": "sha256:cc1ee2b705202d3eaa570a5569efb05c5c04ba22d0ce8d9f38d12dbbfe024db5",
+    "artifact_id": 9494962675,
+    "artifact_name": "world800-final-evidence",
+    "artifact_size_bytes": 1959867,
+    "conclusion": "success",
+    "event": "push",
+    "head_branch": "agent/correctness-and-policy-upgrade",
+    "head_sha": "04bbfda7f2dfcad134412bb0a0618df2c830e4bd",
+    "repository": "BEKINDTOEVERYKIND/LOSTCITIESCHATGPT",
+    "run_attempt": 1,
+    "run_id": 32627863728
+  },
+  "locked_bindings": {
+    "bindings/locked_world800_execution.json": "d8b25f247f9a2e31488afb5b9fe96877972320c2e0a659e821f7169fc83f62cf",
+    "bindings/locked_world800_plan.json": "3f7d4e8b4be2c58268c9f85ade126a7f15357ab30bf146d71b3c6dc247e74e34",
+    "bindings/merge_arena.py": "9cad23c9e6550ea36d7721acf8e64144a44058083ad4aeb5bb5613a3a79139fb",
+    "bindings/role_coherent_result.json": "9ae1caa83b9a2ffef715a6c90c3987e386795a00cd92bd19f000f8d2ca1811fb",
+    "bindings/validate_actor_shards.py": "bca430a94af64180436c7fb60d29b2e86ec4b3567ab3aabb09984aabee054855",
+    "bindings/world800.yml": "61a1286c15fee40186d4d0b69967681ee891ef686bd6954f56d4c0cbc1f45294"
+  },
+  "preserved_archive": {
+    "all_source_manifest_hashes_verified": true,
+    "path": "data/experiments/world800_final_evidence.zip",
+    "regular_file_entries": 164,
+    "sha256": "cc1ee2b705202d3eaa570a5569efb05c5c04ba22d0ce8d9f38d12dbbfe024db5",
+    "size_bytes": 1959867,
+    "source_sha256_manifest": "merged/SHA256SUMS.txt",
+    "source_sha256_manifest_entries": 163,
+    "source_sha256_manifest_sha256": "e4931083d245a6b8208dffc8e42ddbcd0fa771861012c6436ec06c6e9d5924bd",
+    "uncompressed_size_bytes": 3940793
+  },
+  "schema_version": 1,
+  "status": "complete_valid_gate_passed",
+  "verification": {
+    "all_four_json_outputs_independently_recomputed_byte_for_byte": true,
+    "all_shards_hashes_timing_provenance_seeds_actors_and_coverage_validated": true,
+    "raw_pairs_per_orientation": 2500,
+    "raw_pairs_per_shard": 100,
+    "raw_shards": 50,
+    "raw_shards_per_orientation": 25,
+    "recomputed_json_sha256": {
+      "merged/baseline-first.json": "5be20730655c79a56f896250d03cd68a05da14b5c40d5bc44143abff064059d1",
+      "merged/candidate-first.json": "a920085779a69d76d9c8a936c7a0a2ac169ebd06b367ccd672b231c5cab0aa3b",
+      "merged/reciprocal.json": "798a4f0948295445d25dd34cb1a8e3f96794e24f032a76a82df7c92485da4db8",
+      "merged/structural-validation.json": "166f92e44c9daa3719cd40ae2d30c8c5c2088c86ff3db254ded19f434b99f467"
+    },
+    "sha256_sidecars": 50,
+    "timing_sidecars": 50,
+    "total_mirrored_pairs": 5000
+  }
+}
