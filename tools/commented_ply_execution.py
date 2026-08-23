@@ -11,6 +11,7 @@ flagged-ply workflow.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -34,7 +35,9 @@ from tools.flagged_ply_execution import (  # noqa: E402
 
 
 SCHEMA = "lc-commented-ply-audit-execution-v1"
+LOCK_SCHEMA = "lc-commented-ply-audit-definition-lock-v1"
 PLAN_PATH = "data/experiments/locked_commented_ply_audit_plan.json"
+LOCK_PATH = "data/experiments/locked_commented_ply_audit_definition_lock.json"
 EXECUTION_PATH = (
     "data/experiments/locked_commented_ply_audit_execution.json"
 )
@@ -73,6 +76,10 @@ TOOL_PATHS = (
     "tools/gate_actor_panel.py",
     "tools/match_value_campaign.py",
     "tools/merge_arena.py",
+)
+TEST_PATHS = (
+    "tests/test_commented_ply_audit.py",
+    "tests/test_commented_ply_execution.py",
 )
 _HEX40 = re.compile(r"[0-9a-f]{40}\Z")
 _HEX64 = re.compile(r"[0-9a-f]{64}\Z")
@@ -127,7 +134,7 @@ def _case_row(case: Any, root: Path) -> dict[str, Any]:
 
 
 def _case_binding(root: Path, plan: dict[str, Any]) -> tuple[
-        dict[str, Any], list[dict[str, Any]]]:
+        dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
     try:
         from tools.audit_commented_plies import CASES, definition_sha256
     except (ImportError, OSError, ValueError) as exc:
@@ -176,13 +183,11 @@ def _case_binding(root: Path, plan: dict[str, Any]) -> tuple[
         "action_panel_cases": 17,
         "nominated_action_cases": 16,
         "fixed_k_belief_cases": 1,
-    }, [artifacts[name] for name in sorted(artifacts)])
+    }, rows, [artifacts[name] for name in sorted(artifacts)])
 
 
-def _tool_bindings(root: Path, selection_mode: str) -> list[dict[str, Any]]:
+def _tool_bindings(root: Path) -> list[dict[str, Any]]:
     names = list(TOOL_PATHS)
-    if selection_mode == "composition_final":
-        names.append("tools/composition_campaign.py")
     result = []
     for name in names:
         path, _ = _repo_file(root, name, f"audit tool {name}")
@@ -192,21 +197,292 @@ def _tool_bindings(root: Path, selection_mode: str) -> list[dict[str, Any]]:
     return result
 
 
+def _definition_paths(root: Path) -> tuple[str, ...]:
+    """Return the complete evaluator/verifier source closure frozen by the lock."""
+    names = {
+        "Makefile", PLAN_PATH, WORKFLOW_PATH, DRIVER_PATH,
+        HELPER_SOURCE_PATH, *TOOL_PATHS, *TEST_PATHS,
+    }
+    src = root / "src"
+    if not src.is_dir():
+        raise ExecutionError("evaluator src directory is absent")
+    for pattern in ("*.c", "*.h"):
+        for path in src.glob(pattern):
+            if not path.is_file() or path.is_symlink():
+                raise ExecutionError("evaluator source closure contains a non-file")
+            names.add(path.relative_to(root).as_posix())
+    return tuple(sorted(names))
+
+
+def _current_binding(root: Path, name: str, label: str,
+                     git_mode: str = "100644") -> dict[str, Any]:
+    path, relative = _repo_file(root, name, label)
+    return {
+        "path": relative,
+        "sha256": sha256(path),
+        "size": path.stat().st_size,
+        "git_mode": git_mode,
+    }
+
+
+def _git_blob_binding(root: Path, commit: str, name: str,
+                      label: str) -> dict[str, Any]:
+    try:
+        row = subprocess.check_output(
+            ["git", "ls-tree", commit, "--", name], cwd=root, text=True,
+            stderr=subprocess.STDOUT,
+        ).rstrip("\n")
+        if not row:
+            raise ExecutionError(f"{label} is absent from definition commit")
+        metadata, found = row.split("\t", 1)
+        mode, kind, blob = metadata.split()
+        if found != name or kind != "blob" or mode not in {"100644", "100755"}:
+            raise ExecutionError(f"{label} is not a regular committed blob")
+        payload = subprocess.check_output(
+            ["git", "cat-file", "blob", blob], cwd=root,
+            stderr=subprocess.STDOUT,
+        )
+    except (OSError, subprocess.CalledProcessError, ValueError) as exc:
+        raise ExecutionError(f"cannot bind {label} from definition commit: {exc}") \
+            from exc
+    return {
+        "path": name,
+        "sha256": hashlib.sha256(payload).hexdigest(),
+        "size": len(payload),
+        "git_mode": mode,
+    }
+
+
+def _has_git(root: Path) -> bool:
+    return (root / ".git").exists()
+
+
+def _commit_tree(root: Path, commit: str, label: str) -> str:
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", f"{commit}^{{tree}}"], cwd=root, text=True,
+            stderr=subprocess.STDOUT,
+        ).strip()
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise ExecutionError(f"cannot resolve {label} commit/tree") from exc
+
+
+def expected_definition_lock(root: Path, definition_commit: str,
+                             definition_tree: str) -> dict[str, Any]:
+    if _HEX40.fullmatch(definition_commit) is None or \
+            _HEX40.fullmatch(definition_tree) is None:
+        raise ExecutionError("definition commit/tree must be canonical SHA-1")
+    if _has_git(root) and _commit_tree(
+            root, definition_commit, "definition") != definition_tree:
+        raise ExecutionError("definition commit/tree mismatch")
+
+    plan_path, _ = _repo_file(root, PLAN_PATH, "locked exact-17 plan")
+    plan = strict_json(plan_path)
+    if plan.get("schema") != "lc-commented-ply-audit-plan-v1" or \
+            plan.get("status") != "definition_source_pending_unique_seal":
+        raise ExecutionError("locked exact-17 plan has the wrong seal contract")
+    if plan.get("definition_lock", {}).get("path") != LOCK_PATH:
+        raise ExecutionError("plan does not name the canonical definition lock")
+    cases, rows, corpus = _case_binding(root, plan)
+
+    names = _definition_paths(root)
+    if _has_git(root):
+        definition_files = [
+            _git_blob_binding(root, definition_commit, name,
+                              f"definition file {name}")
+            for name in names
+        ]
+        for committed in definition_files:
+            current = _current_binding(
+                root, committed["path"],
+                f"current definition file {committed['path']}",
+                committed["git_mode"],
+            )
+            if current != committed:
+                raise ExecutionError(
+                    f"definition file drifted from definition commit: "
+                    f"{committed['path']}")
+    else:
+        definition_files = [
+            _current_binding(root, name, f"definition file {name}")
+            for name in names
+        ]
+
+    teacher = _current_binding(
+        root, TEACHER_PATH, "policy-20 teacher checkpoint")
+    locked_artifacts = [
+        _current_binding(root, row["path"],
+                         f"definition artifact {row['path']}")
+        for row in corpus
+    ] + [teacher]
+    if _has_git(root):
+        committed_artifacts = [
+            _git_blob_binding(root, definition_commit, row["path"],
+                              f"definition artifact {row['path']}")
+            for row in locked_artifacts
+        ]
+        current_artifacts = [
+            _current_binding(root, row["path"],
+                             f"current definition artifact {row['path']}",
+                             row["git_mode"])
+            for row in committed_artifacts
+        ]
+        if current_artifacts != committed_artifacts:
+            raise ExecutionError("corpus/checkpoint drifted from definition commit")
+        locked_artifacts = committed_artifacts
+
+    return {
+        "schema": LOCK_SCHEMA,
+        "artifact_kind": "immutable_exact_17_audit_definition_lock",
+        "status": "sealed_before_authoritative_actor_selection",
+        "branch": BRANCH,
+        "definition": {
+            "commit": definition_commit,
+            "tree": definition_tree,
+        },
+        "definition_files": definition_files,
+        "cases": cases,
+        "case_rows": rows,
+        "locked_artifacts": locked_artifacts,
+        "teacher_checkpoint": teacher,
+        "build": {
+            "runner": "ubuntu-24.04",
+            "compiler": COMPILER,
+            "compiler_semantic_version_command":
+                COMPILER_SEMANTIC_VERSION_COMMAND,
+            "required_compiler_semantic_version":
+                REQUIRED_COMPILER_SEMANTIC_VERSION,
+            "cflags": CFLAGS,
+            "ldflags": LDFLAGS,
+        },
+        "results": None,
+    }
+
+
+def validate_definition_lock(
+    root: Path, source_commit: str, source_tree: str,
+    lock_commit_hint: str | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    lock_path, _ = _repo_file(root, LOCK_PATH, "exact-17 definition lock")
+    lock = strict_json(lock_path)
+    if lock_path.read_text(encoding="utf-8") != \
+            json.dumps(lock, indent=2, sort_keys=True) + "\n":
+        raise ExecutionError("definition lock is not canonical JSON")
+    definition = lock.get("definition") if isinstance(lock, dict) else None
+    if not isinstance(definition, dict):
+        raise ExecutionError("definition lock lacks its source identity")
+    definition_commit = definition.get("commit")
+    definition_tree = definition.get("tree")
+    if not isinstance(definition_commit, str) or \
+            not isinstance(definition_tree, str):
+        raise ExecutionError("definition lock source identity is malformed")
+    expected = expected_definition_lock(
+        root, definition_commit, definition_tree)
+    if lock != expected:
+        raise ExecutionError("definition lock differs from committed definition")
+
+    if _has_git(root):
+        if _HEX40.fullmatch(source_commit) is None or \
+                _HEX40.fullmatch(source_tree) is None or \
+                _commit_tree(root, source_commit, "source parent") != source_tree:
+            raise ExecutionError("source parent commit/tree mismatch")
+        try:
+            history = subprocess.check_output(
+                ["git", "log", "--all", "--format=%H", "--", LOCK_PATH],
+                cwd=root, text=True, stderr=subprocess.STDOUT,
+            ).splitlines()
+        except (OSError, subprocess.CalledProcessError) as exc:
+            raise ExecutionError("cannot inspect definition-lock history") from exc
+        if len(history) != 1 or _HEX40.fullmatch(history[0]) is None:
+            raise ExecutionError("definition lock must have exactly one history commit")
+        lock_commit = history[0]
+        try:
+            parents = subprocess.check_output(
+                ["git", "rev-list", "--parents", "-n", "1", lock_commit],
+                cwd=root, text=True, stderr=subprocess.STDOUT,
+            ).split()
+            changes = subprocess.check_output(
+                ["git", "diff-tree", "--no-commit-id", "--name-status", "-r",
+                 lock_commit], cwd=root, text=True,
+                stderr=subprocess.STDOUT,
+            ).splitlines()
+            existed = subprocess.run(
+                ["git", "cat-file", "-e", f"{definition_commit}:{LOCK_PATH}"],
+                cwd=root, stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            ).returncode == 0
+            ancestor = subprocess.run(
+                ["git", "merge-base", "--is-ancestor", lock_commit,
+                 source_commit], cwd=root, stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            ).returncode == 0
+            first_parent = subprocess.check_output(
+                ["git", "rev-list", "--first-parent", source_commit],
+                cwd=root, text=True, stderr=subprocess.STDOUT,
+            ).splitlines()
+            pinned_paths = [
+                row["path"] for row in lock["definition_files"]
+            ] + [row["path"] for row in lock["locked_artifacts"]]
+            later_touches = subprocess.check_output(
+                ["git", "log", "--format=%H",
+                 f"{definition_commit}..{source_commit}", "--", *pinned_paths],
+                cwd=root, text=True, stderr=subprocess.STDOUT,
+            ).splitlines()
+            committed_lock = _git_blob_binding(
+                root, lock_commit, LOCK_PATH, "committed definition lock")
+        except (OSError, subprocess.CalledProcessError) as exc:
+            raise ExecutionError("cannot verify definition-lock topology") from exc
+        current_lock = _current_binding(
+            root, LOCK_PATH, "current definition lock",
+            committed_lock["git_mode"])
+        if parents != [lock_commit, definition_commit] or \
+                changes != [f"A\t{LOCK_PATH}"] or existed or not ancestor or \
+                committed_lock["git_mode"] != "100644" or \
+                current_lock != committed_lock or lock_commit not in first_parent or \
+                later_touches:
+            raise ExecutionError(
+                "definition lock must be the unique add-only child of its "
+                "definition and an ancestor of the source parent")
+        if lock_commit_hint is not None and lock_commit_hint != lock_commit:
+            raise ExecutionError("definition-lock commit hint drift")
+    else:
+        if lock_commit_hint is None or _HEX40.fullmatch(lock_commit_hint) is None:
+            raise ExecutionError("sealed transport lacks definition-lock commit")
+        lock_commit = lock_commit_hint
+
+    binding = {
+        "path": LOCK_PATH,
+        "sha256": sha256(lock_path),
+        "size": lock_path.stat().st_size,
+        "lock_commit": lock_commit,
+        "definition_commit": definition_commit,
+        "definition_tree": definition_tree,
+    }
+    return binding, lock
+
+
 def expected_execution(root: Path, source_commit: str,
                        source_tree: str,
                        final_binding: dict[str, Any] | None = None,
+                       definition_lock_binding: tuple[
+                           dict[str, Any], dict[str, Any]] | None = None,
+                       lock_commit_hint: str | None = None,
                        ) -> dict[str, Any]:
     if _HEX40.fullmatch(source_commit) is None or \
             _HEX40.fullmatch(source_tree) is None:
         raise ExecutionError("source parent commit/tree must be canonical SHA-1")
+    lock_binding, lock = definition_lock_binding \
+        if definition_lock_binding is not None else validate_definition_lock(
+            root, source_commit, source_tree, lock_commit_hint)
     plan_path, _ = _repo_file(root, PLAN_PATH, "locked exact-17 plan")
     workflow_path, _ = _repo_file(root, WORKFLOW_PATH, "locked exact-17 workflow")
     plan = strict_json(plan_path)
     if plan.get("schema") != "lc-commented-ply-audit-plan-v1" or \
-            plan.get("status") != \
-            "locked_inert_pending_authoritative_final_actor_result":
+            plan.get("status") != "definition_source_pending_unique_seal":
         raise ExecutionError("locked exact-17 plan has the wrong contract")
-    cases, corpus = _case_binding(root, plan)
+    cases, rows, corpus = _case_binding(root, plan)
+    if lock.get("cases") != cases or lock.get("case_rows") != rows:
+        raise ExecutionError("sealed exact-17 cases drifted")
     final = final_binding if final_binding is not None \
         else authoritative_final_result(root)
     required_final = {
@@ -220,6 +496,8 @@ def expected_execution(root: Path, source_commit: str,
             not isinstance(final["winner"].get("spec"), str) or \
             _HEX64.fullmatch(str(final.get("sha256"))) is None:
         raise ExecutionError("authoritative final actor binding is malformed")
+    if final["selection_mode"] == "composition_final":
+        raise ExecutionError("sealed audit definition does not support a later composition")
     teacher_path, _ = _repo_file(root, TEACHER_PATH, "policy-20 teacher")
     if plan.get("continuation", {}).get("actor") != TEACHER_SPEC:
         raise ExecutionError("plan does not lock the policy-20 teacher")
@@ -230,9 +508,10 @@ def expected_execution(root: Path, source_commit: str,
         "source_parent_commit": source_commit,
         "source_parent_tree": source_tree,
         "branch": BRANCH,
+        "definition_lock": lock_binding,
         "plan": {"path": PLAN_PATH, "sha256": sha256(plan_path)},
         "workflow": {"path": WORKFLOW_PATH, "sha256": sha256(workflow_path)},
-        "tools": _tool_bindings(root, final["selection_mode"]),
+        "tools": _tool_bindings(root),
         "cases": cases,
         "corpus_artifacts": corpus,
         "authoritative_final_actor_result": final,
@@ -306,6 +585,26 @@ def _atomic_create(path: Path, value: dict[str, Any]) -> None:
             temporary.unlink(missing_ok=True)
 
 
+def prepare_definition_lock(root: Path, output: Path, definition_commit: str,
+                            definition_tree: str) -> dict[str, Any]:
+    if output.resolve() != (root / LOCK_PATH).resolve():
+        raise ExecutionError("definition lock output must use the canonical path")
+    if not _has_git(root):
+        raise ExecutionError("definition lock must be prepared in the source repository")
+    try:
+        head = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=root, text=True,
+            stderr=subprocess.STDOUT,
+        ).strip()
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise ExecutionError("cannot resolve definition HEAD") from exc
+    if head != definition_commit:
+        raise ExecutionError("definition lock must seal the checked-out HEAD")
+    value = expected_definition_lock(root, definition_commit, definition_tree)
+    _atomic_create(output, value)
+    return value
+
+
 def prepare_execution(root: Path, output: Path, source_commit: str,
                       source_tree: str) -> dict[str, Any]:
     if output.resolve() != (root / EXECUTION_PATH).resolve():
@@ -317,8 +616,12 @@ def prepare_execution(root: Path, output: Path, source_commit: str,
 
 def guard_execution(root: Path, execution: Path, source_commit: str,
                     source_tree: str) -> dict[str, Any]:
-    value = expected_execution(root, source_commit, source_tree)
-    if strict_json(execution) != value:
+    supplied = strict_json(execution)
+    hint = supplied.get("definition_lock", {}).get("lock_commit") \
+        if isinstance(supplied.get("definition_lock"), dict) else None
+    value = expected_execution(
+        root, source_commit, source_tree, lock_commit_hint=hint)
+    if supplied != value:
         raise ExecutionError(
             "execution addendum differs from exact-17 plan or mechanical winner")
     return value
@@ -359,6 +662,10 @@ def emit_github_output(path: Path, value: dict[str, Any]) -> None:
         "workflow_sha": value["workflow"]["sha256"],
         "definition_sha": value["cases"]["definition_sha256"],
         "teacher_sha": value["continuation"]["checkpoint"]["sha256"],
+        "definition_lock_sha": value["definition_lock"]["sha256"],
+        "definition_lock_commit": value["definition_lock"]["lock_commit"],
+        "definition_commit": value["definition_lock"]["definition_commit"],
+        "definition_tree": value["definition_lock"]["definition_tree"],
     }
     if any("\n" in item or "\r" in item for item in outputs.values()):
         raise ExecutionError("multiline GitHub output is forbidden")
@@ -373,6 +680,11 @@ def emit_github_output(path: Path, value: dict[str, Any]) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
+    lock_command = commands.add_parser("prepare-definition-lock")
+    lock_command.add_argument("--root", type=Path, required=True)
+    lock_command.add_argument("--definition-commit", required=True)
+    lock_command.add_argument("--definition-tree", required=True)
+    lock_command.add_argument("--lock", type=Path, required=True)
     for name in ("prepare-execution", "guard-execution"):
         command = commands.add_parser(name)
         command.add_argument("--root", type=Path, required=True)
@@ -383,7 +695,11 @@ def main() -> int:
             command.add_argument("--github-output", type=Path)
     args = parser.parse_args()
     try:
-        if args.command == "prepare-execution":
+        if args.command == "prepare-definition-lock":
+            prepare_definition_lock(
+                args.root, args.lock, args.definition_commit,
+                args.definition_tree)
+        elif args.command == "prepare-execution":
             prepare_execution(args.root, args.execution,
                               args.source_parent_commit, args.source_parent_tree)
         else:

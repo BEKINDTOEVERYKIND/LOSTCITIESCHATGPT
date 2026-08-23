@@ -1,7 +1,13 @@
 {
   "schema": "lc-commented-ply-audit-plan-v1",
-  "status": "locked_inert_pending_authoritative_final_actor_result",
+  "status": "definition_source_pending_unique_seal",
   "purpose": "One-shot post-selection diagnosis of exactly the 17 plies explicitly commented on by the user. It cannot train, select, reject, or promote an actor and changes no locked validation criterion.",
+  "definition_lock": {
+    "path": "data/experiments/locked_commented_ply_audit_definition_lock.json",
+    "schema": "lc-commented-ply-audit-definition-lock-v1",
+    "prepare_command": "python3 tools/commented_ply_execution.py prepare-definition-lock --root . --lock data/experiments/locked_commented_ply_audit_definition_lock.json --definition-commit $(git rev-parse HEAD) --definition-tree $(git rev-parse HEAD^{tree})",
+    "seal": "After this definition source is committed, add exactly one direct child commit containing only the no-clobber lock manifest. Every later source parent must retain every pinned byte and descend from that lock on its first-parent lineage."
+  },
   "authoritative_final_actor": {
     "path": "data/experiments/final_actor_result.json",
     "schema": "lc-authoritative-final-actor-result-v2",
@@ -274,9 +280,9 @@
   "execution": {
     "canonical_path": "data/experiments/locked_commented_ply_audit_execution.json",
     "prepare_command": "python3 tools/commented_ply_execution.py prepare-execution --root . --execution data/experiments/locked_commented_ply_audit_execution.json --source-parent-commit $(git rev-parse HEAD) --source-parent-tree $(git rev-parse HEAD^{tree})",
-    "launch": "After final_actor_result.json is committed, prepare exactly one no-clobber execution addendum and push one direct-parent commit adding only that file.",
+    "launch": "Only after the unique definition lock and final_actor_result.json are committed, prepare exactly one no-clobber execution addendum and push one direct-parent commit adding only that file.",
     "forbidden": "No workflow_dispatch, retry, force push, merge launch, actor input, world input, case widening, optional stopping, training use, or promotion use."
   },
-  "reporting": "Merge the 17 immutable one-case JSON shards losslessly, render canonical per-ply Markdown from that JSON, retain every source shard and authoritative binding, and seal the complete evidence with SHA-256.",
+  "reporting": "Merge the 17 immutable one-case JSON shards losslessly, render canonical per-ply Markdown from that JSON, retain every source shard and authoritative binding, embed the complete evaluator payload plus its persisted manifest SHA-256, and seal the self-contained evidence with SHA-256.",
   "results": null
 }

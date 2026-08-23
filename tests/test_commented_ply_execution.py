@@ -134,14 +134,14 @@ class CommentedPlyExecutionTests(unittest.TestCase):
         self.assertEqual(plan["schema"], "lc-commented-ply-audit-plan-v1")
         self.assertEqual(plan["case_definition_sha256"],
                          "c065a0d0e86f1db392b9e6e7382518cff947770be519417d899c21a965b223b5")
-        cases, artifacts = execution._case_binding(ROOT, plan)
+        cases, rows, artifacts = execution._case_binding(ROOT, plan)
         self.assertEqual(cases["case_ids"], list(execution.CASE_IDS))
         self.assertEqual(cases["case_count"], 17)
         self.assertEqual(cases["action_panel_cases"], 17)
         self.assertEqual(cases["nominated_action_cases"], 16)
         self.assertEqual(cases["fixed_k_belief_cases"], 1)
         self.assertEqual(len(artifacts), 18)
-        rows = plan["cases"]
+        self.assertEqual(rows, plan["cases"])
         self.assertEqual(len(rows), 17)
         self.assertEqual(
             [(row["source_seed"], row["ply"]) for row in rows],
@@ -166,9 +166,19 @@ class CommentedPlyExecutionTests(unittest.TestCase):
         self.assertEqual(rows[5]["candidates"], [])
 
     def test_expected_execution_mechanically_binds_winner_and_assets(self) -> None:
+        plan = execution.strict_json(PLAN)
+        cases, rows, _ = execution._case_binding(ROOT, plan)
+        lock_binding = {
+            "path": execution.LOCK_PATH, "sha256": "c" * 64,
+            "size": 123, "lock_commit": "6" * 40,
+            "definition_commit": "7" * 40,
+            "definition_tree": "8" * 40,
+        }
         value = execution.expected_execution(
             ROOT, "4" * 40, "5" * 40,
             final_binding=self.final_binding(),
+            definition_lock_binding=(
+                lock_binding, {"cases": cases, "case_rows": rows}),
         )
         self.assertEqual(value["schema"], execution.SCHEMA)
         self.assertEqual(value["subject"]["actor"], self.final_binding()["winner"])
@@ -180,11 +190,49 @@ class CommentedPlyExecutionTests(unittest.TestCase):
         self.assertEqual(value["audit"]["default_paired_worlds"], 1024)
         self.assertEqual(value["audit"]["ui_221_p10_paired_worlds"], 2048)
         self.assertTrue(value["audit"]["diagnostic_only"])
+        self.assertEqual(value["definition_lock"], lock_binding)
         self.assertIsNone(value["results"])
         bound_paths = {row["path"] for row in value["tools"]}
         self.assertIn("tools/audit_commented_plies.py", bound_paths)
         self.assertIn("tools/commented_ply_eval.c", bound_paths)
         self.assertNotIn("tools/flagged_ply_audit.py", bound_paths)
+
+    def test_definition_lock_pins_complete_evaluator_closure(self) -> None:
+        with mock.patch.object(execution, "_has_git", return_value=False):
+            value = execution.expected_definition_lock(
+                ROOT, "1" * 40, "2" * 40)
+        paths = {row["path"] for row in value["definition_files"]}
+        self.assertIn("Makefile", paths)
+        self.assertIn(execution.WORKFLOW_PATH, paths)
+        self.assertIn(execution.PLAN_PATH, paths)
+        self.assertIn(execution.DRIVER_PATH, paths)
+        self.assertIn(execution.HELPER_SOURCE_PATH, paths)
+        self.assertIn("tools/flagged_ply_execution.py", paths)
+        self.assertIn("tests/test_commented_ply_execution.py", paths)
+        self.assertEqual(
+            {path.relative_to(ROOT).as_posix()
+             for path in (ROOT / "src").glob("*.[ch]")},
+            {path for path in paths if path.startswith("src/")},
+        )
+        artifacts = {row["path"] for row in value["locked_artifacts"]}
+        self.assertIn("data/champion.bin", artifacts)
+        self.assertEqual(len(artifacts), 19)
+        self.assertEqual(value["case_rows"], execution.strict_json(PLAN)["cases"])
+
+    @unittest.skipUnless(
+        (ROOT / execution.LOCK_PATH).is_file(),
+        "canonical definition lock is intentionally absent before sealing",
+    )
+    def test_canonical_sealed_lock_revalidates_from_git_history(self) -> None:
+        source = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+        tree = subprocess.check_output(
+            ["git", "rev-parse", "HEAD^{tree}"], cwd=ROOT, text=True).strip()
+        binding, lock = execution.validate_definition_lock(ROOT, source, tree)
+        self.assertEqual(binding["path"], execution.LOCK_PATH)
+        self.assertEqual(lock["case_rows"], execution.strict_json(PLAN)["cases"])
+        self.assertEqual(binding["definition_commit"],
+                         lock["definition"]["commit"])
 
     def test_prepare_is_atomic_canonical_and_no_clobber(self) -> None:
         value = {"schema": "fixture"}
@@ -206,6 +254,90 @@ class CommentedPlyExecutionTests(unittest.TestCase):
                     execution.prepare_execution(
                         root, root / "wrong.json", "1" * 40, "2" * 40)
 
+    def test_definition_lock_topology_rejects_post_seal_touches(self) -> None:
+        definition = "1" * 40
+        tree = "2" * 40
+        lock_commit = "3" * 40
+        source = "4" * 40
+        source_tree = "5" * 40
+        lock = {
+            "definition": {"commit": definition, "tree": tree},
+            "definition_files": [{"path": "Makefile"}],
+            "locked_artifacts": [{"path": "data/champion.bin"}],
+        }
+        lock_blob = {
+            "path": execution.LOCK_PATH, "sha256": "a" * 64,
+            "size": 10, "git_mode": "100644",
+        }
+
+        def output(command: list[str], **_: object) -> str:
+            if command[1:4] == ["log", "--all", "--format=%H"]:
+                return lock_commit + "\n"
+            if command[1:4] == ["rev-list", "--parents", "-n"]:
+                return f"{lock_commit} {definition}\n"
+            if command[1] == "diff-tree":
+                return f"A\t{execution.LOCK_PATH}\n"
+            if command[1:3] == ["rev-list", "--first-parent"]:
+                return f"{source}\n{lock_commit}\n{definition}\n"
+            if command[1:3] == ["log", "--format=%H"]:
+                return ""
+            raise AssertionError(command)
+
+        run_results = [mock.Mock(returncode=1), mock.Mock(returncode=0)]
+        with mock.patch.object(execution, "_repo_file",
+                               return_value=(Path("lock"), execution.LOCK_PATH)), \
+                mock.patch.object(execution, "strict_json", return_value=lock), \
+                mock.patch.object(execution, "expected_definition_lock",
+                                  return_value=lock), \
+                mock.patch.object(execution, "_has_git", return_value=True), \
+                mock.patch.object(execution, "_commit_tree",
+                                  return_value=source_tree), \
+                mock.patch.object(subprocess, "check_output",
+                                  side_effect=output), \
+                mock.patch.object(subprocess, "run", side_effect=run_results), \
+                mock.patch.object(execution, "_git_blob_binding",
+                                  return_value=lock_blob), \
+                mock.patch.object(execution, "_current_binding",
+                                  return_value=lock_blob), \
+                mock.patch.object(execution, "sha256", return_value="a" * 64), \
+                mock.patch.object(Path, "read_text",
+                                  return_value=json.dumps(
+                                      lock, indent=2, sort_keys=True) + "\n"), \
+                mock.patch.object(Path, "stat",
+                                  return_value=mock.Mock(st_size=10)):
+            binding, _ = execution.validate_definition_lock(
+                ROOT, source, source_tree)
+        self.assertEqual(binding["lock_commit"], lock_commit)
+
+        def touched(command: list[str], **kwargs: object) -> str:
+            value = output(command, **kwargs)
+            if command[1:3] == ["log", "--format=%H"]:
+                return source + "\n"
+            return value
+
+        with mock.patch.object(execution, "_repo_file",
+                               return_value=(Path("lock"), execution.LOCK_PATH)), \
+                mock.patch.object(execution, "strict_json", return_value=lock), \
+                mock.patch.object(execution, "expected_definition_lock",
+                                  return_value=lock), \
+                mock.patch.object(execution, "_has_git", return_value=True), \
+                mock.patch.object(execution, "_commit_tree",
+                                  return_value=source_tree), \
+                mock.patch.object(subprocess, "check_output",
+                                  side_effect=touched), \
+                mock.patch.object(subprocess, "run",
+                                  side_effect=[mock.Mock(returncode=1),
+                                               mock.Mock(returncode=0)]), \
+                mock.patch.object(execution, "_git_blob_binding",
+                                  return_value=lock_blob), \
+                mock.patch.object(execution, "_current_binding",
+                                  return_value=lock_blob), \
+                mock.patch.object(Path, "read_text",
+                                  return_value=json.dumps(
+                                      lock, indent=2, sort_keys=True) + "\n"):
+            with self.assertRaisesRegex(execution.ExecutionError, "unique add-only"):
+                execution.validate_definition_lock(ROOT, source, source_tree)
+
     def test_workflow_is_add_only_compile_once_and_exact_17(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
         workflow_keys_are_unique(self, text)
@@ -215,6 +347,9 @@ class CommentedPlyExecutionTests(unittest.TestCase):
         self.assertIn('test "$GITHUB_RUN_ATTEMPT" = 1', text)
         self.assertIn('test "$EVENT_FORCED" = false', text)
         self.assertIn("guard-execution", text)
+        self.assertIn("definition_lock_commit", text)
+        self.assertIn("PAYLOAD_SHA256SUMS.txt", text)
+        self.assertIn("cp -R evaluator final-evidence/evaluator", text)
         self.assertIn("git -C campaign archive HEAD^", text)
         self.assertEqual(text.count("make -C source"), 1)
         self.assertNotIn("flagged_ply_audit.py", text)

@@ -21,6 +21,7 @@ env:
   EXECUTION_PATH: data/experiments/locked_commented_ply_audit_execution.json
   FINAL_RESULT_PATH: data/experiments/final_actor_result.json
   PLAN_PATH: data/experiments/locked_commented_ply_audit_plan.json
+  LOCK_PATH: data/experiments/locked_commented_ply_audit_definition_lock.json
   WORKFLOW_PATH: .github/workflows/commented-ply-audit.yml
   COMPILER_EXECUTABLE: gcc
   COMPILER_SEMANTIC_VERSION_COMMAND: 'gcc -dumpfullversion -dumpversion'
@@ -48,6 +49,10 @@ jobs:
       definition_sha: ${{ steps.guard.outputs.definition_sha }}
       teacher_sha: ${{ steps.guard.outputs.teacher_sha }}
       evaluator_manifest_sha: ${{ steps.bind.outputs.evaluator_manifest_sha }}
+      definition_lock_sha: ${{ steps.guard.outputs.definition_lock_sha }}
+      definition_lock_commit: ${{ steps.guard.outputs.definition_lock_commit }}
+      definition_commit: ${{ steps.guard.outputs.definition_commit }}
+      definition_tree: ${{ steps.guard.outputs.definition_tree }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -100,6 +105,8 @@ jobs:
           test ! -e "source/$EXECUTION_PATH"
           test "$(sha256sum "source/$PLAN_PATH" | cut -d' ' -f1)" = \
             "${{ steps.guard.outputs.plan_sha }}"
+          test "$(sha256sum "source/$LOCK_PATH" | cut -d' ' -f1)" = \
+            "${{ steps.guard.outputs.definition_lock_sha }}"
           test "$(sha256sum "source/$WORKFLOW_PATH" | cut -d' ' -f1)" = \
             "${{ steps.guard.outputs.workflow_sha }}"
           test "$(sha256sum "source/$FINAL_RESULT_PATH" | cut -d' ' -f1)" = \
@@ -139,9 +146,11 @@ jobs:
           test -n "${RUNNER_OS:-}"
           test -n "${RUNNER_ARCH:-}"
           mv source evaluator
+          test -z "$(find evaluator -type l -print -quit)"
           mkdir -p evaluator/bindings
           cp "campaign/$EXECUTION_PATH" evaluator/bindings/execution.json
           cp "evaluator/$PLAN_PATH" evaluator/bindings/plan.json
+          cp "evaluator/$LOCK_PATH" evaluator/bindings/definition-lock.json
           cp "evaluator/$WORKFLOW_PATH" evaluator/bindings/workflow.yml
           cp "evaluator/$FINAL_RESULT_PATH" \
             evaluator/bindings/final-actor-result.json
@@ -182,6 +191,10 @@ jobs:
             echo "plan_sha=${{ steps.guard.outputs.plan_sha }}"
             echo "workflow_sha=${{ steps.guard.outputs.workflow_sha }}"
             echo "definition_sha=${{ steps.guard.outputs.definition_sha }}"
+            echo "definition_lock_sha=${{ steps.guard.outputs.definition_lock_sha }}"
+            echo "definition_lock_commit=${{ steps.guard.outputs.definition_lock_commit }}"
+            echo "definition_commit=${{ steps.guard.outputs.definition_commit }}"
+            echo "definition_tree=${{ steps.guard.outputs.definition_tree }}"
             echo "final_result_sha=${{ steps.guard.outputs.final_result_sha }}"
             echo "selection_mode=${{ steps.guard.outputs.selection_mode }}"
             echo "final_gate_passed=${{ steps.guard.outputs.final_gate_passed }}"
@@ -199,11 +212,21 @@ jobs:
             echo "uname=$(uname -a)"
             echo "cflags=$BUILD_CFLAGS"
             echo "ldflags=$BUILD_LDFLAGS"
-          } > evaluator/BUILD_INFO.txt
+          } > evaluator/BUILD_INFO.base.txt
+          (cd evaluator && find . -type f \
+            ! -name SHA256SUMS.txt \
+            ! -name PAYLOAD_SHA256SUMS.txt \
+            ! -name BUILD_INFO.txt \
+            ! -name BUILD_INFO.base.txt -print0 | \
+            sort -z | xargs -0 sha256sum > PAYLOAD_SHA256SUMS.txt)
+          EVALUATOR_SHA="$(sha256sum evaluator/PAYLOAD_SHA256SUMS.txt | cut -d' ' -f1)"
+          cat evaluator/BUILD_INFO.base.txt > evaluator/BUILD_INFO.txt
+          echo "evaluator_manifest_sha=$EVALUATOR_SHA" >> evaluator/BUILD_INFO.txt
+          rm evaluator/BUILD_INFO.base.txt
           (cd evaluator && find . -type f ! -name SHA256SUMS.txt -print0 | \
             sort -z | xargs -0 sha256sum > SHA256SUMS.txt)
+          (cd evaluator && sha256sum -c PAYLOAD_SHA256SUMS.txt)
           (cd evaluator && sha256sum -c SHA256SUMS.txt)
-          EVALUATOR_SHA="$(sha256sum evaluator/SHA256SUMS.txt | cut -d' ' -f1)"
           echo "evaluator_manifest_sha=$EVALUATOR_SHA" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -254,8 +277,11 @@ jobs:
           WINNER_ACTOR: ${{ needs.preflight.outputs.winner_actor }}
         run: |
           set -euo pipefail
-          test "$(sha256sum evaluator/SHA256SUMS.txt | cut -d' ' -f1)" = \
+          test "$(sha256sum evaluator/PAYLOAD_SHA256SUMS.txt | cut -d' ' -f1)" = \
             "${{ needs.preflight.outputs.evaluator_manifest_sha }}"
+          grep -Fx "evaluator_manifest_sha=${{ needs.preflight.outputs.evaluator_manifest_sha }}" \
+            evaluator/BUILD_INFO.txt
+          (cd evaluator && sha256sum -c PAYLOAD_SHA256SUMS.txt)
           (cd evaluator && sha256sum -c SHA256SUMS.txt)
           chmod 755 evaluator/bin/commented_ply_eval
           mkdir artifact
@@ -321,8 +347,11 @@ jobs:
           WINNER_ACTOR: ${{ needs.preflight.outputs.winner_actor }}
         run: |
           set -euo pipefail
-          test "$(sha256sum evaluator/SHA256SUMS.txt | cut -d' ' -f1)" = \
+          test "$(sha256sum evaluator/PAYLOAD_SHA256SUMS.txt | cut -d' ' -f1)" = \
             "${{ needs.preflight.outputs.evaluator_manifest_sha }}"
+          grep -Fx "evaluator_manifest_sha=${{ needs.preflight.outputs.evaluator_manifest_sha }}" \
+            evaluator/BUILD_INFO.txt
+          (cd evaluator && sha256sum -c PAYLOAD_SHA256SUMS.txt)
           (cd evaluator && sha256sum -c SHA256SUMS.txt)
           python3 - <<'PY'
           from pathlib import Path
@@ -426,6 +455,8 @@ jobs:
                   is not True or \
                   contract.get("future_deals_shared_across_actions") is not True or \
                   contract.get("branch_rng_domains_neutral") is not True or \
+                  contract.get("policy_probability_aggregation") != \
+                  "sum_by_semantic_move" or \
                   contract.get("actor_selected_action_graded_on_all_17") \
                   is not True or \
                   contract.get("counterfactual_caps") != "zero_fail_closed" or \
@@ -456,6 +487,9 @@ jobs:
                       counterfactual.get("shared_future_deals") is not True or \
                       counterfactual.get("branch_neutral_rng_domains") is not True:
                   raise SystemExit(f"{case['case_id']}: underpowered/incomplete action panel")
+              if counterfactual.get("policy_probability_aggregation") != \
+                      "sum_by_semantic_move":
+                  raise SystemExit(f"{case['case_id']}: semantic probability drift")
               for name in (
                   "hidden_world_set_hash", "future_deal_set_hash",
                   "branch_rng_domain_hash",
@@ -504,7 +538,16 @@ jobs:
           cp shards/* final-evidence/shards/
           cp evaluator/BUILD_INFO.txt final-evidence/BUILD_INFO.txt
           cp evaluator/SHA256SUMS.txt final-evidence/EVALUATOR_SHA256SUMS.txt
+          cp evaluator/PAYLOAD_SHA256SUMS.txt \
+            final-evidence/EVALUATOR_PAYLOAD_SHA256SUMS.txt
+          printf '%s\n' "${{ needs.preflight.outputs.evaluator_manifest_sha }}" > \
+            final-evidence/EVALUATOR_MANIFEST_SHA256.txt
           cp -R evaluator/bindings/. final-evidence/bindings/
+          cp -R evaluator final-evidence/evaluator
+          test "$(sha256sum final-evidence/evaluator/PAYLOAD_SHA256SUMS.txt | \
+            cut -d' ' -f1)" = "${{ needs.preflight.outputs.evaluator_manifest_sha }}"
+          (cd final-evidence/evaluator && sha256sum -c PAYLOAD_SHA256SUMS.txt)
+          (cd final-evidence/evaluator && sha256sum -c SHA256SUMS.txt)
           (cd final-evidence && find . -type f ! -name SHA256SUMS.txt -print0 | \
             sort -z | xargs -0 sha256sum > SHA256SUMS.txt)
           (cd final-evidence && sha256sum -c SHA256SUMS.txt)
