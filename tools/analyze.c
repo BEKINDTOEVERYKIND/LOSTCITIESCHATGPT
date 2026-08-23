@@ -532,10 +532,14 @@ int main(int argc, char **argv)
         (actor.kind != AG_POLICY && actor.kind != AG_ROLLOUT)) {
         fprintf(stderr, "analyze: actor must be a network policy or rollout "
                         "spec (got '%s')\n", actor_spec);
+        spec_release(&actor);
+        spec_release(&evaluator);
         return 1;
     }
     if (evaluator.kind != AG_ROLLOUT || !evaluator.net) {
         fprintf(stderr, "analyze: evaluator must be a network rollout spec\n");
+        spec_release(&actor);
+        spec_release(&evaluator);
         return 1;
     }
 
@@ -548,7 +552,12 @@ int main(int argc, char **argv)
     char *plybuf = NULL;
     size_t plylen = 0;
     FILE *pf = open_memstream(&plybuf, &plylen);
-    if (!pf) { fprintf(stderr, "analyze: open_memstream failed\n"); return 1; }
+    if (!pf) {
+        fprintf(stderr, "analyze: open_memstream failed\n");
+        spec_release(&actor);
+        spec_release(&evaluator);
+        return 1;
+    }
 
     char start_hands[2][256];
     int cum[2] = { 0, 0 };
@@ -617,6 +626,10 @@ int main(int argc, char **argv)
             if (!belief_dist_init(actor.net, &st, mp, belief_symmetries,
                                   effective_alpha, &bd)) {
                 fprintf(stderr, "analyze: belief distribution failed at ply %d\n", ply);
+                fclose(pf);
+                free(plybuf);
+                spec_release(&actor);
+                spec_release(&evaluator);
                 return 1;
             }
             int bord[NCARD];
@@ -1156,5 +1169,7 @@ int main(int argc, char **argv)
     printf("\"start_hands\":[%s,%s],\n", start_hands[0], start_hands[1]);
     printf("\"plies\":[%s]}\n", plybuf);
     free(plybuf);
+    spec_release(&actor);
+    spec_release(&evaluator);
     return 0;
 }
