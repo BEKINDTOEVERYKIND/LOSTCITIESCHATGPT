@@ -1,0 +1,129 @@
+{
+  "artifact_kind": "authoritative_action_advantage_veto_v1_campaign_result",
+  "candidate": {
+    "actor": "rolloutu4:data/champion.bin:data/champion.bin:data/models/action_advantage_veto_v1.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1:0:0:0:1:0",
+    "promoted": false,
+    "ranker_sha256": "4220de1fce0fa53d560cf22098e38bb2ff6ce51b770d1b10b6920414be050dcf",
+    "selected_threshold": 0,
+    "selected_threshold_text": "0"
+  },
+  "development": {
+    "burned_generator_seed": "202609010101",
+    "evidence": {
+      "artifact_id": 9498218888,
+      "artifact_archive_sha256": "78d894666fa127f25681d8b14468a04cdbbbdb85fe35255c47fb1b631a7768a5",
+      "manifest_sha256": "2e7e97fa83d5cdae8014b079644612e41801c485ce56dbf80deda49503dd31e5",
+      "persisted_summary_archive_path": "data/experiments/action_advantage_veto_v1_development_summary_evidence.zip",
+      "persisted_summary_archive_sha256": "d990c900fc15d5dc270daf1f5b0eea3d2f39f25d594066c97e553730c206bb89",
+      "raw_payloads_bound_by_manifest": [
+        "records.bin",
+        "ranker.bin"
+      ]
+    },
+    "fresh_generator_seed": "202609030101",
+    "fresh_split_seed": "202609030201",
+    "heldout": {
+      "final_pair_huber": 0.061399524465845304,
+      "initial_pair_huber": 0.063154195729014997,
+      "max_policy_kl": 0.0013592646997672639,
+      "mean_policy_kl": 0.00009377424304422781,
+      "metrics_sha256": "dbf16644b6f764e716318ad500743c6f0b82ca9e784f4f601a8ecb51dc5c23c2",
+      "selected_oracle_regret": 384.64765893141157,
+      "selected_retained": 441,
+      "selected_signed_hybrid_sum": 439.480859973497,
+      "training_gate_passed": true,
+      "validation_proposals": 644,
+      "validation_states": 802
+    },
+    "ranker_sha256": "4220de1fce0fa53d560cf22098e38bb2ff6ce51b770d1b10b6920414be050dcf",
+    "record_counts": {
+      "anchors": 510,
+      "proposals": 2052,
+      "records": 2562,
+      "source_matches_completed": 64,
+      "source_matches_requested": 64
+    },
+    "records_sha256": "38961cbe6e588781f0d485cde84e4a9543ad9d312b31b9834288d1657056a735",
+    "selected_sha256": "c0936cd7300f10382e8d29adef760ab142aff5d5b1af244a1531ea9065d60006",
+    "threshold_grid": [
+      0,
+      0.1,
+      0.25,
+      0.5,
+      1
+    ]
+  },
+  "final": {
+    "candidate_first_seed": "202609020401",
+    "baseline_first_seed": "202609020402",
+    "pairs_per_orientation": 2500,
+    "reserved_seeds_consumed": false,
+    "status": "not_started_because_safety_failed"
+  },
+  "independent_verification": {
+    "development_archive_digest_matched": true,
+    "development_manifest_entries_verified": 12,
+    "fresh_seed_bindings_verified": true,
+    "raw_safety_shards_remerged": true,
+    "safety_archive_digest_matched": true,
+    "safety_decision_exactly_recomputed": true,
+    "safety_manifest_entries_verified": 71,
+    "structural_validation_exactly_recomputed": true,
+    "threshold_selection_recomputed": true
+  },
+  "maintained": {
+    "actor": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+    "champion_sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+    "reason": "the frozen challenger failed the one-shot locked safety gate; the final gate was therefore not run",
+    "world_cap": 800
+  },
+  "safety": {
+    "candidate_first_seed": "202609020301",
+    "baseline_first_seed": "202609020302",
+    "decision_sha256": "13add629da5321c50c28d30e853d952815e998bf544ec8b85cf7ae8417757e42",
+    "evidence": {
+      "artifact_id": 9498757872,
+      "archive_path": "data/experiments/action_advantage_veto_v1_safety_evidence.zip",
+      "archive_sha256": "9aedf5fa4550a0fd4171af9d4421188d40f8ef553c1d1b6a6944196bea8cfbac",
+      "manifest_sha256": "67160376e3aeaa7c55c51f50f1e3aa81223dfc0b44ff2b36c5b0fcd90be28951"
+    },
+    "metrics": {
+      "candidate_first_match_score": 0.4875,
+      "capped_rounds": 0,
+      "combined_margin_per_game": -4.64625,
+      "combined_match_score": 0.471875,
+      "combined_match_score_lcb_at_1_645": 0.44895774328423027,
+      "inverted_baseline_first_candidate_match_score": 0.45625,
+      "margin_pair_clustered_se": 1.5923333885493154,
+      "match_score_pair_clustered_se": 0.013931463049100127
+    },
+    "pairs_per_orientation": 200,
+    "passed": false,
+    "requirements": {
+      "combined_margin_strictly_positive": false,
+      "combined_match_score_at_least_half": false,
+      "each_orientation_at_least_0_475": false,
+      "exact_raw_input_validity": true,
+      "zero_capped_rounds": true
+    },
+    "shards_per_orientation": 10,
+    "structural_validation_sha256": "087da410781afbb1f609f892f26f68b60237f76afc28f2a3a142eb0df030cf03"
+  },
+  "schema_version": 1,
+  "source": {
+    "campaign_execution_sha256": "36872923f20176d366fe8ea01dbc197fa3d2cd55d85c45269a142443451a3dec",
+    "campaign_parent_commit": "9b87e654d39697f22cd4e9ff56edabf6d9c4d224",
+    "campaign_parent_tree": "657d2509e9ed902255d837e767b7abb04a69ef32",
+    "launch_commit": "cd6f03272113f4c98012021c3a720124ff2c61d7",
+    "locked_plan_sha256": "0ec0ad61f0000f93628f327ca1bff6f774458876c9c429b5eeba708c4a35a49e",
+    "seed_clean_origin_commit": "6a25a9ee22b7fa5d3932caddf3e45fde77da2bb2",
+    "world800_result_sha256": "798a4f0948295445d25dd34cb1a8e3f96794e24f032a76a82df7c92485da4db8"
+  },
+  "status": "complete_candidate_rejected_at_safety",
+  "workflow": {
+    "attempt": 1,
+    "conclusion": "success",
+    "run_id": 32647135352,
+    "url": "https://github.com/BEKINDTOEVERYKIND/LOSTCITIESCHATGPT/actions/runs/32647135352"
+  }
+}
