@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 from collections import Counter
+from dataclasses import replace
 import json
 from pathlib import Path
 import subprocess
@@ -24,6 +25,11 @@ SPEC.loader.exec_module(audit)
 
 class CommentedPlyAuditTests(unittest.TestCase):
     POLICY_ACTOR = "policy:data/champion.bin:0:20"
+    SMOKE_BASE_SEED = 202610090001
+    SMOKE_CHANGED_SEED = 202610090002
+    SMOKE_P13_SEED = 202610090013
+    SMOKE_P44_SEED = 202610090044
+    SMOKE_CAP_SEED = 202610090099
 
     @staticmethod
     def with_complete_deck(text: str, *, reverse: bool = False) -> str:
@@ -60,7 +66,7 @@ class CommentedPlyAuditTests(unittest.TestCase):
         return text.rstrip() + "\ndeck " + " ".join(deck) + "\n"
 
     def helper(
-        self, state: Path, *extra: str, seed: int = 991337,
+        self, state: Path, *extra: str, seed: int = SMOKE_BASE_SEED,
         worlds: int = 2,
     ) -> dict:
         command = [
@@ -96,6 +102,20 @@ class CommentedPlyAuditTests(unittest.TestCase):
         self.assertEqual(
             sum(case.min_worlds for case in audit.CASES), 18_432
         )
+        production_seeds = {case.audit_seed for case in audit.CASES}
+        self.assertEqual(len(production_seeds), 17)
+        self.assertTrue(all(
+            str(seed).startswith("20261001") for seed in production_seeds
+        ))
+        smoke_seeds = {
+            self.SMOKE_BASE_SEED, self.SMOKE_CHANGED_SEED,
+            self.SMOKE_P13_SEED, self.SMOKE_P44_SEED,
+            self.SMOKE_CAP_SEED,
+        }
+        self.assertTrue(all(
+            str(seed).startswith("20261009") for seed in smoke_seeds
+        ))
+        self.assertTrue(production_seeds.isdisjoint(smoke_seeds))
 
         p14 = next(case for case in audit.CASES if case.case_id == "showcase-572-p14")
         self.assertEqual(
@@ -138,7 +158,9 @@ class CommentedPlyAuditTests(unittest.TestCase):
             first = self.helper(completed, *args)
             repeated = self.helper(completed, *args)
             changed_hidden_truth = self.helper(mutated, *args)
-            changed_seed = self.helper(completed, *args, seed=991338)
+            changed_seed = self.helper(
+                completed, *args, seed=self.SMOKE_CHANGED_SEED
+            )
         self.assertEqual(first, repeated)
         self.assertEqual(first["state"]["input_deck_entries"], 24)
         self.assertEqual(changed_hidden_truth["state"]["input_deck_entries"], 24)
@@ -178,15 +200,16 @@ class CommentedPlyAuditTests(unittest.TestCase):
     def test_p13_reports_exact_k_posterior_programmatically(self) -> None:
         state = ROOT / "data" / "probes" / "ui_seed2214615196_p13.state"
         case = next(case for case in audit.CASES if case.case_id == "ui-221-p13")
+        smoke_case = replace(case, audit_seed=self.SMOKE_P13_SEED)
         result = self.helper(
             state,
             "--belief", "--belief-alpha", "1.15",
             "--belief-card", "Y9",
-            seed=case.audit_seed,
+            seed=smoke_case.audit_seed,
         )
         result["state"]["path"] = case.state
         audit._validate_evaluation(
-            case, result, actor_spec=self.POLICY_ACTOR,
+            smoke_case, result, actor_spec=self.POLICY_ACTOR,
             net_label="data/champion.bin", worlds=2, symmetries=20,
             belief_alpha=1.15,
         )
@@ -258,12 +281,13 @@ class CommentedPlyAuditTests(unittest.TestCase):
             state,
             "--candidate", "W10 p deck",
             "--candidate", "W10 p G",
-            seed=202608230444,
+            seed=self.SMOKE_P44_SEED,
         )
         case = next(case for case in audit.CASES if case.case_id == "ui-956-p44")
+        smoke_case = replace(case, audit_seed=self.SMOKE_P44_SEED)
         result["state"]["path"] = case.state
         audit._validate_evaluation(
-            case, result, actor_spec=self.POLICY_ACTOR,
+            smoke_case, result, actor_spec=self.POLICY_ACTOR,
             net_label="data/champion.bin", worlds=2, symmetries=20,
             belief_alpha=1.15,
         )
@@ -327,7 +351,7 @@ class CommentedPlyAuditTests(unittest.TestCase):
                 "--state", str(path),
                 "--actor", self.POLICY_ACTOR,
                 "--net", "data/champion.bin",
-                "--seed", "991337",
+                "--seed", str(self.SMOKE_CAP_SEED),
                 "--worlds", "2",
                 "--symmetries", "20",
                 "--candidate", "Bx d deck",
@@ -343,6 +367,10 @@ class CommentedPlyAuditTests(unittest.TestCase):
 
     def test_locked_schema_exposes_shards_and_exact_merge(self) -> None:
         contract = audit._contract()
+        self.assertEqual(audit.ATTEMPT_ID, "v3")
+        self.assertEqual(
+            audit.RECOVERY_BINDING["rerun_previous_attempt"], "forbidden"
+        )
         self.assertEqual(contract["case_count"], 17)
         self.assertEqual(contract["exact_policy_teacher"], self.POLICY_ACTOR)
         self.assertEqual(contract["exact_policy_symmetries"], 20)
@@ -406,6 +434,8 @@ class CommentedPlyAuditTests(unittest.TestCase):
     ) -> None:
         metadata = {
             "schema": audit.AUDIT_SCHEMA,
+            "attempt_id": audit.ATTEMPT_ID,
+            "recovery": audit.RECOVERY_BINDING,
             "audit_definition_sha256": "definition",
             "repository_head": "a" * 40,
             "subject": {},

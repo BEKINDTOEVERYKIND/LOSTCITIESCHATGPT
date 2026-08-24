@@ -29,6 +29,24 @@ DEFAULT_SYMMETRIES = 20
 DEFAULT_BELIEF_ALPHA = 1.15
 EVAL_SCHEMA = "lc-commented-ply-eval-v2"
 AUDIT_SCHEMA = "lc-commented-ply-audit-v2"
+ATTEMPT_ID = "v3"
+RECOVERY_BINDING = {
+    "previous_attempt": "v2",
+    "previous_execution": {
+        "path": "data/experiments/locked_commented_ply_audit_execution.json",
+        "sha256": (
+            "de385af4ec2e7ac004f72b1a928bc86a461e39b91c2ca05c28b452921eb6951b"
+        ),
+    },
+    "previous_failure": {
+        "path": "data/experiments/commented_ply_audit_v2_preflight_failure.json",
+        "sha256": (
+            "fef8abdc6348e7ac538a604773c2b0da93cc8e05e0d6f2129fce117acbb9eb9e"
+        ),
+    },
+    "rerun_previous_attempt": "forbidden",
+    "production_seed_namespace": "20261001",
+}
 _HEX16 = re.compile(r"[0-9a-f]{16}\Z")
 
 
@@ -53,89 +71,89 @@ CASES: tuple[AuditCase, ...] = (
     AuditCase("ui-221-p3", 2214615196, 3,
               "data/probes/ui_seed2214615196_p3.state",
               ("Bx p deck", "Bx p W"), ("Bx p deck",),
-              "Low W2 pickup should not rival the deck.", 202608230103),
+              "Low W2 pickup should not rival the deck.", 202610010103),
     AuditCase("ui-221-p4", 2214615196, 4,
               "data/probes/ui_seed2214615196_p4.state",
               ("Bx p deck", "Bx p W"), ("Bx p deck",),
-              "Low W2 pickup should not rival the deck.", 202608230104),
+              "Low W2 pickup should not rival the deck.", 202610010104),
     AuditCase("ui-221-p8", 2214615196, 8,
               "data/probes/ui_seed2214615196_p8.state",
               ("B3 p deck", "B3 p W"), ("B3 p deck",),
-              "Low W2 pickup should not rival the deck.", 202608230108),
+              "Low W2 pickup should not rival the deck.", 202610010108),
     AuditCase("ui-221-p10", 2214615196, 10,
               "data/probes/ui_seed2214615196_p10.state",
               ("Wx p deck", "Wx p W"), ("Wx p deck",),
               "The W2 pickup was called overrated; prior evidence was "
-              "inconclusive and must be reported honestly.", 202608230110,
+              "inconclusive and must be reported honestly.", 202610010110,
               min_worlds=2048),
     AuditCase("ui-221-p12", 2214615196, 12,
               "data/probes/ui_seed2214615196_p12.state",
               ("W4 p deck", "W4 p R"), ("W4 p deck",),
-              "Prefer the deck to the low R2 pickup.", 202608230112),
+              "Prefer the deck to the low R2 pickup.", 202610010112),
     AuditCase("ui-221-p13", 2214615196, 13,
               "data/probes/ui_seed2214615196_p13.state", (), (),
               "Audit the exact-cardinality belief rather than an "
-              "independent-card approximation.", 202608230113,
+              "independent-card approximation.", 202610010113,
               belief_card="Y9"),
     AuditCase("ui-221-p16", 2214615196, 16,
               "data/probes/ui_seed2214615196_p16.state",
               ("Y2 d deck", "W7 p deck", "Yx d deck"),
               ("Y2 d deck",),
               "Preserve White options instead of committing W7 early.",
-              202608230116),
+              202610010116),
     AuditCase("ui-221-p20", 2214615196, 20,
               "data/probes/ui_seed2214615196_p20.state",
               ("W3 d deck", "W7 p deck", "Wx d deck"),
               ("W3 d deck", "Wx d deck"),
               "W7 was the concern; W3 and the wager discard were both "
               "reviewed, with no forced ordering between close discards.",
-              202608230120),
+              202610010120),
     AuditCase("showcase-572-p14", 5726968372613385, 14,
               "data/probes/showcase_5726968372613385_p14.state",
               ("R4 d deck", "G7 p deck", "B3 d deck"),
               ("G7 p deck", "B3 d deck"),
               "Evaluate both suggested alternatives against the recorded "
-              "R4 discard; do not force-rank G7 versus B3.", 202608230214),
+              "R4 discard; do not force-rank G7 versus B3.", 202610010214),
     AuditCase("showcase-572-p15", 5726968372613385, 15,
               "data/probes/showcase_5726968372613385_p15.state",
               ("B5 d deck", "W4 d deck"), ("B5 d deck",),
-              "Preserve W4 and discard B5.", 202608230215),
+              "Preserve W4 and discard B5.", 202610010215),
     AuditCase("showcase-572-p17", 5726968372613385, 17,
               "data/probes/showcase_5726968372613385_p17.state",
               ("B5 d R", "R8 p R"), ("B5 d R",),
               "Discard B5 and take R4 rather than prematurely play R8.",
-              202608230217),
+              202610010217),
     AuditCase("showcase-572-p32", 5726968372613385, 32,
               "data/probes/showcase_5726968372613385_p32.state",
               ("W10 p deck", "Bx p deck", "R10 p deck"),
               ("W10 p deck", "R10 p deck"),
               "Compare the third Blue wager with safe ten plays.",
-              202608230232),
+              202610010232),
     AuditCase("ui-725-p21", 725402798, 21,
               "data/probes/ui_seed725402798_p21.state",
               ("Bx d deck", "Bx d G", "G5 p deck"),
               ("Bx d deck", "Bx d G"),
               "Avoid overvaluing G5; audit the clean Blue-wager discard "
-              "with both relevant draw sources.", 202608230321),
+              "with both relevant draw sources.", 202610010321),
     AuditCase("ui-725-p22", 725402798, 22,
               "data/probes/ui_seed725402798_p22.state",
               ("R2 d deck", "R7 p deck"), ("R2 d deck",),
-              "Discard R2 rather than commit R7 early.", 202608230322),
+              "Discard R2 rather than commit R7 early.", 202610010322),
     AuditCase("ui-725-p23", 725402798, 23,
               "data/probes/ui_seed725402798_p23.state",
               ("Wx d deck", "G5 p deck"), ("Wx d deck",),
               "Avoid overvaluing G5 when the White wager can be discarded.",
-              202608230323),
+              202610010323),
     AuditCase("ui-725-p25", 725402798, 25,
               "data/probes/ui_seed725402798_p25.state",
               ("Y4 p B", "Y4 p deck"), ("Y4 p B",),
               "The face-up Blue wager pickup must be evaluated even when it "
-              "falls outside the policy prefix.", 202608230325),
+              "falls outside the policy prefix.", 202610010325),
     AuditCase("ui-956-p44", 95647345759839, 44,
               "data/probes/ui_seed95647345759839_p44.state",
               ("W10 p deck", "W10 p G"), ("W10 p deck",),
               "End the round through the last deck card instead of gifting "
-              "another turn for a Green-wager pickup.", 202608230444),
+              "another turn for a Green-wager pickup.", 202610010444),
 )
 
 
@@ -621,6 +639,8 @@ def _envelope(
 ) -> dict[str, Any]:
     return {
         "schema": AUDIT_SCHEMA,
+        "attempt_id": ATTEMPT_ID,
+        "recovery": RECOVERY_BINDING,
         "audit_definition_sha256": definition_sha256(),
         "repository_head": repository_head,
         "subject": {
@@ -739,6 +759,9 @@ def validate_audit_document(
 ) -> None:
     if audit.get("schema") != AUDIT_SCHEMA:
         raise RuntimeError("unexpected audit schema")
+    if audit.get("attempt_id") != ATTEMPT_ID or \
+            audit.get("recovery") != RECOVERY_BINDING:
+        raise RuntimeError("audit recovery/attempt binding drift")
     if audit.get("audit_definition_sha256") != definition_sha256():
         raise RuntimeError("audit definition/state hash drift")
     if audit.get("contract") != _contract():
@@ -798,8 +821,8 @@ def merge_audits(fragments: Iterable[dict[str, Any]]) -> dict[str, Any]:
         validate_audit_document(document, require_full=False)
     first = documents[0]
     static_keys = (
-        "schema", "audit_definition_sha256", "repository_head", "subject",
-        "implementation", "contract",
+        "schema", "attempt_id", "recovery", "audit_definition_sha256",
+        "repository_head", "subject", "implementation", "contract",
     )
     for document in documents[1:]:
         for key in static_keys:
@@ -856,6 +879,8 @@ def render_markdown(audit: dict[str, Any]) -> str:
     lines = [
         "# Explicit commented-ply audit",
         "",
+        f"Attempt: `{audit['attempt_id']}` (fresh recovery from failed v2; "
+        "v2 rerun forbidden)  ",
         f"Actor: `{subject['actor_spec']}`  ",
         f"Evaluation network: `{subject['evaluation_net_path']}`  ",
         f"Evidence: {summary['completed_cases']}/{contract['case_count']} "
@@ -954,6 +979,9 @@ def render_markdown(audit: dict[str, Any]) -> str:
         "",
         "## Provenance",
         "",
+        f"- Attempt: `{audit['attempt_id']}`",
+        f"- Failed predecessor execution SHA-256: "
+        f"`{audit['recovery']['previous_execution']['sha256']}`",
         f"- Audit definition SHA-256: `{audit['audit_definition_sha256']}`",
         f"- Actor spec SHA-256: `{subject['actor_spec_sha256']}`",
         f"- Repository HEAD: `{audit.get('repository_head')}`",

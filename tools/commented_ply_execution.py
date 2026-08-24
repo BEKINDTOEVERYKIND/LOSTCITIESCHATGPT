@@ -36,14 +36,25 @@ from tools.flagged_ply_execution import (  # noqa: E402
 
 SCHEMA = "lc-commented-ply-audit-execution-v1"
 LOCK_SCHEMA = "lc-commented-ply-audit-definition-lock-v1"
-PLAN_PATH = "data/experiments/locked_commented_ply_audit_plan.json"
+ATTEMPT_ID = "v3"
+PLAN_PATH = "data/experiments/locked_commented_ply_audit_v3_plan.json"
 LOCK_PATH = (
-    "data/experiments/locked_commented_ply_audit_definition_lock_v2.json"
+    "data/experiments/locked_commented_ply_audit_definition_lock_v3.json"
 )
 EXECUTION_PATH = (
+    "data/experiments/locked_commented_ply_audit_v3_execution.json"
+)
+V2_PLAN_PATH = "data/experiments/locked_commented_ply_audit_plan.json"
+V2_LOCK_PATH = (
+    "data/experiments/locked_commented_ply_audit_definition_lock_v2.json"
+)
+V2_EXECUTION_PATH = (
     "data/experiments/locked_commented_ply_audit_execution.json"
 )
-WORKFLOW_PATH = ".github/workflows/commented-ply-audit.yml"
+V2_FAILURE_PATH = (
+    "data/experiments/commented_ply_audit_v2_preflight_failure.json"
+)
+WORKFLOW_PATH = ".github/workflows/commented-ply-audit-v3.yml"
 FINAL_RESULT_PATH = "data/experiments/final_actor_result.json"
 DRIVER_PATH = "tools/audit_commented_plies.py"
 HELPER_SOURCE_PATH = "tools/commented_ply_eval.c"
@@ -55,6 +66,37 @@ P10_WORLDS = 2048
 SYMMETRIES = 20
 BELIEF_ALPHA = 1.15
 CASE_COUNT = 17
+PRODUCTION_SEED_NAMESPACE = "20261001"
+SMOKE_SEED_NAMESPACE = "20261009"
+PRODUCTION_SEEDS = (
+    "202610010103", "202610010104", "202610010108", "202610010110",
+    "202610010112", "202610010113", "202610010116", "202610010120",
+    "202610010214", "202610010215", "202610010217", "202610010232",
+    "202610010321", "202610010322", "202610010323", "202610010325",
+    "202610010444",
+)
+V2_PRODUCTION_SEEDS = (
+    "202608230103", "202608230104", "202608230108", "202608230110",
+    "202608230112", "202608230113", "202608230116", "202608230120",
+    "202608230214", "202608230215", "202608230217", "202608230232",
+    "202608230321", "202608230322", "202608230323", "202608230325",
+    "202608230444",
+)
+V2_CONSUMED_PREFLIGHT_SEEDS = ("202608230113", "202608230444")
+SMOKE_SEEDS = (
+    "202610090001", "202610090002", "202610090013", "202610090044",
+    "202610090099",
+)
+RECOVERY_ARTIFACTS = (
+    (V2_PLAN_PATH,
+     "ac1aab28cb2507c3d37b6692ae8623dc7f7783aaacc9600210f298f705eb0ab0"),
+    (V2_LOCK_PATH,
+     "99ef765235f820711d3a8e0853c5c51e87fc7afe8a867c5acec029d0ed2cfd2f"),
+    (V2_EXECUTION_PATH,
+     "de385af4ec2e7ac004f72b1a928bc86a461e39b91c2ca05c28b452921eb6951b"),
+    (V2_FAILURE_PATH,
+     "fef8abdc6348e7ac538a604773c2b0da93cc8e05e0d6f2129fce117acbb9eb9e"),
+)
 COMPILER = "gcc"
 COMPILER_SEMANTIC_VERSION_COMMAND = "gcc -dumpfullversion -dumpversion"
 REQUIRED_COMPILER_SEMANTIC_VERSION = "13.3.0"
@@ -135,8 +177,113 @@ def _case_row(case: Any, root: Path) -> dict[str, Any]:
     return row
 
 
+def _without_audit_seed(rows: Any, label: str) -> list[dict[str, Any]]:
+    if not isinstance(rows, list):
+        raise ExecutionError(f"{label} case rows are malformed")
+    stripped = []
+    for row in rows:
+        if not isinstance(row, dict) or not isinstance(row.get("audit_seed"), str):
+            raise ExecutionError(f"{label} case row lacks its audit seed")
+        copy = dict(row)
+        del copy["audit_seed"]
+        stripped.append(copy)
+    return stripped
+
+
+def _recovery_binding(root: Path, plan: dict[str, Any]) -> dict[str, Any]:
+    if plan.get("attempt_id") != ATTEMPT_ID:
+        raise ExecutionError("locked plan attempt identity drifted")
+    recovery = plan.get("recovery")
+    firewall = plan.get("seed_firewall")
+    if not isinstance(recovery, dict) or not isinstance(firewall, dict):
+        raise ExecutionError("locked plan lacks v3 recovery/seed firewall")
+    expected_paths = {
+        "previous_plan": V2_PLAN_PATH,
+        "previous_definition_lock": V2_LOCK_PATH,
+        "previous_execution": V2_EXECUTION_PATH,
+        "previous_failure": V2_FAILURE_PATH,
+    }
+    expected_hashes = dict(RECOVERY_ARTIFACTS)
+    for key, name in expected_paths.items():
+        row = recovery.get(key)
+        if row != {"path": name, "sha256": expected_hashes[name]}:
+            raise ExecutionError(f"v3 recovery {key} binding drifted")
+    if recovery.get("previous_attempt") != "v2" or \
+            recovery.get("rerun_previous_attempt") != "forbidden":
+        raise ExecutionError("v3 recovery does not burn the failed attempt")
+
+    artifacts = []
+    for name, expected in RECOVERY_ARTIFACTS:
+        path, _ = _repo_file(root, name, f"v3 recovery artifact {name}")
+        if sha256(path) != expected:
+            raise ExecutionError(f"v3 recovery artifact drifted: {name}")
+        artifacts.append(_current_binding(
+            root, name, f"v3 recovery artifact {name}"))
+
+    previous_plan = strict_json(root / V2_PLAN_PATH)
+    previous_rows = previous_plan.get("cases")
+    current_rows = plan.get("cases")
+    if _without_audit_seed(current_rows, "v3") != \
+            _without_audit_seed(previous_rows, "v2"):
+        raise ExecutionError(
+            "v3 case rows must differ from immutable v2 only by audit_seed")
+    old_seeds = tuple(row["audit_seed"] for row in previous_rows)
+    new_seeds = tuple(row["audit_seed"] for row in current_rows)
+    if old_seeds != V2_PRODUCTION_SEEDS or \
+            new_seeds != PRODUCTION_SEEDS or \
+            len(set(new_seeds)) != CASE_COUNT or \
+            set(new_seeds) & set(old_seeds) or any(
+                not seed.startswith(PRODUCTION_SEED_NAMESPACE)
+                for seed in new_seeds):
+        raise ExecutionError("v3 production audit seed firewall drifted")
+    if firewall != {
+        "burned_v2_production_namespace": "20260823",
+        "retired_v2_production_seeds": list(V2_PRODUCTION_SEEDS),
+        "consumed_v2_preflight_seeds": list(V2_CONSUMED_PREFLIGHT_SEEDS),
+        "production_namespace": PRODUCTION_SEED_NAMESPACE,
+        "smoke_namespace": SMOKE_SEED_NAMESPACE,
+        "namespace_rule": (
+            "Production and smoke namespaces are disjoint. Smoke "
+            "computations cannot consume a production seed, and no v2 "
+            "audit seed may be reused."
+        ),
+        "declared_smoke_seeds": list(SMOKE_SEEDS),
+    } or set(new_seeds) & set(SMOKE_SEEDS) or any(
+            not seed.startswith(SMOKE_SEED_NAMESPACE)
+            for seed in SMOKE_SEEDS):
+        raise ExecutionError("v3 production/smoke seed namespaces drifted")
+
+    failure = strict_json(root / V2_FAILURE_PATH)
+    computations = failure.get("audit_efficacy", {}).get(
+        "preflight_test_computations")
+    consumed = tuple(str(row.get("audit_seed")) for row in computations) \
+        if isinstance(computations, list) else ()
+    if failure.get("status") != \
+            "complete_fail_closed_before_any_canonical_case_job" or \
+            failure.get("run", {}).get("run_id") != 32714751993 or \
+            failure.get("run", {}).get("attempt") != 1 or \
+            failure.get("disposition", {}).get("rerun_forbidden") is not True or \
+            failure.get("audit_efficacy", {}).get(
+                "case_evaluation_jobs_started") != 0 or \
+            failure.get("audit_efficacy", {}).get("ply_evidence_produced") \
+            is not False or consumed != V2_CONSUMED_PREFLIGHT_SEEDS or any(
+                row.get("worlds") != 2 or
+                row.get("persistence") != "ephemeral_test_output_only"
+                for row in computations):
+        raise ExecutionError("v2 failed-attempt disposition drifted")
+    return {
+        "attempt_id": ATTEMPT_ID,
+        "previous_attempt": "v2",
+        "rerun_previous_attempt": "forbidden",
+        "production_seed_namespace": PRODUCTION_SEED_NAMESPACE,
+        "smoke_seed_namespace": SMOKE_SEED_NAMESPACE,
+        "artifacts": artifacts,
+    }
+
+
 def _case_binding(root: Path, plan: dict[str, Any]) -> tuple[
         dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
+    _recovery_binding(root, plan)
     try:
         from tools.audit_commented_plies import CASES, definition_sha256
     except (ImportError, OSError, ValueError) as exc:
@@ -286,6 +433,7 @@ def expected_definition_lock(root: Path, definition_commit: str,
     if plan.get("definition_lock", {}).get("path") != LOCK_PATH:
         raise ExecutionError("plan does not name the canonical definition lock")
     cases, rows, corpus = _case_binding(root, plan)
+    recovery = _recovery_binding(root, plan)
 
     names = _definition_paths(root)
     if _has_git(root):
@@ -316,7 +464,7 @@ def expected_definition_lock(root: Path, definition_commit: str,
         _current_binding(root, row["path"],
                          f"definition artifact {row['path']}")
         for row in corpus
-    ] + [teacher]
+    ] + [teacher] + recovery["artifacts"]
     if _has_git(root):
         committed_artifacts = [
             _git_blob_binding(root, definition_commit, row["path"],
@@ -336,7 +484,10 @@ def expected_definition_lock(root: Path, definition_commit: str,
     return {
         "schema": LOCK_SCHEMA,
         "artifact_kind": "immutable_exact_17_audit_definition_lock",
-        "status": "sealed_before_authoritative_actor_selection",
+        "attempt_id": ATTEMPT_ID,
+        "status": (
+            "sealed_after_actor_selection_before_fresh_diagnostic_execution"
+        ),
         "branch": BRANCH,
         "definition": {
             "commit": definition_commit,
@@ -345,6 +496,7 @@ def expected_definition_lock(root: Path, definition_commit: str,
         "definition_files": definition_files,
         "cases": cases,
         "case_rows": rows,
+        "recovery": recovery,
         "locked_artifacts": locked_artifacts,
         "teacher_checkpoint": teacher,
         "build": {
@@ -483,7 +635,10 @@ def expected_execution(root: Path, source_commit: str,
             plan.get("status") != "definition_source_pending_unique_seal":
         raise ExecutionError("locked exact-17 plan has the wrong contract")
     cases, rows, corpus = _case_binding(root, plan)
-    if lock.get("cases") != cases or lock.get("case_rows") != rows:
+    recovery = _recovery_binding(root, plan)
+    if lock.get("attempt_id") != ATTEMPT_ID or \
+            lock.get("cases") != cases or lock.get("case_rows") != rows or \
+            lock.get("recovery") != recovery:
         raise ExecutionError("sealed exact-17 cases drifted")
     final = final_binding if final_binding is not None \
         else authoritative_final_result(root)
@@ -506,6 +661,7 @@ def expected_execution(root: Path, source_commit: str,
     return {
         "schema": SCHEMA,
         "artifact_kind": "locked_exact_17_commented_ply_audit_execution",
+        "attempt_id": ATTEMPT_ID,
         "status": "launch_bound_after_authoritative_final_actor_selection",
         "source_parent_commit": source_commit,
         "source_parent_tree": source_tree,
@@ -516,6 +672,7 @@ def expected_execution(root: Path, source_commit: str,
         "tools": _tool_bindings(root),
         "cases": cases,
         "corpus_artifacts": corpus,
+        "recovery": recovery,
         "authoritative_final_actor_result": final,
         "subject": {
             "actor": final["winner"],
@@ -656,6 +813,7 @@ def verify_one_shot_add(root: Path, before: str, after: str) -> None:
 def emit_github_output(path: Path, value: dict[str, Any]) -> None:
     final = value["authoritative_final_actor_result"]
     outputs = {
+        "attempt_id": value["attempt_id"],
         "winner_actor": value["subject"]["actor"]["spec"],
         "final_result_sha": final["sha256"],
         "selection_mode": final["selection_mode"],

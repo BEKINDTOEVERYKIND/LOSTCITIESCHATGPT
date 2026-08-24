@@ -132,8 +132,9 @@ class CommentedPlyExecutionTests(unittest.TestCase):
     def test_plan_is_the_exact_ordered_17_case_definition(self) -> None:
         plan = execution.strict_json(PLAN)
         self.assertEqual(plan["schema"], "lc-commented-ply-audit-plan-v1")
+        self.assertEqual(plan["attempt_id"], "v3")
         self.assertEqual(plan["case_definition_sha256"],
-                         "c065a0d0e86f1db392b9e6e7382518cff947770be519417d899c21a965b223b5")
+                         "12ff900ef6b69a78b3384ba26bb5b2e6a2d2fe3e2d2135e291ed2bcb4d8cde83")
         cases, rows, artifacts = execution._case_binding(ROOT, plan)
         self.assertEqual(cases["case_ids"], list(execution.CASE_IDS))
         self.assertEqual(cases["case_count"], 17)
@@ -164,6 +165,19 @@ class CommentedPlyExecutionTests(unittest.TestCase):
         ))
         self.assertEqual(rows[5]["belief_card"], "Y9")
         self.assertEqual(rows[5]["candidates"], [])
+        self.assertEqual(
+            tuple(row["audit_seed"] for row in rows),
+            execution.PRODUCTION_SEEDS,
+        )
+        previous = execution.strict_json(ROOT / execution.V2_PLAN_PATH)
+        self.assertEqual(
+            execution._without_audit_seed(rows, "v3"),
+            execution._without_audit_seed(previous["cases"], "v2"),
+        )
+        recovery = execution._recovery_binding(ROOT, plan)
+        self.assertEqual(recovery["attempt_id"], "v3")
+        self.assertEqual(recovery["rerun_previous_attempt"], "forbidden")
+        self.assertEqual(len(recovery["artifacts"]), 4)
 
     def test_expected_execution_mechanically_binds_winner_and_assets(self) -> None:
         plan = execution.strict_json(PLAN)
@@ -178,9 +192,14 @@ class CommentedPlyExecutionTests(unittest.TestCase):
             ROOT, "4" * 40, "5" * 40,
             final_binding=self.final_binding(),
             definition_lock_binding=(
-                lock_binding, {"cases": cases, "case_rows": rows}),
+                lock_binding, {
+                    "attempt_id": "v3", "cases": cases,
+                    "case_rows": rows,
+                    "recovery": execution._recovery_binding(ROOT, plan),
+                }),
         )
         self.assertEqual(value["schema"], execution.SCHEMA)
+        self.assertEqual(value["attempt_id"], "v3")
         self.assertEqual(value["subject"]["actor"], self.final_binding()["winner"])
         self.assertEqual(value["continuation"]["actor"],
                          "policy:data/champion.bin:0:20")
@@ -216,7 +235,11 @@ class CommentedPlyExecutionTests(unittest.TestCase):
         )
         artifacts = {row["path"] for row in value["locked_artifacts"]}
         self.assertIn("data/champion.bin", artifacts)
-        self.assertEqual(len(artifacts), 19)
+        self.assertEqual(len(artifacts), 23)
+        self.assertTrue({
+            execution.V2_PLAN_PATH, execution.V2_LOCK_PATH,
+            execution.V2_EXECUTION_PATH, execution.V2_FAILURE_PATH,
+        }.issubset(artifacts))
         self.assertEqual(value["case_rows"], execution.strict_json(PLAN)["cases"])
 
     @unittest.skipUnless(
@@ -349,6 +372,12 @@ class CommentedPlyExecutionTests(unittest.TestCase):
         workflow_shell_blocks_parse(self, text)
         self.assertNotIn("workflow_dispatch", text)
         self.assertNotIn("continue-on-error", text)
+        self.assertIn(execution.EXECUTION_PATH, text)
+        self.assertIn(execution.PLAN_PATH, text)
+        self.assertIn(execution.LOCK_PATH, text)
+        self.assertNotIn(
+            f"      - {execution.V2_EXECUTION_PATH}", text
+        )
         self.assertIn('test "$GITHUB_RUN_ATTEMPT" = 1', text)
         self.assertIn('test "$EVENT_FORCED" = false', text)
         self.assertIn("guard-execution", text)
@@ -356,6 +385,9 @@ class CommentedPlyExecutionTests(unittest.TestCase):
         self.assertIn("PAYLOAD_SHA256SUMS.txt", text)
         self.assertIn("cp -R evaluator final-evidence/evaluator", text)
         self.assertIn("git -C campaign archive HEAD^", text)
+        self.assertIn("tests/test_commented_ply_audit.py)", text)
+        self.assertIn("cd campaign && python3 -m unittest", text)
+        self.assertIn("tests/test_commented_ply_execution.py)", text)
         self.assertEqual(text.count("make -C source"), 1)
         self.assertNotIn("flagged_ply_audit.py", text)
         self.assertNotIn("flagged-ply-audit.yml", text)
@@ -378,7 +410,16 @@ class CommentedPlyExecutionTests(unittest.TestCase):
         self.assertIn('counterfactual.get("policy_reference_candidates") != 2', text)
         self.assertNotIn('counterfactual.get("worlds"', text)
         self.assertNotIn('counterfactual.get("capped_matches")', text)
-        self.assertIn("commented-ply-audit-complete-evidence", text)
+        self.assertIn("commented-ply-audit-v3-complete-evidence", text)
+        self.assertIn("commented-ply-audit-v3-evaluator", text)
+        self.assertIn("commented-ply-audit-v3-case-*", text)
+        self.assertEqual(
+            text.count("! -name BUILD_INFO.base.txt -print0 |"), 1
+        )
+        self.assertNotIn(
+            "! -name BUILD_INFO.base.txt -print0 | \\\n+            ! -name",
+            text,
+        )
         self.assertIn("find . -type f ! -name SHA256SUMS.txt", text)
         pinned = {
             "actions/checkout": "11bd71901bbe5b1630ceea73d27597364c9af683",
