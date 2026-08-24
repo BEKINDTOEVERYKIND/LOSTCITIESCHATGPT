@@ -7,6 +7,21 @@
     "case_evaluation_jobs_total": 17,
     "merge_job_started": false,
     "ply_evidence_produced": false,
+    "preflight_test_computations": [
+      {
+        "audit_seed": 202608230113,
+        "case": "2214615196:13",
+        "persistence": "ephemeral_test_output_only",
+        "worlds": 2
+      },
+      {
+        "audit_seed": 202608230444,
+        "case": "95647345759839:44",
+        "persistence": "ephemeral_test_output_only",
+        "worlds": 2
+      }
+    ],
+    "preflight_test_computations_count": 2,
     "seed_namespace_burned_by_launch": true
   },
   "cause": {
@@ -25,7 +40,7 @@
     "criteria_relaxed": false,
     "maintained_actor": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
     "rerun_forbidden": true,
-    "recovery_rule": "any recovery must be a newly sealed definition with a new execution path and fresh audit seeds; it must preserve the exact 17 cases, world budgets, policy-20 full-match continuation, fixed-K belief case, actor-selected-action inclusion, and diagnostic-only isolation"
+    "recovery_rule": "any recovery must be a newly sealed definition with a new execution path, a fresh production audit-seed namespace, and a disjoint smoke-test seed namespace; it must preserve the exact 17 cases, world budgets, policy-20 full-match continuation, fixed-K belief case, actor-selected-action inclusion, and diagnostic-only isolation"
   },
   "launch": {
     "commit": "5252dbb91a209e0bf0d28f0f760eae13eb96bed1",
@@ -50,5 +65,5 @@
     "plan_sha256": "ac1aab28cb2507c3d37b6692ae8623dc7f7783aaacc9600210f298f705eb0ab0",
     "workflow_sha256": "2c454e3fe351651e2965015b7c32f0bbb7d66c431b5c594406e59b7c07ab99d1"
   },
-  "status": "complete_fail_closed_before_any_ply_evaluation"
+  "status": "complete_fail_closed_before_any_canonical_case_job"
 }
