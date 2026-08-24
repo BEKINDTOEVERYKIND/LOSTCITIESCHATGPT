@@ -1,0 +1,54 @@
+{
+  "artifact_kind": "locked_exact_17_commented_ply_audit_preflight_failure",
+  "audit_efficacy": {
+    "artifacts_uploaded": 0,
+    "case_evaluation_jobs_completed": 0,
+    "case_evaluation_jobs_started": 0,
+    "case_evaluation_jobs_total": 17,
+    "merge_job_started": false,
+    "ply_evidence_produced": false,
+    "seed_namespace_burned_by_launch": true
+  },
+  "cause": {
+    "category": "sealed_workflow_transport_test_defect",
+    "compile_completed": true,
+    "detail": "the preflight materialized the source parent with git archive, then ran the git-history-dependent canonical-lock unit test inside that archive; the archive intentionally had no .git directory",
+    "failed_command": "cd source && python3 -m unittest tests/test_commented_ply_audit.py tests/test_commented_ply_execution.py",
+    "failed_step": "Compile and test the exact evaluator once",
+    "failing_test": "tests.test_commented_ply_execution.CommentedPlyExecutionTests.test_canonical_sealed_lock_revalidates_from_git_history",
+    "observed_error": "fatal: not a git repository; git log returned exit status 128",
+    "source_materialization_guard_passed": true
+  },
+  "disposition": {
+    "actor_changed": false,
+    "audit_result_available": false,
+    "criteria_relaxed": false,
+    "maintained_actor": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+    "rerun_forbidden": true,
+    "recovery_rule": "any recovery must be a newly sealed definition with a new execution path and fresh audit seeds; it must preserve the exact 17 cases, world budgets, policy-20 full-match continuation, fixed-K belief case, actor-selected-action inclusion, and diagnostic-only isolation"
+  },
+  "launch": {
+    "commit": "5252dbb91a209e0bf0d28f0f760eae13eb96bed1",
+    "execution_sha256": "de385af4ec2e7ac004f72b1a928bc86a461e39b91c2ca05c28b452921eb6951b",
+    "parent_commit": "16f662ccc50558359bcb2b9a39b4839bbd6909db",
+    "parent_tree": "ef7ee6b5b3fb67902b9ff2986ea8af8011afa329",
+    "tree": "906c06c3163c6f2cda1bd2e23fba3b8d7911a367"
+  },
+  "run": {
+    "attempt": 1,
+    "conclusion": "failure",
+    "created_at": "2026-08-24T10:02:52Z",
+    "preflight_job_id": 97393516472,
+    "run_id": 32714751993,
+    "updated_at": "2026-08-24T10:03:13Z",
+    "url": "https://github.com/BEKINDTOEVERYKIND/LOSTCITIESCHATGPT/actions/runs/32714751993"
+  },
+  "schema_version": 1,
+  "sealed_bindings": {
+    "definition_lock_sha256": "99ef765235f820711d3a8e0853c5c51e87fc7afe8a867c5acec029d0ed2cfd2f",
+    "final_actor_result_sha256": "5ad3566c5fb66aa45efa0c3b45eff6bde83eacece2eefd13a6794eb57530e476",
+    "plan_sha256": "ac1aab28cb2507c3d37b6692ae8623dc7f7783aaacc9600210f298f705eb0ab0",
+    "workflow_sha256": "2c454e3fe351651e2965015b7c32f0bbb7d66c431b5c594406e59b7c07ab99d1"
+  },
+  "status": "complete_fail_closed_before_any_ply_evaluation"
+}
