@@ -11,6 +11,7 @@
 #include "net.h"
 
 typedef struct MatchValueTable MatchValueTable;
+typedef struct PolicyCostTable PolicyCostTable;
 
 typedef enum {
     AG_RANDOM = 0,
@@ -34,11 +35,15 @@ typedef struct Agent {
                                      trusted-prefix override; NULL off */
     const MatchValueTable *match_value; /* optional round-boundary Bellman
                                            utility; NULL preserves legacy */
+    const PolicyCostTable *policy_cost; /* optional calibrated root-only
+                                           policy-frequency cost; available
+                                           only through rollout5 families */
     unsigned owns_net : 1; /* set only for checkpoints loaded by spec_parse */
     unsigned owns_continuation_net : 1;
     unsigned owns_veto_continuation_net : 1;
     unsigned owns_action_ranker_net : 1;
     unsigned owns_match_value : 1;
+    unsigned owns_policy_cost : 1;
     int draw_samples;   /* deck-draw samples per decision (AG_NET)         */
     float temp;         /* >0: sample instead of taking the best move      */
     float eps;          /* probability of a uniformly random legal move    */

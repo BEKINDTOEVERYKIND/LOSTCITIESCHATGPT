@@ -9,13 +9,15 @@ DATA    := data
 HDRS    := $(wildcard $(SRC)/*.h)
 CORE    := $(SRC)/lc.c $(SRC)/features.c $(SRC)/net.c $(SRC)/heuristic.c \
            $(SRC)/planner.c $(SRC)/search.c $(SRC)/rollout.c \
-           $(SRC)/late_resolver.c $(SRC)/match_value.c $(SRC)/agent.c \
+           $(SRC)/late_resolver.c $(SRC)/match_value.c $(SRC)/policy_cost.c \
+           $(SRC)/agent.c \
            $(SRC)/match.c $(SRC)/spec.c
 
 all: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_role_coherence \
 	$(BIN)/test_late_resolver $(BIN)/test_rl_support \
 	$(BIN)/test_action_ranker $(BIN)/test_action_advantage \
 	$(BIN)/test_continuation_arena_support $(BIN)/test_match_value \
+	$(BIN)/test_policy_cost \
 	$(BIN)/arena $(BIN)/train \
 	$(BIN)/bench $(BIN)/probe $(BIN)/rl $(BIN)/ladder $(BIN)/play \
 	$(BIN)/showgame $(BIN)/dumpfeat $(BIN)/analyze $(BIN)/searchcmp \
@@ -25,7 +27,7 @@ all: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_role_coherence \
 	$(BIN)/net_average \
 	$(BIN)/history_belief $(BIN)/planprobe $(BIN)/planarena \
 	$(BIN)/belief_eval $(BIN)/test_belief_eval $(BIN)/continuation_arena \
-	$(BIN)/build_match_value \
+	$(BIN)/build_match_value $(BIN)/build_policy_cost \
 	$(DATA)/champion.bin
 
 $(BIN):
@@ -89,7 +91,15 @@ $(BIN)/bench: tools/bench.c $(CORE) $(HDRS) | $(BIN)
 $(BIN)/build_match_value: tools/build_match_value.c $(CORE) $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
 
+$(BIN)/build_policy_cost: tools/build_policy_cost.c $(CORE) $(HDRS) | $(BIN)
+	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
+
 $(BIN)/test_match_value: tests/test_match_value.c $(CORE) $(HDRS) | $(BIN)
+	$(CC) $(CFLAGS) -fno-fast-math -ffp-contract=off \
+		-o $@ $(filter %.c,$^) $(LDFLAGS)
+
+$(BIN)/test_policy_cost: tests/test_policy_cost.c $(CORE) $(HDRS) \
+	$(DATA)/champion.bin | $(BIN)
 	$(CC) $(CFLAGS) -fno-fast-math -ffp-contract=off \
 		-o $@ $(filter %.c,$^) $(LDFLAGS)
 
@@ -97,12 +107,13 @@ test: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_role_coherence \
 	$(BIN)/test_late_resolver $(BIN)/test_rl_support \
 	$(BIN)/test_action_ranker $(BIN)/test_action_advantage \
 	$(BIN)/test_continuation_arena_support $(BIN)/test_match_value \
-	$(BIN)/test_belief_eval \
+	$(BIN)/test_policy_cost $(BIN)/test_belief_eval \
 	$(BIN)/belief_eval $(BIN)/rl $(BIN)/arena $(BIN)/qpair \
 	$(BIN)/commented_ply_eval \
 	$(BIN)/continuation_arena \
 	$(BIN)/net_average $(BIN)/flagged_ply_probe $(BIN)/history_belief \
-	$(BIN)/build_match_value $(BIN)/train $(BIN)/showgame $(BIN)/analyze \
+	$(BIN)/build_match_value $(BIN)/build_policy_cost \
+	$(BIN)/train $(BIN)/showgame $(BIN)/analyze \
 	$(BIN)/play $(BIN)/probe \
 	$(DATA)/champion.bin
 	./$(BIN)/test_engine
@@ -114,6 +125,7 @@ test: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_role_coherence \
 	./$(BIN)/test_action_advantage
 	./$(BIN)/test_continuation_arena_support
 	./$(BIN)/test_match_value
+	./$(BIN)/test_policy_cost
 	./$(BIN)/test_belief_eval
 	python3 -m unittest tests/test_rl_population.py
 	python3 -m unittest tests/test_belief_eval.py
@@ -133,6 +145,12 @@ test: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_role_coherence \
 	python3 -m unittest tests/test_flagged_ply_audit.py
 	python3 -m unittest tests/test_match_value.py
 	python3 -m unittest tests/test_match_value_campaign.py
+	python3 -m unittest tests/test_policy_cost.py
+	python3 -m unittest tests/test_policy_cost_dataset.py
+	python3 -m unittest tests/test_policy_cost_calibration.py
+	python3 -m unittest tests/test_policy_cost_selection.py
+	python3 -m unittest tests/test_policy_cost_campaign.py
+	python3 -m unittest tests/test_policy_cost_exact17.py
 	python3 -m unittest tests/test_action_core_campaign.py
 
 audit-test: $(BIN)/qpair $(DATA)/champion.bin

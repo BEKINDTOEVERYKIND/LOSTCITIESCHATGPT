@@ -1,0 +1,39 @@
+{
+  "actor_assets": {
+    "challenger": [],
+    "reference": [
+      {
+        "kind": "checkpoint",
+        "path": "data/champion.bin",
+        "role": 0,
+        "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+        "size": 2823748
+      }
+    ],
+    "winner": [
+      {
+        "kind": "checkpoint",
+        "path": "data/champion.bin",
+        "role": 0,
+        "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+        "size": 2823748
+      }
+    ]
+  },
+  "authoritative_results": [
+    {
+      "path": "data/experiments/world800_result.json",
+      "role": "world_winner",
+      "sha256": "798a4f0948295445d25dd34cb1a8e3f96794e24f032a76a82df7c92485da4db8"
+    }
+  ],
+  "challenger_actor": null,
+  "decisive_result": null,
+  "reference_actor": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+  "schema": "lc-authoritative-final-actor-result-v2",
+  "selection_mode": "no_challenge",
+  "source_commit": "08f9e1a5218e03c399b257b852efe20b0089c7b0",
+  "source_tree": "c70405a09b88919b228f96d19d84d83875d4fea4",
+  "status": "complete",
+  "winner_actor": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
+}

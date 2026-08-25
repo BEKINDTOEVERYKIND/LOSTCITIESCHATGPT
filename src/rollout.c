@@ -24,6 +24,7 @@
 #include "heuristic.h"
 #include "late_resolver.h"
 #include "match_value.h"
+#include "policy_cost.h"
 #include "planner.h"
 #include <math.h>
 #include <stdlib.h>
@@ -1923,6 +1924,18 @@ static int same_semantic_move(Move a, Move b)
     return a.draw == b.draw && same_semantic_action(a, b);
 }
 
+/* Stable identity for the policy-cost candidate family.  Physical wager
+ * copies are one observable move, so collapse them before using the packed
+ * key as an exact-probability tie break.  The legacy shortlist deliberately
+ * retains its historical legal-enumeration ties; callers opt into this key
+ * only for the new policy-cost controller. */
+static uint16_t policy_cost_semantic_pack(Move move)
+{
+    if (CARD_IS_WAGER(move.card))
+        move.card = (uint8_t)CARD_MAKE(CARD_SUIT(move.card), 0);
+    return MOVE_PACK(move);
+}
+
 static int find_semantic_move(const Move *mv, int n, Move target)
 {
     for (int i = 0; i < n; i++)
@@ -2058,7 +2071,8 @@ static int build_action_core_shortlist(
     const State *st, const Move *mv, const float *prob, int n,
     int baseline, int root_width, int action_core_count,
     int min_cand, float cand_floor, float cand_mass,
-    int *order, int *core_candidates, int *draw_candidates)
+    int *order, int *core_candidates, int *draw_candidates,
+    int policy_cost_mode)
 {
     double mass[MAX_MOVES] = { 0 };
     int best_move[MAX_MOVES];
@@ -2077,7 +2091,11 @@ static int build_action_core_shortlist(
             best_move[c] = i;
         }
         mass[c] += prob[i];
-        if (prob[i] > prob[best_move[c]]) best_move[c] = i;
+        if (prob[i] > prob[best_move[c]] ||
+            (policy_cost_mode && prob[i] == prob[best_move[c]] &&
+             policy_cost_semantic_pack(mv[i]) <
+                 policy_cost_semantic_pack(mv[best_move[c]])))
+            best_move[c] = i;
     }
 
     int ranked[MAX_MOVES];
@@ -2088,7 +2106,11 @@ static int build_action_core_shortlist(
             int a = ranked[j], b = ranked[top];
             if (mass[a] > mass[b] ||
                 (mass[a] == mass[b] &&
-                 prob[best_move[a]] > prob[best_move[b]]))
+                 prob[best_move[a]] > prob[best_move[b]]) ||
+                (policy_cost_mode && mass[a] == mass[b] &&
+                 prob[best_move[a]] == prob[best_move[b]] &&
+                 policy_cost_semantic_pack(mv[best_move[a]]) <
+                     policy_cost_semantic_pack(mv[best_move[b]])))
                 top = j;
         }
         int tmp = ranked[i]; ranked[i] = ranked[top]; ranked[top] = tmp;
@@ -2111,13 +2133,35 @@ static int build_action_core_shortlist(
             break;
         }
 
+    /* The locked policy-cost family means the true top three semantic action
+     * cores, while candidate zero must remain the deployed literal policy
+     * move.  If its aggregate core is outside that top three, retain it as a
+     * mandatory comparator in addition to all three nominated cores.  The
+     * hard width-five budget then leaves room for at most one safe draw
+     * alternative.  This is not shortlist widening: the nominated policy
+     * support remains exactly three cores and candidate zero is separately
+     * required by every raw comparison.  Ordinary/legacy behavior is
+     * untouched. */
+    int selected_limit = wanted;
+    if (policy_cost_mode) {
+        int baseline_rank = -1;
+        for (int r = 0; r < ncore; r++)
+            if (ranked[r] == baseline_core) {
+                baseline_rank = r;
+                break;
+            }
+        if (baseline_rank < 0) return 0;
+        if (baseline_rank >= wanted) selected_limit++;
+        if (selected_limit > budget) return 0;
+    }
+
     int selected_rep[MAX_MOVES];
     int nselected = 1, ncand = 1;
     selected_rep[0] = baseline;
     order[0] = baseline;
     double covered = mass[baseline_core];
 
-    for (int r = 0; r < ncore && nselected < wanted; r++) {
+    for (int r = 0; r < ncore && nselected < selected_limit; r++) {
         int c = ranked[r];
         if (c == baseline_core) continue;
         int eligible = nselected < required;
@@ -2149,7 +2193,9 @@ static int build_action_core_shortlist(
          * shortlist is meant to avoid.  Such moves belong in the separately
          * gated semantic/draw-variant research paths. */
         if (alternative < 0 || alternative == selected_rep[k] ||
-            prob[alternative] < draw_floor)
+            (policy_cost_mode
+                ? !(prob[alternative] > 0.0f)
+                : prob[alternative] < draw_floor))
             continue;
         int present = 0;
         for (int i = 0; i < ncand; i++)
@@ -2163,6 +2209,133 @@ static int build_action_core_shortlist(
         }
     }
     return ncand;
+}
+
+int rollout_action_core_indices(
+    const State *st, const Move *mv, const float *prob, int n, int baseline,
+    int root_width, int action_core_count, int min_cand,
+    float cand_floor, float cand_mass, int *order,
+    int *core_candidates, int *draw_candidates)
+{
+    if (!st || !mv || !prob || !order || !core_candidates ||
+        !draw_candidates || st->over || n < 1 || n > MAX_MOVES ||
+        baseline < 0 || baseline >= n || root_width < 1 ||
+        root_width > ACTION_SHORTLIST_MAX || action_core_count < 1 ||
+        action_core_count > ACTION_SHORTLIST_MAX || min_cand < 0 ||
+        min_cand > root_width || !lc_float_isfinite(cand_floor) ||
+        cand_floor < 0.0f || cand_floor > 1.0f ||
+        !lc_float_isfinite(cand_mass) || cand_mass < 0.0f ||
+        cand_mass > 1.0f)
+        return -1;
+    Move legal[MAX_MOVES];
+    int nlegal = lc_moves(st, legal);
+    if (nlegal != n) return -1;
+    double total = 0.0;
+    int literal_top = 0;
+    for (int i = 0; i < n; i++) {
+        if (MOVE_PACK(legal[i]) != MOVE_PACK(mv[i]) ||
+            !lc_float_isfinite(prob[i]) || prob[i] < 0.0f)
+            return -1;
+        total += prob[i];
+        if (prob[i] > prob[literal_top]) literal_top = i;
+    }
+    if (fabs(total - 1.0) > 1e-5 || baseline != literal_top) return -1;
+    return build_action_core_shortlist(
+        st, mv, prob, n, baseline, root_width, action_core_count,
+        min_cand, cand_floor, cand_mass, order,
+        core_candidates, draw_candidates, 0);
+}
+
+int rollout_policy_cost_support(
+    const State *st, const Move *mv, const float *prob, int n, int baseline,
+    RolloutPolicyCostSupport *support)
+{
+    if (!support) return 0;
+    memset(support, 0, sizeof *support);
+    if (!st || !mv || !prob || st->over || n < 1 || n > MAX_MOVES ||
+        baseline < 0 || baseline >= n)
+        return 0;
+    Move legal[MAX_MOVES];
+    int nlegal = lc_moves(st, legal);
+    if (nlegal != n) return 0;
+    double total = 0.0;
+    int literal_top = 0;
+    for (int i = 0; i < n; i++) {
+        if (MOVE_PACK(legal[i]) != MOVE_PACK(mv[i]) ||
+            !lc_float_isfinite(prob[i]) || prob[i] < 0.0f)
+            return 0;
+        total += prob[i];
+        if (prob[i] > prob[literal_top]) literal_top = i;
+    }
+    if (fabs(total - 1.0) > 1e-5 || baseline != literal_top) return 0;
+
+    int master_core = 0, master_draw = 0;
+    int master_n = build_action_core_shortlist(
+        st, mv, prob, n, baseline,
+        ROLLOUT_POLICY_COST_MAX_CANDIDATES, 3, 1,
+        0.01f, 0.0f, support->order[0],
+        &master_core, &master_draw, 1);
+    if (master_n < 1 || master_n > ROLLOUT_POLICY_COST_MAX_CANDIDATES ||
+        master_core < 1 || master_core > 4 ||
+        master_draw < 0 || master_draw > 2 ||
+        master_core + master_draw != master_n ||
+        support->order[0][0] != baseline)
+        return 0;
+    support->n[0] = master_n;
+    support->core_candidates[0] = master_core;
+    support->draw_candidates[0] = master_draw;
+
+    int retained_core[ROLLOUT_POLICY_COST_MAX_CANDIDATES] = { 0 };
+    int n2 = 0, core2 = 0, draw2 = 0;
+    for (int c = 0; c < master_core; c++) {
+        int index = support->order[0][c];
+        double action_mass = 0.0;
+        for (int i = 0; i < n; i++)
+            if (same_semantic_action(mv[i], mv[index]))
+                action_mass += prob[i];
+        if (c == 0 || action_mass >= (double)0.02f) {
+            retained_core[c] = 1;
+            support->order[1][n2++] = index;
+            core2++;
+        }
+    }
+    for (int c = master_core; c < master_n; c++) {
+        int index = support->order[0][c];
+        int parent_retained = 0;
+        for (int parent = 0; parent < master_core; parent++)
+            if (retained_core[parent] &&
+                same_semantic_action(
+                    mv[index], mv[support->order[0][parent]])) {
+                parent_retained = 1;
+                break;
+            }
+        if (parent_retained) {
+            if (n2 >= ROLLOUT_POLICY_COST_MAX_CANDIDATES) return 0;
+            support->order[1][n2++] = index;
+            draw2++;
+        }
+    }
+    if (n2 < 1 || core2 < 1 || core2 + draw2 != n2 ||
+        support->order[1][0] != baseline)
+        return 0;
+    support->n[1] = n2;
+    support->core_candidates[1] = core2;
+    support->draw_candidates[1] = draw2;
+
+    /* This is an executable proof of the frozen mask relation, not merely a
+     * consequence assumed from the construction above. */
+    int last = -1;
+    for (int c = 0; c < n2; c++) {
+        int found = -1;
+        for (int m = last + 1; m < master_n; m++)
+            if (support->order[1][c] == support->order[0][m]) {
+                found = m;
+                break;
+            }
+        if (found < 0) return 0;
+        last = found;
+    }
+    return 1;
 }
 
 /* A flat shortlist covers exactly the probability of its complete moves.  A
@@ -2445,6 +2618,92 @@ static int confirm_trusted_prefix(
     return *agreement_out ? proposed : 0;
 }
 
+/* Build the independent fixed-size evidence panel used only by rollout5's
+ * policy-cost selector.  It intentionally does not call rollout_move and
+ * therefore cannot recursively apply root costs inside continuations.  Every
+ * candidate sees the same hidden world, move-keyed continuation seed, and
+ * independently stratified player-role pair.  The caller owns *values_out. */
+static int policy_cost_fresh_panel(
+    const Agent *a, const Net *cont_net,
+    const NetEvalPlan *cont_eval_plan,
+    const State *st, int p, const Move *mv, const int *order, int ncand,
+    int cont_prune, int cont_sym, const BeliefDist *belief, int have_belief,
+    uint64_t seed, int cap, int *worlds_out, double **values_out,
+    PlayoutWork *work)
+{
+    *worlds_out = 0;
+    *values_out = NULL;
+    if (!a || !cont_net || !st || !mv || !order || ncand < 2 ||
+        ncand > MAX_CAND)
+        return 0;
+    int worlds = a->confirm_dets > 0 ? a->confirm_dets : cap;
+    if (worlds < 2) return 0;
+    int replan_worlds, replan_cores;
+    historical_replan_config(a, &replan_worlds, &replan_cores);
+    /* Parsed rollout5 actors reject recursive replanning.  Keep a runtime
+     * guard for programmatically constructed Agents. */
+    if (replan_worlds != 0 || replan_cores != 0) return 0;
+
+    LateAssignmentPlan assignment_plan;
+    int assignment_order[LATE_REPLAN_MAX_ASSIGNMENTS];
+    int unique_worlds = 0;
+    if (a->no_belief && !have_belief && st->deck_left >= 2 &&
+        st->deck_left <= LATE_REPLAN_MAX_DECK) {
+        unique_worlds = late_unique_assignment_order(
+            st, p, worlds, LATE_PANEL_TRUSTED_ASSIGNMENTS,
+            &assignment_plan, assignment_order);
+        if (unique_worlds > 0) worlds = unique_worlds;
+    }
+
+    double *values = malloc(
+        sizeof *values * (size_t)ncand * (size_t)worlds);
+    if (!values) return 0;
+    uint8_t perms[120][NSUIT];
+    int nperm = suit_permutations(cont_sym, perms);
+    if (nperm < 1) { free(values); return 0; }
+    Rng perm_rng;
+    rng_seed(&perm_rng, seed ^ UINT64_C(0x8CB92BA72F3D8DD7));
+    int offset = (int)rng_below(&perm_rng, (uint32_t)nperm);
+    int other_offset = (int)rng_below(&perm_rng, (uint32_t)nperm);
+    Rng world_rng;
+    rng_seed(&world_rng, seed ^ UINT64_C(0xDB4F0B9175AE2165));
+    LateReplanCache replan_cache = { 0 };
+    for (int d = 0; d < worlds; d++) {
+        State world;
+        if (unique_worlds > 0)
+            late_assignment_world(
+                &assignment_plan, p, assignment_order[d], &world);
+        else if (have_belief)
+            belief_dist_sample(st, p, &world_rng, belief, &world);
+        else
+            determinize(st, p, &world_rng, &world);
+        const uint8_t *perm = perms[(offset + d) % nperm];
+        int other_index =
+            (other_offset + (d / nperm) + (d % nperm)) % nperm;
+        const uint8_t *other_perm = perms[other_index];
+        uint64_t wseed = seed ^
+            (UINT64_C(0xD1B54A32D192ED03) * (uint64_t)(d + 1));
+        for (int c = 0; c < ncand; c++) {
+            State s = world;
+            lc_apply(&s, mv[order[c]]);
+            LateReplanContext replan = late_replan_context_init(
+                0, 0, LATE_PANEL_TRUSTED_CONFIRM, &replan_cache);
+            (void)playout(
+                cont_net, cont_eval_plan, &s, p, cont_prune, NULL,
+                perm, other_perm, p ^ 1, 0, cont_sym,
+                a->plan_deck_max, a->plan_block_gap,
+                a->draw_playout_deck_max, 0.0f, wseed,
+                rollout_controller_objective(a), a->exact_terminal,
+                0, 0, &replan, NULL, work);
+            values[(size_t)c * (size_t)worlds + (size_t)d] =
+                rollout_selection_objective(a, &s, p);
+        }
+    }
+    *worlds_out = worlds;
+    *values_out = values;
+    return 1;
+}
+
 int rollout_action_ranker_veto(const struct Agent *a,
                                const State *complete, Move baseline,
                                Move proposal, double *score, int *valid)
@@ -2611,6 +2870,33 @@ static Move rollout_move_impl(const struct Agent *a, const State *st,
             stats->value = (float)exact_objective;
         }
         return mv[exact_index];
+    }
+
+    /* Parsed rollout5 specs are checked before play, but callers can also
+     * assemble Agent values directly.  A changed controller must fail closed
+     * at the real root instead of composing the trusted selector with an
+     * uncalibrated planner, resolver, ranker, veto, or pruned policy vector.
+     * The exact one-card solver above deliberately remains intrinsic. */
+    if (a->policy_cost && !policy_cost_matches_agent(a)) {
+        if (out_value) *out_value = value;
+        if (stats) {
+            stats->n = 1;
+            stats->nlegal = nlegal;
+            stats->worlds = 0;
+            stats->max_worlds = a->dets;
+            stats->resolved = 0;
+            stats->skip_reason = SEARCH_SKIP_ROOT_FOCUS;
+            stats->raw_best = 0;
+            stats->policy_top = 0;
+            stats->policy_mass = prob[policy_top_index];
+            stats->mv[0] = policy_top_move;
+            stats->visits[0] = 0;
+            stats->q[0] = value;
+            stats->se[0] = 0.0;
+            stats->prior[0] = prob[policy_top_index];
+            stats->value = value;
+        }
+        return policy_top_move;
     }
 
     /* Experimental bounded late resolver.  Unlike the historical recursive
@@ -3022,11 +3308,27 @@ static Move rollout_move_impl(const struct Agent *a, const State *st,
     int ncand;
     int action_core_candidates = 0;
     int action_draw_candidates = 0;
-    if (a->net && a->action_core_count > 0) {
+    if (a->net && a->policy_cost) {
+        RolloutPolicyCostSupport support;
+        if (!rollout_policy_cost_support(
+                st, mv, prob, n, current_baseline, &support)) {
+            ncand = 1;
+            order[0] = current_baseline;
+            action_core_candidates = 1;
+            action_draw_candidates = 0;
+        } else {
+            int mask = a->cand_floor == 0.02f ? 1 : 0;
+            ncand = support.n[mask];
+            for (int c = 0; c < ncand; c++)
+                order[c] = support.order[mask][c];
+            action_core_candidates = support.core_candidates[mask];
+            action_draw_candidates = support.draw_candidates[mask];
+        }
+    } else if (a->net && a->action_core_count > 0) {
         ncand = build_action_core_shortlist(
             st, mv, prob, n, current_baseline, maxcand,
             a->action_core_count, keep, a->cand_floor, a->cand_mass,
-            order, &action_core_candidates, &action_draw_candidates);
+            order, &action_core_candidates, &action_draw_candidates, 0);
     } else if (a->net && current_baseline == current_policy_top) {
         /* The maintained flat-policy path.  Its deployed baseline is the
          * literal policy argmax, so candidate zero is already in the sorted
@@ -3376,6 +3678,212 @@ static Move rollout_move_impl(const struct Agent *a, const State *st,
             if (a->batch_dets > 0 && resolved && !primary_exhaust_support)
                 break;
         }
+    }
+
+    /* rollout5 owns only the real root selection.  Its continuation playouts
+     * above and its independent panel below call playout() directly, so the
+     * calibrated policy potential is never recursively counted.  Candidate
+     * zero is still the literal complete-move policy argmax: the parsed
+     * rollout5 profile rejects every planner capable of redefining it. */
+    if (a->policy_cost) {
+        Move cost_move[MAX_CAND];
+        float cost_prob[MAX_CAND];
+        for (int c = 0; c < neval; c++) {
+            cost_move[c] = mv[order[c]];
+            cost_prob[c] = prob[order[c]];
+        }
+        PolicyCostDecision primary_cost, fresh_cost;
+        memset(&primary_cost, 0, sizeof primary_cost);
+        memset(&fresh_cost, 0, sizeof fresh_cost);
+        int primary_valid = neval == ncand && reps > 1 &&
+            work.unfinished_cap_leaves == 0 &&
+            policy_cost_decide(
+                a->policy_cost, st->round, st->nply,
+                mv, prob, n, order, ncand, val, cap, reps,
+                POLICY_COST_PRIMARY_Z, &primary_cost);
+        int proposed = primary_valid ? primary_cost.leader : 0;
+        int primary_passed = primary_valid &&
+            primary_cost.all_pair_passed &&
+            primary_cost.selected == proposed;
+        int gate_reason = primary_valid
+            ? (proposed == 0
+                ? POLICY_COST_GATE_ADJUSTED_BASELINE
+                : (primary_passed
+                    ? POLICY_COST_GATE_INVALID_FRESH
+                    : POLICY_COST_GATE_PRIMARY_EVIDENCE))
+            : POLICY_COST_GATE_INVALID_PRIMARY;
+        int selected = 0;
+        int confirm_worlds = 0;
+        double *fresh_value = NULL;
+        int fresh_valid = 0, fresh_passed = 0;
+        if (primary_passed && proposed != 0) {
+            uint64_t fresh_seed =
+                confirm_seed_base ^ UINT64_C(0xE7037ED1A0B428DB);
+            uint64_t cap_leaves_before = work.unfinished_cap_leaves;
+            fresh_valid = policy_cost_fresh_panel(
+                a, cont_net, cont_eval_plan, st, p, mv, order, ncand,
+                cont_prune, cont_sym, &belief, have_belief, fresh_seed,
+                cap, &confirm_worlds, &fresh_value, &work) &&
+                work.unfinished_cap_leaves == cap_leaves_before &&
+                policy_cost_decide(
+                    a->policy_cost, st->round, st->nply,
+                    mv, prob, n, order, ncand, fresh_value,
+                    confirm_worlds, confirm_worlds,
+                    POLICY_COST_FRESH_Z, &fresh_cost);
+            fresh_passed = fresh_valid && fresh_cost.all_pair_passed &&
+                fresh_cost.leader == proposed &&
+                fresh_cost.selected == proposed;
+            if (fresh_passed) {
+                selected = proposed;
+                gate_reason = POLICY_COST_GATE_SELECTED;
+            } else if (!fresh_valid) {
+                gate_reason = POLICY_COST_GATE_INVALID_FRESH;
+            } else if (fresh_cost.leader != proposed) {
+                gate_reason = POLICY_COST_GATE_FRESH_LEADER_MISMATCH;
+            } else {
+                gate_reason = POLICY_COST_GATE_FRESH_EVIDENCE;
+            }
+        }
+        int guard_rejected = 0;
+        if (selected != 0 && a->discard_guard &&
+            !lc_discard_dominated(st, cost_move[0], lc_dead_cards(st)) &&
+            lc_discard_dominated(
+                st, cost_move[selected], lc_dead_cards(st))) {
+            guard_rejected = 1;
+            selected = 0;
+            gate_reason = POLICY_COST_GATE_DISCARD_GUARD;
+        }
+        if (work.unfinished_cap_leaves > 0) {
+            selected = 0;
+            gate_reason = POLICY_COST_GATE_CAP_INVALID;
+        }
+        float bestq = (float)(sumobj[selected] / reps);
+        if (stats) {
+            stats->n = neval;
+            stats->nlegal = nlegal;
+            stats->worlds = reps;
+            stats->max_worlds = cap;
+            stats->resolved = primary_passed;
+            stats->raw_best = rawbest;
+            stats->policy_top = policy_pos;
+            stats->planned_baseline = baseline_from_planner;
+            stats->draw_planned_baseline = draw_planned_baseline;
+            stats->deck_end_baseline = deck_end_baseline;
+            stats->semantic_candidates = semantic_added;
+            stats->draw_variant_candidates = draw_variant_added;
+            stats->action_core_candidates = action_core_candidates;
+            stats->action_draw_candidates = action_draw_candidates;
+            stats->trusted_candidates = trusted_candidates;
+            stats->selection_reference = 0;
+            stats->metric_kind = SEARCH_METRIC_ROLLOUT;
+            stats->confirmed = selected != 0;
+            /* rollout5's independent panel has its own explicit diagnostics;
+             * do not mislabel it as the legacy low-prior confirmation path. */
+            stats->confirm_worlds = 0;
+            stats->exact_terminal_leaves = work.exact_terminal_leaves;
+            stats->unfinished_cap_leaves = work.unfinished_cap_leaves;
+            stats->cycle_breaks = work.cycle_breaks;
+            stats->cap_reserve_forces = work.cap_reserve_forces;
+            stats->policy_cost_active = 1;
+            stats->policy_cost_anchor_interval = primary_valid
+                ? primary_cost.anchor_interval : -1;
+            stats->policy_cost_proposed = proposed;
+            stats->policy_cost_selected = selected;
+            stats->policy_cost_primary_passed =
+                primary_passed && proposed != 0;
+            stats->policy_cost_fresh_passed = fresh_passed;
+            stats->policy_cost_primary_valid = primary_valid;
+            stats->policy_cost_fresh_valid = fresh_valid;
+            stats->policy_cost_fresh_worlds = confirm_worlds;
+            stats->policy_cost_gate_reason = gate_reason;
+            stats->policy_cost_cap_valid =
+                work.unfinished_cap_leaves == 0;
+            stats->policy_cost_primary_protected = primary_valid
+                ? primary_cost.prior_protected_rivals : 0;
+            stats->policy_cost_fresh_protected = fresh_valid
+                ? fresh_cost.prior_protected_rivals : 0;
+            stats->policy_cost_fingerprint =
+                a->policy_cost->payload_fingerprint;
+            stats->policy_cost_lambda_action = primary_valid
+                ? primary_cost.lambda_action : 0.0;
+            stats->policy_cost_lambda_draw = primary_valid
+                ? primary_cost.lambda_draw : 0.0;
+            stats->policy_cost_override_min =
+                a->policy_cost->controller.override_min;
+            stats->policy_mass = shortlist_policy_mass(
+                mv, prob, n, order, ncand, action_core_candidates);
+            for (int c = 0; c < neval; c++) {
+                stats->mv[c] = cost_move[c];
+                stats->visits[c] = reps;
+                stats->q[c] = sumobj[c] / reps;
+                stats->qw[c] = lastround ? sumw[c] / reps : -1.0;
+                stats->prior[c] = cost_prob[c];
+                double qv = 0.0, dv = 0.0;
+                double dm = (sumobj[c] - sumobj[0]) / reps;
+                if (reps > 1) {
+                    for (int d = 0; d < reps; d++) {
+                        double qx = val[(size_t)c * cap + d] - stats->q[c];
+                        double dx = val[(size_t)c * cap + d] - val[d] - dm;
+                        qv += qx * qx;
+                        dv += dx * dx;
+                    }
+                    qv = sqrt(qv / (reps - 1) / reps);
+                    dv = sqrt(dv / (reps - 1) / reps);
+                }
+                stats->se[c] = qv;
+                stats->delta[c] = dm;
+                stats->dse[c] = c == 0 ? 0.0 : dv;
+                stats->rdelta[c] = dm;
+                stats->rdse[c] = c == 0 ? 0.0 : dv;
+                if (primary_valid) {
+                    stats->policy_semantic_prior[c] =
+                        primary_cost.semantic_prior[c];
+                    stats->policy_conditional_draw_prior[c] =
+                        primary_cost.conditional_draw_prior[c];
+                    stats->policy_cost_penalty[c] = primary_cost.cost[c];
+                    stats->policy_adjusted_q[c] =
+                        primary_cost.adjusted_q[c];
+                }
+                if (fresh_valid) {
+                    stats->policy_fresh_adjusted_q[c] =
+                        fresh_cost.adjusted_q[c];
+                    stats->prefix_q[c] = fresh_cost.q[c];
+                    double fdm = fresh_cost.q[c] - fresh_cost.q[0];
+                    double fqv = 0.0, fdv = 0.0;
+                    for (int d = 0; d < confirm_worlds; d++) {
+                        double qx = fresh_value[
+                            (size_t)c * confirm_worlds + d] -
+                            fresh_cost.q[c];
+                        double dx = fresh_value[
+                            (size_t)c * confirm_worlds + d]
+                            - fresh_value[d] - fdm;
+                        fqv += qx * qx;
+                        fdv += dx * dx;
+                    }
+                    if (confirm_worlds > 1) {
+                        fqv = sqrt(fqv / (confirm_worlds - 1) /
+                                    confirm_worlds);
+                        fdv = sqrt(fdv / (confirm_worlds - 1) /
+                                    confirm_worlds);
+                    }
+                    stats->prefix_se[c] = fqv;
+                    stats->prefix_delta[c] = fdm;
+                    stats->prefix_dse[c] = c == 0 ? 0.0 : fdv;
+                    stats->cdelta[c] = fdm;
+                    stats->cdse[c] = c == 0 ? 0.0 : fdv;
+                }
+                stats->pqualified[c] =
+                    primary_passed && c == proposed;
+                stats->csupported[c] = fresh_passed && c == proposed;
+                stats->guard_rejected[c] =
+                    guard_rejected && c == proposed;
+            }
+            stats->value = bestq;
+        }
+        free(fresh_value);
+        free(val);
+        if (out_value) *out_value = value;
+        return cost_move[selected];
     }
 
     /* The raw leader is descriptive.  Move selection is deliberately more
@@ -3820,20 +4328,42 @@ static Move rollout_move_impl(const struct Agent *a, const State *st,
     return mv[order[best]];
 }
 
-int rollout_audit_panel(const struct Agent *a, const State *st,
-                        const Move *candidate, int n, int baseline,
-                        uint64_t seed, int worlds,
-                        RolloutAuditPanel *out)
+static uint64_t audit_hidden_hash(uint64_t hash, const State *world, int p)
+{
+    const unsigned char *hand =
+        (const unsigned char *)&world->hand[p ^ 1];
+    for (size_t i = 0; i < sizeof world->hand[p ^ 1]; i++) {
+        hash ^= hand[i];
+        hash *= UINT64_C(1099511628211);
+    }
+    for (int i = 0; i < world->deck_left; i++) {
+        hash ^= world->deck[world->deck_pos + i];
+        hash *= UINT64_C(1099511628211);
+    }
+    return hash;
+}
+
+int rollout_audit_panel_role(
+    const struct Agent *a, const State *st,
+    const Move *candidate, int n, int baseline, int panel_role,
+    uint64_t seed, int worlds, RolloutAuditPanel *out)
 {
     if (!a || !st || !candidate || !out || !a->net || st->over ||
-        n < 1 || n > 5 || baseline < 0 || baseline >= n || worlds < 2)
+        n < 1 || n > ROLLOUT_MAX_CANDIDATES || baseline < 0 ||
+        baseline >= n || worlds < 2 ||
+        (panel_role != ROLLOUT_AUDIT_PANEL_PRIMARY &&
+         panel_role != ROLLOUT_AUDIT_PANEL_FRESH))
         return -1;
     /* A diagnostic advertised as exact-late must fail closed.  Mode 3 is a
      * useful propagation ablation, but it deliberately does not optimize the
      * final action and therefore cannot satisfy this corpus contract. */
     if (a->exact_terminal != 1) return -2;
+    if (panel_role == ROLLOUT_AUDIT_PANEL_FRESH &&
+        (!a->no_belief || a->playout_sample != 4 ||
+         a->playout_symmetries <= 1 || a->confirm_temp != 0.0f))
+        return -2;
 
-    Move legal[MAX_MOVES], mapped[5];
+    Move legal[MAX_MOVES], mapped[ROLLOUT_MAX_CANDIDATES];
     int nlegal = lc_moves(st, legal);
     for (int c = 0; c < n; c++) {
         int found = find_semantic_move(legal, nlegal, candidate[c]);
@@ -3848,6 +4378,7 @@ int rollout_audit_panel(const struct Agent *a, const State *st,
     out->requested_worlds = worlds;
     out->baseline = baseline;
     out->objective = a->win_q;
+    out->panel_role = panel_role;
 
     const int p = st->turn;
     LateAssignmentPlan assignment_plan;
@@ -3855,7 +4386,10 @@ int rollout_audit_panel(const struct Agent *a, const State *st,
     int unique_worlds = 0;
     if (st->deck_left >= 1 && st->deck_left <= LATE_REPLAN_MAX_DECK) {
         unique_worlds = late_unique_assignment_order(
-            st, p, worlds, LATE_PANEL_PRIMARY_ASSIGNMENTS,
+            st, p, worlds,
+            panel_role == ROLLOUT_AUDIT_PANEL_FRESH
+                ? LATE_PANEL_TRUSTED_ASSIGNMENTS
+                : LATE_PANEL_PRIMARY_ASSIGNMENTS,
             &assignment_plan, assignment_order);
         if (unique_worlds > 0) {
             out->hidden_support = assignment_plan.support;
@@ -3889,12 +4423,20 @@ int rollout_audit_panel(const struct Agent *a, const State *st,
         a->playout_sample == 4 && cont_sym > 1;
     uint8_t perms[120][NSUIT];
     int nperm = fixed_world_sym ? suit_permutations(cont_sym, perms) : 0;
-    uint64_t panel_seed = confirmation_mix64(
-        seed ^ UINT64_C(0xA0761D6478BD642F));
-    int perm_offset = fixed_world_sym
-        ? (int)(panel_seed % (uint64_t)nperm) : 0;
-    int other_perm_offset = role_fixed_world_sym
-        ? (int)(confirmation_mix64(panel_seed) % (uint64_t)nperm) : 0;
+    int perm_offset = 0, other_perm_offset = 0;
+    if (fixed_world_sym && panel_role == ROLLOUT_AUDIT_PANEL_FRESH) {
+        /* Byte-for-byte domain parity with policy_cost_fresh_panel(). */
+        Rng perm_rng;
+        rng_seed(&perm_rng, seed ^ UINT64_C(0x8CB92BA72F3D8DD7));
+        perm_offset = (int)rng_below(&perm_rng, (uint32_t)nperm);
+        other_perm_offset = (int)rng_below(&perm_rng, (uint32_t)nperm);
+    } else if (fixed_world_sym) {
+        uint64_t panel_seed = confirmation_mix64(
+            seed ^ UINT64_C(0xA0761D6478BD642F));
+        perm_offset = (int)(panel_seed % (uint64_t)nperm);
+        other_perm_offset = role_fixed_world_sym
+            ? (int)(confirmation_mix64(panel_seed) % (uint64_t)nperm) : 0;
+    }
 
     Rng world_rng;
     rng_seed(&world_rng, seed ^ UINT64_C(0xDB4F0B9175AE2165));
@@ -3902,7 +4444,8 @@ int rollout_audit_panel(const struct Agent *a, const State *st,
     historical_replan_config(a, &replan_worlds, &replan_cores);
     LateReplanCache replan_cache = { 0 };
     PlayoutWork work = { 0 };
-    double margin[5] = { 0 };
+    uint64_t hidden_fingerprint = UINT64_C(1469598103934665603);
+    double margin[ROLLOUT_MAX_CANDIDATES] = { 0 };
     for (int d = 0; d < worlds; d++) {
         State world;
         if (unique_worlds > 0)
@@ -3910,9 +4453,14 @@ int rollout_audit_panel(const struct Agent *a, const State *st,
                 &assignment_plan, p, assignment_order[d], &world);
         else
             determinize(st, p, &world_rng, &world);
-        uint64_t wseed = confirmation_mix64(
-            seed ^ (UINT64_C(0xD1B54A32D192ED03) *
-                    (uint64_t)(d + 1)));
+        hidden_fingerprint = audit_hidden_hash(
+            hidden_fingerprint, &world, p);
+        uint64_t wseed = panel_role == ROLLOUT_AUDIT_PANEL_FRESH
+            ? seed ^ (UINT64_C(0xD1B54A32D192ED03) *
+                      (uint64_t)(d + 1))
+            : confirmation_mix64(
+                seed ^ (UINT64_C(0xD1B54A32D192ED03) *
+                        (uint64_t)(d + 1)));
         const uint8_t *fixed_perm = NULL;
         const uint8_t *other_perm = NULL;
         if (fixed_world_sym) {
@@ -3929,11 +4477,20 @@ int rollout_audit_panel(const struct Agent *a, const State *st,
             Rng prng;
             if (random_cont_sym) rng_seed(&prng, wseed);
             LateReplanContext replan = late_replan_context_init(
-                replan_worlds, replan_cores, LATE_PANEL_PRIMARY,
+                replan_worlds, replan_cores,
+                panel_role == ROLLOUT_AUDIT_PANEL_FRESH
+                    ? LATE_PANEL_TRUSTED_CONFIRM : LATE_PANEL_PRIMARY,
                 &replan_cache);
+            /* Production's rollout5 fresh panel supplies a fixed coherent
+             * suit-role pair and therefore never also gives playout() a
+             * random symmetry stream.  Keep that distinction exact here;
+             * the legacy PRIMARY wrapper retains its historical stream. */
+            Rng *panel_rng =
+                panel_role == ROLLOUT_AUDIT_PANEL_FRESH && fixed_world_sym
+                    ? NULL : (random_cont_sym ? &prng : NULL);
             int m = playout(
                 cont_net, cont_plan, &s, p, cont_prune,
-                random_cont_sym ? &prng : NULL,
+                panel_rng,
                 fixed_perm, other_perm, p ^ 1,
                 sample_cont_actions, cont_sym,
                 a->plan_deck_max, a->plan_block_gap,
@@ -3953,6 +4510,26 @@ int rollout_audit_panel(const struct Agent *a, const State *st,
         for (int d = 0; d < worlds; d++)
             sum += value[(size_t)c * (size_t)worlds + (size_t)d];
         out->q[c] = sum / worlds;
+    }
+    for (int c = 0; c < n; c++) {
+        out->pair_delta[c][c] = 0.0;
+        out->pair_delta_se[c][c] = 0.0;
+        for (int rival = c + 1; rival < n; rival++) {
+            double mean = out->q[c] - out->q[rival];
+            double variance = 0.0;
+            for (int d = 0; d < worlds; d++) {
+                double residual =
+                    value[(size_t)c * (size_t)worlds + (size_t)d] -
+                    value[(size_t)rival * (size_t)worlds + (size_t)d] -
+                    mean;
+                variance += residual * residual;
+            }
+            double se = sqrt(variance / (worlds - 1) / worlds);
+            out->pair_delta[c][rival] = mean;
+            out->pair_delta[rival][c] = -mean;
+            out->pair_delta_se[c][rival] = se;
+            out->pair_delta_se[rival][c] = se;
+        }
     }
     for (int c = 0; c < n; c++) {
         double qv = 0.0, dv = 0.0;
@@ -3976,12 +4553,23 @@ int rollout_audit_panel(const struct Agent *a, const State *st,
             (out->q[c] == out->q[selected] && margin[c] > margin[selected]))
             selected = c;
     out->selected = selected;
+    out->hidden_world_fingerprint = hidden_fingerprint;
     out->exact_terminal_leaves = work.exact_terminal_leaves;
     out->unfinished_cap_leaves = work.unfinished_cap_leaves;
     out->cycle_breaks = work.cycle_breaks;
     out->cap_reserve_forces = work.cap_reserve_forces;
     free(value);
     return 0;
+}
+
+int rollout_audit_panel(const struct Agent *a, const State *st,
+                        const Move *candidate, int n, int baseline,
+                        uint64_t seed, int worlds,
+                        RolloutAuditPanel *out)
+{
+    return rollout_audit_panel_role(
+        a, st, candidate, n, baseline, ROLLOUT_AUDIT_PANEL_PRIMARY,
+        seed, worlds, out);
 }
 
 Move rollout_move(const struct Agent *a, const State *st, Rng *rng,

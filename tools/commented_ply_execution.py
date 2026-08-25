@@ -119,6 +119,7 @@ TOOL_PATHS = (
     "tools/flagged_ply_execution.py",
     "tools/gate_actor_panel.py",
     "tools/match_value_campaign.py",
+    "tools/policy_cost_artifact.py",
     "tools/merge_arena.py",
 )
 TEST_PATHS = (
@@ -127,6 +128,29 @@ TEST_PATHS = (
 )
 _HEX40 = re.compile(r"[0-9a-f]{40}\Z")
 _HEX64 = re.compile(r"[0-9a-f]{64}\Z")
+
+# The completed v3 lock predates rollout5.  Its source closure is an immutable
+# historical fact, not today's src/ glob: using the live glob made adding any
+# later source file retroactively invalidate the already sealed campaign.
+# Future definition commits deliberately use the expanded live closure below.
+V3_DEFINITION_COMMIT = "7a8e7ee0598e461cf3bad03d3817a76671341327"
+V3_DEFINITION_PATHS = (
+    ".github/workflows/commented-ply-audit-v3.yml",
+    "Makefile",
+    "data/experiments/locked_commented_ply_audit_v3_plan.json",
+    "src/agent.c", "src/agent.h", "src/features.c", "src/features.h",
+    "src/heuristic.c", "src/heuristic.h", "src/late_resolver.c",
+    "src/late_resolver.h", "src/lc.c", "src/lc.h", "src/match.c",
+    "src/match.h", "src/match_value.c", "src/match_value.h",
+    "src/net.c", "src/net.h", "src/planner.c", "src/planner.h",
+    "src/rollout.c", "src/search.c", "src/search.h", "src/spec.c",
+    "src/spec.h", "tests/test_commented_ply_audit.py",
+    "tests/test_commented_ply_execution.py",
+    "tools/audit_commented_plies.py", "tools/commented_ply_eval.c",
+    "tools/commented_ply_execution.py", "tools/flagged_ply_execution.py",
+    "tools/gate_actor_panel.py", "tools/match_value_campaign.py",
+    "tools/merge_arena.py",
+)
 
 
 def _repo_file(root: Path, value: Any, label: str) -> tuple[Path, str]:
@@ -346,8 +370,12 @@ def _tool_bindings(root: Path) -> list[dict[str, Any]]:
     return result
 
 
-def _definition_paths(root: Path) -> tuple[str, ...]:
+def _definition_paths(
+    root: Path, definition_commit: str | None = None,
+) -> tuple[str, ...]:
     """Return the complete evaluator/verifier source closure frozen by the lock."""
+    if definition_commit == V3_DEFINITION_COMMIT:
+        return V3_DEFINITION_PATHS
     names = {
         "Makefile", PLAN_PATH, WORKFLOW_PATH, DRIVER_PATH,
         HELPER_SOURCE_PATH, *TOOL_PATHS, *TEST_PATHS,
@@ -435,23 +463,28 @@ def expected_definition_lock(root: Path, definition_commit: str,
     cases, rows, corpus = _case_binding(root, plan)
     recovery = _recovery_binding(root, plan)
 
-    names = _definition_paths(root)
+    names = _definition_paths(root, definition_commit)
     if _has_git(root):
         definition_files = [
             _git_blob_binding(root, definition_commit, name,
                               f"definition file {name}")
             for name in names
         ]
-        for committed in definition_files:
-            current = _current_binding(
-                root, committed["path"],
-                f"current definition file {committed['path']}",
-                committed["git_mode"],
-            )
-            if current != committed:
-                raise ExecutionError(
-                    f"definition file drifted from definition commit: "
-                    f"{committed['path']}")
+        # Revalidation of the completed v3 campaign reads its evaluator from
+        # the recorded commit.  Later source additions must not retroactively
+        # require the live checkout to equal that old tree.  New definitions
+        # retain the strict live-vs-commit drift check.
+        if definition_commit != V3_DEFINITION_COMMIT:
+            for committed in definition_files:
+                current = _current_binding(
+                    root, committed["path"],
+                    f"current definition file {committed['path']}",
+                    committed["git_mode"],
+                )
+                if current != committed:
+                    raise ExecutionError(
+                        f"definition file drifted from definition commit: "
+                        f"{committed['path']}")
     else:
         definition_files = [
             _current_binding(root, name, f"definition file {name}")
@@ -471,14 +504,16 @@ def expected_definition_lock(root: Path, definition_commit: str,
                               f"definition artifact {row['path']}")
             for row in locked_artifacts
         ]
-        current_artifacts = [
-            _current_binding(root, row["path"],
-                             f"current definition artifact {row['path']}",
-                             row["git_mode"])
-            for row in committed_artifacts
-        ]
-        if current_artifacts != committed_artifacts:
-            raise ExecutionError("corpus/checkpoint drifted from definition commit")
+        if definition_commit != V3_DEFINITION_COMMIT:
+            current_artifacts = [
+                _current_binding(root, row["path"],
+                                 f"current definition artifact {row['path']}",
+                                 row["git_mode"])
+                for row in committed_artifacts
+            ]
+            if current_artifacts != committed_artifacts:
+                raise ExecutionError(
+                    "corpus/checkpoint drifted from definition commit")
         locked_artifacts = committed_artifacts
 
     return {

@@ -165,6 +165,30 @@ static const char *search_status(const SearchStats *ss, Move recommended)
         return ss->late_resolver_override
             ? "bounded_late_challenger_override"
             : "bounded_late_policy_retained";
+    if (ss->policy_cost_active) {
+        switch (ss->policy_cost_gate_reason) {
+        case POLICY_COST_GATE_INVALID_PRIMARY:
+            return "policy_cost_invalid_primary";
+        case POLICY_COST_GATE_ADJUSTED_BASELINE:
+            return "policy_cost_adjusted_baseline_retained";
+        case POLICY_COST_GATE_PRIMARY_EVIDENCE:
+            return "policy_cost_failed_primary_all_pair_gate";
+        case POLICY_COST_GATE_INVALID_FRESH:
+            return "policy_cost_invalid_fresh_panel";
+        case POLICY_COST_GATE_FRESH_LEADER_MISMATCH:
+            return "policy_cost_fresh_leader_mismatch";
+        case POLICY_COST_GATE_FRESH_EVIDENCE:
+            return "policy_cost_failed_fresh_all_pair_gate";
+        case POLICY_COST_GATE_DISCARD_GUARD:
+            return "policy_cost_blocked_by_discard_guard";
+        case POLICY_COST_GATE_CAP_INVALID:
+            return "policy_cost_invalid_continuation_cap";
+        case POLICY_COST_GATE_SELECTED:
+            return "policy_cost_confirmed_override";
+        default:
+            return "policy_cost_invalid_authority";
+        }
+    }
     if (ss->worlds == 0) {
         if (ss->skip_reason == SEARCH_SKIP_FORCED)
             return "forced_move";
@@ -207,6 +231,55 @@ static const char *search_status(const SearchStats *ss, Move recommended)
         move_eq(ss->mv[ss->raw_best], recommended))
         return "resolved";
     return "resolved_below_action_threshold";
+}
+
+static const char *policy_cost_gate_reason(const SearchStats *ss)
+{
+    if (!ss || !ss->policy_cost_active) return "not_configured";
+    switch (ss->policy_cost_gate_reason) {
+    case POLICY_COST_GATE_INVALID_PRIMARY: return "invalid_primary";
+    case POLICY_COST_GATE_ADJUSTED_BASELINE: return "adjusted_baseline";
+    case POLICY_COST_GATE_PRIMARY_EVIDENCE: return "primary_all_pair_gate";
+    case POLICY_COST_GATE_INVALID_FRESH: return "invalid_fresh";
+    case POLICY_COST_GATE_FRESH_LEADER_MISMATCH: return "fresh_leader_mismatch";
+    case POLICY_COST_GATE_FRESH_EVIDENCE: return "fresh_all_pair_gate";
+    case POLICY_COST_GATE_DISCARD_GUARD: return "discard_guard";
+    case POLICY_COST_GATE_CAP_INVALID: return "continuation_cap";
+    case POLICY_COST_GATE_SELECTED: return "selected";
+    default: return "invalid_authority";
+    }
+}
+
+static void j_policy_cost(FILE *fp, const SearchStats *ss)
+{
+    if (!ss || !ss->policy_cost_active) {
+        fputs("null", fp);
+        return;
+    }
+    fprintf(fp,
+            "{\"active\":true,\"artifact_fingerprint\":\"%016llx\","
+            "\"anchor_interval\":%d,\"lambda_action\":%.12g,"
+            "\"lambda_draw\":%.12g,\"legacy_override_min\":%.12g,"
+            "\"proposed\":%d,\"selected\":%d,"
+            "\"gate_reason\":\"%s\",\"cap_valid\":%s,"
+            "\"primary\":{\"valid\":%s,\"passed\":%s,"
+            "\"z\":3.5,\"worlds\":%d,\"protected_rivals\":%d},"
+            "\"fresh\":{\"valid\":%s,\"passed\":%s,"
+            "\"z\":2.58,\"worlds\":%d,\"protected_rivals\":%d}}",
+            (unsigned long long)ss->policy_cost_fingerprint,
+            ss->policy_cost_anchor_interval,
+            ss->policy_cost_lambda_action, ss->policy_cost_lambda_draw,
+            ss->policy_cost_override_min,
+            ss->policy_cost_proposed, ss->policy_cost_selected,
+            policy_cost_gate_reason(ss),
+            ss->policy_cost_cap_valid ? "true" : "false",
+            ss->policy_cost_primary_valid ? "true" : "false",
+            ss->policy_cost_primary_passed ? "true" : "false",
+            ss->worlds, ss->policy_cost_primary_protected,
+            ss->policy_cost_fresh_valid ? "true" : "false",
+            ss->policy_cost_fresh_passed ? "true" : "false",
+            ss->policy_cost_fresh_worlds,
+            ss->policy_cost_fresh_protected);
 }
 
 static const char *search_metric(const SearchStats *ss)
@@ -324,6 +397,22 @@ static void j_search_rows(FILE *fp, const SearchStats *ss, Move played,
             fprintf(fp, ",\"bounded_h2_q\":%.6f,\"bounded_h4_q\":%.6f",
                     ss->late_resolver_h2_q[k],
                     ss->late_resolver_h4_q[k]);
+        if (ss->policy_cost_active)
+            fprintf(fp,
+                    ",\"policy_cost\":{\"semantic_action_mass\":%.12g,"
+                    "\"conditional_draw_mass\":%.12g,\"cost\":%.12g,"
+                    "\"primary_adjusted_q\":%.12g,"
+                    "\"fresh_evaluated\":%s,\"fresh_q\":%.12g,"
+                    "\"fresh_q_se\":%.12g,\"fresh_delta_vs_baseline\":%.12g,"
+                    "\"fresh_delta_se\":%.12g,\"fresh_adjusted_q\":%.12g}",
+                    ss->policy_semantic_prior[k],
+                    ss->policy_conditional_draw_prior[k],
+                    ss->policy_cost_penalty[k],
+                    ss->policy_adjusted_q[k],
+                    ss->policy_cost_fresh_worlds > 0 ? "true" : "false",
+                    ss->prefix_q[k], ss->prefix_se[k],
+                    ss->prefix_delta[k], ss->prefix_dse[k],
+                    ss->policy_fresh_adjusted_q[k]);
         if (ss->qw[k] >= 0.0) fprintf(fp, ",\"qw\":%.3f", ss->qw[k]);
         fputc('}', fp);
     }
@@ -929,6 +1018,8 @@ int main(int argc, char **argv)
             j_search_rows(pf, &actor_ss, played, played);
         else
             fputs("[]", pf);
+        fputs(",\"policy_cost\":", pf);
+        j_policy_cost(pf, actor.kind == AG_ROLLOUT ? &actor_ss : NULL);
         fputs(",\"late_resolver\":", pf);
         j_late_resolver(
             pf, &actor_ss,
@@ -1125,6 +1216,8 @@ int main(int argc, char **argv)
         j_controller_veto(pf, &evaluator, &ss);
         fputs(",\"action_ranker_veto\":", pf);
         j_action_ranker_veto(pf, &evaluator, &ss);
+        fputs(",\"policy_cost\":", pf);
+        j_policy_cost(pf, &ss);
         fputc('}', pf);
 
         /* the card that will be drawn: read before lc_apply */

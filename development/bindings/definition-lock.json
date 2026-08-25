@@ -1,0 +1,388 @@
+{
+  "artifact_kind": "immutable_match_value_objective3_v2_definition_lock",
+  "authoritative_final_actor_result": {
+    "actor_assets": {
+      "challenger": [],
+      "reference": [
+        {
+          "kind": "checkpoint",
+          "path": "data/champion.bin",
+          "role": 0,
+          "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+          "size": 2823748
+        }
+      ],
+      "winner": [
+        {
+          "kind": "checkpoint",
+          "path": "data/champion.bin",
+          "role": 0,
+          "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+          "size": 2823748
+        }
+      ]
+    },
+    "authoritative_results": [
+      {
+        "path": "data/experiments/world800_result.json",
+        "role": "world_winner",
+        "sha256": "798a4f0948295445d25dd34cb1a8e3f96794e24f032a76a82df7c92485da4db8"
+      }
+    ],
+    "challenger": null,
+    "decisive_result": null,
+    "no_change": true,
+    "path": "data/experiments/final_actor_result.json",
+    "promotion_gate_passed": false,
+    "reference": {
+      "checkpoints": [
+        {
+          "path": "data/champion.bin",
+          "role": 0,
+          "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+          "size": 2823748
+        }
+      ],
+      "spec": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
+    },
+    "selection_mode": "no_challenge",
+    "sha256": "5ad3566c5fb66aa45efa0c3b45eff6bde83eacece2eefd13a6794eb57530e476",
+    "source_commit": "08f9e1a5218e03c399b257b852efe20b0089c7b0",
+    "source_tree": "c70405a09b88919b228f96d19d84d83875d4fea4",
+    "winner": {
+      "checkpoints": [
+        {
+          "path": "data/champion.bin",
+          "role": 0,
+          "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+          "size": 2823748
+        }
+      ],
+      "spec": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
+    }
+  },
+  "build": {
+    "cflags": "-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11",
+    "compiler": "gcc",
+    "compiler_semantic_version_command": "gcc -dumpfullversion -dumpversion",
+    "ldflags": "-lm -pthread",
+    "required_compiler_semantic_version": "13.3.0",
+    "runner": "ubuntu-24.04"
+  },
+  "definition": {
+    "commit": "6dc8114e1332aadd4374384465279255ec2c437e",
+    "tree": "dfe2fc7dbbc8ec246eaa2b6c2eb5d56067d99003"
+  },
+  "definition_files": [
+    {
+      "git_mode": "100644",
+      "path": ".github/workflows/match-value-objective3-v2.yml",
+      "sha256": "fea6bb1b2b4e1a573a6a74f2c95f46654aa0065b58ee5709c5f30aff8af56975",
+      "size": 59728
+    },
+    {
+      "git_mode": "100644",
+      "path": "MATCH_VALUE_OBJECTIVE3_V2.md",
+      "sha256": "e65e37f99324d0914a84bf038135c0456aab2928b0dc4849e1a8bcb23aca9c37",
+      "size": 11602
+    },
+    {
+      "git_mode": "100644",
+      "path": "data/experiments/locked_match_value_objective3_v2_plan.json",
+      "sha256": "72587805f9a22bd981b537572e9c847cc5765123aa502caedea6a6894a722f24",
+      "size": 17136
+    },
+    {
+      "git_mode": "100644",
+      "path": "tests/test_match_value_objective3_v2.py",
+      "sha256": "74c62e6430a58a3b5b4f603f84c30409966e0f2ab470edd79e13a8170ae54bdb",
+      "size": 23009
+    },
+    {
+      "git_mode": "100644",
+      "path": "tools/match_value_objective3_v2.py",
+      "sha256": "c879a71ed0e4dc6fce86a7d72a949814205c877d494b72e177adb8c723876b6c",
+      "size": 74665
+    },
+    {
+      "git_mode": "100644",
+      "path": "Makefile",
+      "sha256": "a6693a95854bf0d76958887adaa66174a5987300d41039666ae82727b7962ec3",
+      "size": 10140
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/agent.c",
+      "sha256": "c840a8b8f90fc82af674943f9fec06747cad296ccf6a43570ddebe02a19e77b9",
+      "size": 29670
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/agent.h",
+      "sha256": "d2fb9678d437ee8c47bea47f83eb62640e0da6d1372d17f509f2904f4155fc56",
+      "size": 23182
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/features.c",
+      "sha256": "6db470ca045abd5f06a5f9657e25e1a1220c1a25bd54830b7ac52d834ab901f3",
+      "size": 6430
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/features.h",
+      "sha256": "eff2f2958dbf7045e313f44fcc9c44051667b0b0bafe971ebeeb5641db71ee99",
+      "size": 2566
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/heuristic.c",
+      "sha256": "c4f544d8495b548ad7c25ef2551064f4bfcb60eb63b0e96d7391713cf577c9d4",
+      "size": 4123
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/heuristic.h",
+      "sha256": "afe303f8253e84fb6320821ccf905b97e4969473d8be80d65ef9b6b20a7bdf42",
+      "size": 665
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/late_resolver.c",
+      "sha256": "f61467779975ffcaba986078ebdc275b0d8cd7bc4774045b704a02013d54142b",
+      "size": 34134
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/late_resolver.h",
+      "sha256": "979a9915919e5fdfa4c323ed5b9da576e82731a1ad88a0930c8347742720e64b",
+      "size": 4510
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/lc.c",
+      "sha256": "7ed33651a77651e73b70eba7d90f6e7a8de2d4d491c1c176aadf48889c889de3",
+      "size": 9766
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/lc.h",
+      "sha256": "1d5227abf42a1c2f2a883b35015e69836f7467b60791ce32d9ca21cb7bfb09a7",
+      "size": 7772
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/match.c",
+      "sha256": "0f7b4bad13631da876d7379af61e4d61d91c59c546cf92790cbeba7b1230b14d",
+      "size": 10174
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/match.h",
+      "sha256": "9e1c44370b383b2875d04ad96e9b3e46b6e37e9e93eb104a91fe9d041b2bed79",
+      "size": 1813
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/match_value.c",
+      "sha256": "400bc1f3d5ae419e1226671bb52e4458d823ede6b31620abcf98e6c7c8d97f24",
+      "size": 15993
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/match_value.h",
+      "sha256": "ca80f267eb2ec4187b518aae31f7546adaf698dbd82ea3e00792c52efe9e54a2",
+      "size": 5051
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/net.c",
+      "sha256": "f932f3b679b238238ab409bf1f4eac1315cc5beff0efeff24f2fe7204175a551",
+      "size": 21571
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/net.h",
+      "sha256": "d29623943ba6411496da270285d26451f402e1b709056718527f49916a0f2a49",
+      "size": 6223
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/planner.c",
+      "sha256": "a3359632ccf9d9b1fec0efe069a988167713d88abbc29d6581e9f93142364636",
+      "size": 12601
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/planner.h",
+      "sha256": "08894bc723d4f9ab6475a3faf4fd264d283bad13d0807db27f989e314c52af75",
+      "size": 2965
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/rollout.c",
+      "sha256": "fed250b276fd47010f33bc3bf4f681d332a56621eb37a3c422f89ecc2d3c7ded",
+      "size": 174457
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/search.c",
+      "sha256": "41cfd853bab77e1252339608134db851df266af01c09daaa1fccf34b0fe11d70",
+      "size": 8509
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/search.h",
+      "sha256": "edbc8ebd54afc243b04baf7d29352fb04f6ceaebf78c8943d71e001d1a3cfe0f",
+      "size": 15133
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/spec.c",
+      "sha256": "791d403e6ca246553b5d41323d8456839274bf8334e38463c0050eaaf09b10bd",
+      "size": 18311
+    },
+    {
+      "git_mode": "100644",
+      "path": "src/spec.h",
+      "sha256": "46fb47ec7e02d487f7c04e0318e9973c6c5d6ee604e3605ab67d5563c884d273",
+      "size": 15011
+    },
+    {
+      "git_mode": "100644",
+      "path": "tools/arena.c",
+      "sha256": "069b3c24b5e6565b7650aa24173de50e18ca14bffd4512e7bc282d5440283e20",
+      "size": 11953
+    },
+    {
+      "git_mode": "100644",
+      "path": "tools/build_match_value.c",
+      "sha256": "e383112c0872a916772078801f81804edfde37d5ae88d5e53f73c1175ff1259d",
+      "size": 19845
+    },
+    {
+      "git_mode": "100644",
+      "path": "tools/flagged_ply_execution.py",
+      "sha256": "8c0b91fb2297563900c39e59d2c279431bb3abf4407b60714a50515e31374ab0",
+      "size": 33860
+    },
+    {
+      "git_mode": "100644",
+      "path": "tools/gate_actor_panel.py",
+      "sha256": "50ae52c66698d04cd4cc13af35c3d0eaed72e37bd76657dae12aa10f09dcc2ed",
+      "size": 11652
+    },
+    {
+      "git_mode": "100644",
+      "path": "tools/match_value_campaign.py",
+      "sha256": "96f0783374f8e26f2f79008e5976d9db1130157feed092ea519c5c5911ce4690",
+      "size": 44252
+    },
+    {
+      "git_mode": "100644",
+      "path": "tools/merge_arena.py",
+      "sha256": "9cad23c9e6550ea36d7721acf8e64144a44058083ad4aeb5bb5613a3a79139fb",
+      "size": 28665
+    },
+    {
+      "git_mode": "100644",
+      "path": "tools/validate_actor_shards.py",
+      "sha256": "bca430a94af64180436c7fb60d29b2e86ec4b3567ab3aabb09984aabee054855",
+      "size": 7364
+    }
+  ],
+  "diagnostic_exact17_audit": {
+    "canonical_json": {
+      "path": "data/experiments/commented_ply_audit_v3.json",
+      "sha256": "be63dcae2ae1a179cf43a0c47e9971755290f9b3bfd90cc40fd4b6bd2838bbd7",
+      "size": 110628
+    },
+    "canonical_markdown": {
+      "path": "data/experiments/commented_ply_audit_v3.md",
+      "sha256": "a30eb93e4623e75ec2dae4c2cb73103b801d67954e0b02298e1a5b1082ebcd71",
+      "size": 7751
+    },
+    "cases": 17,
+    "evidence": {
+      "path": "data/experiments/commented_ply_audit_v3_evidence.zip",
+      "sha256": "aacec0f3da9bbedd5d6512cf7bf2ef0d993232ed888d64f2e8099f5b15c03994",
+      "size": 221494
+    },
+    "raw_shards": 17,
+    "result": {
+      "path": "data/experiments/commented_ply_audit_v3_result.json",
+      "sha256": "9897b402116b897942031ecbd46c50127b358c5a2c579e9c854720c667f55a82",
+      "size": 17435
+    },
+    "results": null,
+    "run": {
+      "attempt": 1,
+      "conclusion": "success",
+      "head_sha": "330488423fad6f7a83fc1b1ace2bb8fae75449b1",
+      "id": 32717551770
+    },
+    "selection_use": "forbidden",
+    "total_paired_worlds": 18432
+  },
+  "locked_artifacts": [
+    {
+      "path": "data/experiments/final_actor_result.json",
+      "sha256": "5ad3566c5fb66aa45efa0c3b45eff6bde83eacece2eefd13a6794eb57530e476",
+      "size": 1296
+    },
+    {
+      "path": "data/champion.bin",
+      "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+      "size": 2823748
+    },
+    {
+      "path": "data/experiments/commented_ply_audit_v3_result.json",
+      "sha256": "9897b402116b897942031ecbd46c50127b358c5a2c579e9c854720c667f55a82",
+      "size": 17435
+    },
+    {
+      "path": "data/experiments/commented_ply_audit_v3.json",
+      "sha256": "be63dcae2ae1a179cf43a0c47e9971755290f9b3bfd90cc40fd4b6bd2838bbd7",
+      "size": 110628
+    },
+    {
+      "path": "data/experiments/commented_ply_audit_v3.md",
+      "sha256": "a30eb93e4623e75ec2dae4c2cb73103b801d67954e0b02298e1a5b1082ebcd71",
+      "size": 7751
+    },
+    {
+      "path": "data/experiments/commented_ply_audit_v3_evidence.zip",
+      "sha256": "aacec0f3da9bbedd5d6512cf7bf2ef0d993232ed888d64f2e8099f5b15c03994",
+      "size": 221494
+    }
+  ],
+  "predecessor_v1": {
+    "bindings": [
+      {
+        "path": ".github/workflows/match-value-variant.yml",
+        "sha256": "6e2fc483671912b9c5f7ddfdcfb27399f0e44f90f79bda0b0128a6dd709e9683",
+        "size": 41928
+      },
+      {
+        "path": "data/experiments/match_value_variant_plan.json",
+        "sha256": "30b1f5ee0ef8565bdb6b5182b86ad7236fbd1774eeed5097560f322e7314a001",
+        "size": 10617
+      },
+      {
+        "path": "data/experiments/locked_match_value_variant_execution.template.json",
+        "sha256": "fc1ed86c1a55ebbc73309e8c729516cc6b1a101b218f11cec90ba9b6187b084d",
+        "size": 3345
+      },
+      {
+        "path": "tools/match_value_campaign.py",
+        "sha256": "96f0783374f8e26f2f79008e5976d9db1130157feed092ea519c5c5911ce4690",
+        "size": 44252
+      }
+    ],
+    "execution_history_count": 0,
+    "status": "inert_never_executed"
+  },
+  "results": null,
+  "schema": "lc-match-value-objective3-v2-definition-lock-v1",
+  "status": "sealed_before_table_build_or_match_value_efficacy"
+}

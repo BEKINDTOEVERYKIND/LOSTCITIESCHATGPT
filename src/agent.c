@@ -13,6 +13,7 @@ void agent_default(Agent *a, AgentKind k, const Net *net)
     a->veto_continuation_net = NULL;
     a->action_ranker_net = NULL;
     a->match_value = NULL;
+    a->policy_cost = NULL;
     a->draw_samples = 6;
     a->temp = 0.0f;
     a->eps = 0.0f;

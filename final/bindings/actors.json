@@ -1,0 +1,14 @@
+{
+  "actors": {
+    "PROJECTED_ALL_PLY": "rolloutu2:data/champion.bin:data/champion.bin:800:5:0.02:0:1:0:0:0:3:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1:0:0:0:1:0:data/models/match_value_objective3_v2_projected.lcmv",
+    "RAW_ALL_PLY": "rolloutu2:data/champion.bin:data/champion.bin:800:5:0.02:0:1:0:0:0:3:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1:0:0:0:1:0:data/models/match_value_objective3_v2_raw.lcmv",
+    "legacy": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
+  },
+  "artifact_kind": "locked_match_value_objective3_v2_actors",
+  "model": {
+    "path": "data/champion.bin",
+    "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417"
+  },
+  "schema": "lc-match-value-objective3-v2-actors-v1",
+  "world_cap": 800
+}

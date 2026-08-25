@@ -1,0 +1,210 @@
+{
+  "artifact_kind": "validated_locked_actor_shard_set",
+  "baseline": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+  "candidate": "rolloutu2:data/champion.bin:data/champion.bin:800:5:0.02:0:1:0:0:0:3:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1:0:0:0:1:0:data/models/match_value_objective3_v2_projected.lcmv",
+  "pairs_per_orientation": 200,
+  "pairs_per_shard": 20,
+  "provenance": "stage=match_value_objective3_v2_safety;variant=PROJECTED_ALL_PLY;development=9c34c3b73ab5d08c6223c7bd0f55b89649074e89e68e6310a2f99ca6c8bba42b;plan=72587805f9a22bd981b537572e9c847cc5765123aa502caedea6a6894a722f24;lock=6f40e7579e3ba5157c2750c6540d8688af630298f2338d1ad4617a87532fffbd;execution=7fa8b2de912466c9affd0ff8188cc8403dd1b085f02de6acf10d8df0284db75a;post_build=fcd12297707986c3eabc5d5551dac2b30ee8f12bebcb662f2c76bb8cf5d3a0b5;source=0eb2a90a66f1297d2191547da8e41fcc80b64d61;arena=b54eefb0bb17e75361ebee6faa004eb0062cae17a2543d9fe5a62f213a94201e;model=af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417;table=e3eac1b6fecf314a3db45ef9fd7563db1f18e02ca09a7e63aac00bc8fd4cb28e;worlds=800;threads=4",
+  "rounds": 3,
+  "schema_version": 1,
+  "seeds": {
+    "baseline_first": "202610210102",
+    "candidate_first": "202610210101"
+  },
+  "shards": [
+    {
+      "orientation": "candidate-first",
+      "pair_count": 20,
+      "pair_start": 0,
+      "raw_path": "downloads/candidate-first-0.jsonl",
+      "raw_sha256": "54c255d9d6dbfa46ddc4ac5c398a8387c77a90638d91f2e2d21f03de9111d7d2",
+      "sidecar_sha256": "29a2b4ae3cb31615c819af9d08d4b79be4300b8d049072c6a7abe025289d448f",
+      "timing_sha256": "6cd164f5f183355b37749ed18530dc19d86d50dad4ce08643c8cbc69fbda4e8c"
+    },
+    {
+      "orientation": "candidate-first",
+      "pair_count": 20,
+      "pair_start": 20,
+      "raw_path": "downloads/candidate-first-20.jsonl",
+      "raw_sha256": "0e5b622c127b1df0b05e03c77d4300ff13f991fdfd70524c033e6e2431b49014",
+      "sidecar_sha256": "2b2cae657f1bd0f653013243639cb9702788248067deacf1d7aa574d71d69719",
+      "timing_sha256": "ce7456fd1996187dad465788acc19706d3e7ca779f77e55970d8907846383cf5"
+    },
+    {
+      "orientation": "candidate-first",
+      "pair_count": 20,
+      "pair_start": 40,
+      "raw_path": "downloads/candidate-first-40.jsonl",
+      "raw_sha256": "c5e6980c7fb20f04e969cfdf5e66af28a2d43e06afb8a1459a044cd337ed6fd7",
+      "sidecar_sha256": "2485e35d2ebc881e6ac326a900da635fc199b601c45b488e8c29d7dbd9d4ec97",
+      "timing_sha256": "cc098c97fc6dd5840c2184dfa3a4382d1bf2cff173c8fedbb33d055777def4e3"
+    },
+    {
+      "orientation": "candidate-first",
+      "pair_count": 20,
+      "pair_start": 60,
+      "raw_path": "downloads/candidate-first-60.jsonl",
+      "raw_sha256": "6c19d9b1562f1c366c31eefed48fa1ee048a727855b6eef7525e9a593634c1e9",
+      "sidecar_sha256": "a555d9faafd429daf972484761c36fcae0db133b1a9a16c5b106b12ed169650b",
+      "timing_sha256": "9d8904191fc4d5ba3491992dda8264f1a18d08ffcd56c2613f74c9ee4bc55584"
+    },
+    {
+      "orientation": "candidate-first",
+      "pair_count": 20,
+      "pair_start": 80,
+      "raw_path": "downloads/candidate-first-80.jsonl",
+      "raw_sha256": "63d2169fbd71ad2625466ef4dab24067a93e3e91c40964e0ed5f9694c9e656d1",
+      "sidecar_sha256": "77c65ffdbe107d0720f5732a037ccb83816c131fbd77d9deff16888002c756d7",
+      "timing_sha256": "0f4c9b005292ac574941b6d6abef5f7c905526a186966df316446011e73333d4"
+    },
+    {
+      "orientation": "candidate-first",
+      "pair_count": 20,
+      "pair_start": 100,
+      "raw_path": "downloads/candidate-first-100.jsonl",
+      "raw_sha256": "f2f7b869d536fcbf7f282748b26ce432530ab924b9c0aa9999b61244c946a86a",
+      "sidecar_sha256": "5306c99f42080725e3547319d3272a0069f534c5608f6b04e2b58b8e6d66fb18",
+      "timing_sha256": "1fd92faaa3e0fb5f212197fe2a82d27b67fc03b243e4ded33f7dd80fe09d1b3d"
+    },
+    {
+      "orientation": "candidate-first",
+      "pair_count": 20,
+      "pair_start": 120,
+      "raw_path": "downloads/candidate-first-120.jsonl",
+      "raw_sha256": "0f6ae49bf11387d80ffa97d7fb2c1d295581f073504a00e4d290821bb8b1a6bd",
+      "sidecar_sha256": "07dc6fdc2d5933806f0191753d53f3ccea816f0ac1ef9a1653959ecb8345e028",
+      "timing_sha256": "15a273c18f944d7d92e24f9c2db57691560836df5bb47d4413c54ad0e4b38e59"
+    },
+    {
+      "orientation": "candidate-first",
+      "pair_count": 20,
+      "pair_start": 140,
+      "raw_path": "downloads/candidate-first-140.jsonl",
+      "raw_sha256": "55f6f4f23cc748df6a7ee171c92d85d683ac6f42a35a1a3f58c86903e98edce4",
+      "sidecar_sha256": "4666dd2cf392304bc0e97bbb038833f9f8eb58815375f98e6b4a90b183735a0d",
+      "timing_sha256": "bb8291f1f334113acdc5c7833f97ea03cd0d1dfc213075d9a5801a7de899f2d6"
+    },
+    {
+      "orientation": "candidate-first",
+      "pair_count": 20,
+      "pair_start": 160,
+      "raw_path": "downloads/candidate-first-160.jsonl",
+      "raw_sha256": "32b91abfdd4ff622e0599a52b8c92cf06ce384f1b0cc503c122a5af6574e6518",
+      "sidecar_sha256": "489abdb2a8509186c2e1d98118cc4fe72babec39363173da91176be6bfed6e82",
+      "timing_sha256": "9a833f28173046dc279dd7b101cb8e45edd044ac68eb63b7699c6c42e0feb3eb"
+    },
+    {
+      "orientation": "candidate-first",
+      "pair_count": 20,
+      "pair_start": 180,
+      "raw_path": "downloads/candidate-first-180.jsonl",
+      "raw_sha256": "546c35b8f1f80999f3b86ff778843a5e30cdaead8fea37c2d92d5c7516ec96e0",
+      "sidecar_sha256": "1206b642ddf7c299304e688da30d379268ef1bfb12343fdc2723a5c1ef5548a4",
+      "timing_sha256": "e3a2092db579e3ed56c38f712d3f25ec0848245031fae6c2a3292d63a79a68e7"
+    },
+    {
+      "orientation": "baseline-first",
+      "pair_count": 20,
+      "pair_start": 0,
+      "raw_path": "downloads/baseline-first-0.jsonl",
+      "raw_sha256": "e38e4e00791bd09668d41bd666e0d932c285ee77c8ee7a3c7ea31748736dc5c3",
+      "sidecar_sha256": "42fc642d83b380393959f73ba0d0d5e5431562541b624be3b7c97cae0625f5f1",
+      "timing_sha256": "f78b6633eacee120f023c0fb14e4fcdecb8e9836b3cf828fad928e73a9996375"
+    },
+    {
+      "orientation": "baseline-first",
+      "pair_count": 20,
+      "pair_start": 20,
+      "raw_path": "downloads/baseline-first-20.jsonl",
+      "raw_sha256": "308400f423580dee7a098a99661a7f8bf0e97f91da0823be609c8565d7392fec",
+      "sidecar_sha256": "549c34e1eccf8f939d9a482405abae6fab143edbbe7ce973cf65c3debe02e63b",
+      "timing_sha256": "5d1715146711424c1962664f7861a02819d2a53203f0fa7bb45e249293bae610"
+    },
+    {
+      "orientation": "baseline-first",
+      "pair_count": 20,
+      "pair_start": 40,
+      "raw_path": "downloads/baseline-first-40.jsonl",
+      "raw_sha256": "6c46390a2131d636c5a1d40e1fd07cfb656390fea86ef1a8176e06be56b4767c",
+      "sidecar_sha256": "3666f239f1f6658e1bb0c1131537566f282a55966cc441ce490ec7dd2e3ee686",
+      "timing_sha256": "bc014c0f028add4a7e0c8f38ea52a25c996a0a5bffc8a64ec66ef76b08722b87"
+    },
+    {
+      "orientation": "baseline-first",
+      "pair_count": 20,
+      "pair_start": 60,
+      "raw_path": "downloads/baseline-first-60.jsonl",
+      "raw_sha256": "984d3ee69342e73e945957b4071cd2361c5e23c5dd83864c56fe8c0d21ed11a6",
+      "sidecar_sha256": "ef3a35993a3ea0ee3cf2275a443bff57991fa86e5838eced68be636a3b260ed1",
+      "timing_sha256": "49c1aef79ec10ab4e7a0586aa23e9b604a5d9c594da252c86828871a62d6b4c9"
+    },
+    {
+      "orientation": "baseline-first",
+      "pair_count": 20,
+      "pair_start": 80,
+      "raw_path": "downloads/baseline-first-80.jsonl",
+      "raw_sha256": "1668295a3e093cf2fbabd35a560a2428aa678b3d1f821903083b9c5bf90a9ced",
+      "sidecar_sha256": "a825bc9761228097b432e385b317da153cd5998c3b4d26706744494a23a0d93d",
+      "timing_sha256": "d31e85a10227f77be4300783c4c68baa736d7d4c0c93e1385ac818e29753452c"
+    },
+    {
+      "orientation": "baseline-first",
+      "pair_count": 20,
+      "pair_start": 100,
+      "raw_path": "downloads/baseline-first-100.jsonl",
+      "raw_sha256": "0151ae20fbe4024639af50a9bb74562e995000d957b98537cd6f85ec57be9764",
+      "sidecar_sha256": "a04bfc7ce620b4450bd1be996d7eb47be6f48a739c164c6aa25246a24d90793d",
+      "timing_sha256": "d8956a4e9a7d59d46877446068aa66e7b52695afacbd20e4e5e9312799a65f06"
+    },
+    {
+      "orientation": "baseline-first",
+      "pair_count": 20,
+      "pair_start": 120,
+      "raw_path": "downloads/baseline-first-120.jsonl",
+      "raw_sha256": "45fbef22462e39ba072d34827f1547ae73e208e2389af84cd568b870272158c6",
+      "sidecar_sha256": "ece60ca2213ded008d57203cd2e2047d09fbc741e2d1c4e5aa08118e597799f7",
+      "timing_sha256": "d6986d42582afee6b29ff10bd1300aaf8205fa80b3f917c86f418feafdd48149"
+    },
+    {
+      "orientation": "baseline-first",
+      "pair_count": 20,
+      "pair_start": 140,
+      "raw_path": "downloads/baseline-first-140.jsonl",
+      "raw_sha256": "d21df193ba7ab1986260af98340602188101816ab7b598f6738cb984d44eeb33",
+      "sidecar_sha256": "e7a023cae9dfba480251fb5fc351a9e7c4e3bf983e9d97b62e9c2ffd924af888",
+      "timing_sha256": "3436e7c12de5d7e27ab70a03a3b4b432c56d6525b41aceb2ee6471d5883fbff1"
+    },
+    {
+      "orientation": "baseline-first",
+      "pair_count": 20,
+      "pair_start": 160,
+      "raw_path": "downloads/baseline-first-160.jsonl",
+      "raw_sha256": "37293a4cca972e230db86beb1d60662feeb47f283f282a16fc3610750178abe6",
+      "sidecar_sha256": "6d5fa2d809d0e2e622261ce5aa34711fd80b67fd2f8321d4d6d61aa97d0d264a",
+      "timing_sha256": "b555ca03e265095ef40bba1fece5b0792922635885a5cbd78dcce7171ce34482"
+    },
+    {
+      "orientation": "baseline-first",
+      "pair_count": 20,
+      "pair_start": 180,
+      "raw_path": "downloads/baseline-first-180.jsonl",
+      "raw_sha256": "a9bb11f3bfe1c9cdfd830ba67cbda854ab7663d5d169cf2b9f3c2e783da09195",
+      "sidecar_sha256": "f126dc98168dda34dcaa45737159e164d500c01726b6bb4868ddb2973bda6694",
+      "timing_sha256": "66103a707971c084ab14055df0ed268d7a6e317299e3fccd1e65c1405cac2a68"
+    }
+  ],
+  "shards_per_orientation": 10,
+  "starts": [
+    0,
+    20,
+    40,
+    60,
+    80,
+    100,
+    120,
+    140,
+    160,
+    180
+  ],
+  "status": "complete_structurally_valid_before_efficacy_merge"
+}

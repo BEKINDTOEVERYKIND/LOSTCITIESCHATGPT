@@ -1,0 +1,106 @@
+{
+  "artifact_kind": "merged_arena_pair_evidence",
+  "canonical_pair_rows_sha256": "51524164f8f5c615831412e54bf7d3cc921e2e6446df31c50e696e3c05fb9127",
+  "inputs": [
+    {
+      "pair_count": 20,
+      "pair_start": 0,
+      "path": "downloads/baseline-first-0.jsonl",
+      "sha256": "e38e4e00791bd09668d41bd666e0d932c285ee77c8ee7a3c7ea31748736dc5c3"
+    },
+    {
+      "pair_count": 20,
+      "pair_start": 20,
+      "path": "downloads/baseline-first-20.jsonl",
+      "sha256": "308400f423580dee7a098a99661a7f8bf0e97f91da0823be609c8565d7392fec"
+    },
+    {
+      "pair_count": 20,
+      "pair_start": 40,
+      "path": "downloads/baseline-first-40.jsonl",
+      "sha256": "6c46390a2131d636c5a1d40e1fd07cfb656390fea86ef1a8176e06be56b4767c"
+    },
+    {
+      "pair_count": 20,
+      "pair_start": 60,
+      "path": "downloads/baseline-first-60.jsonl",
+      "sha256": "984d3ee69342e73e945957b4071cd2361c5e23c5dd83864c56fe8c0d21ed11a6"
+    },
+    {
+      "pair_count": 20,
+      "pair_start": 80,
+      "path": "downloads/baseline-first-80.jsonl",
+      "sha256": "1668295a3e093cf2fbabd35a560a2428aa678b3d1f821903083b9c5bf90a9ced"
+    },
+    {
+      "pair_count": 20,
+      "pair_start": 100,
+      "path": "downloads/baseline-first-100.jsonl",
+      "sha256": "0151ae20fbe4024639af50a9bb74562e995000d957b98537cd6f85ec57be9764"
+    },
+    {
+      "pair_count": 20,
+      "pair_start": 120,
+      "path": "downloads/baseline-first-120.jsonl",
+      "sha256": "45fbef22462e39ba072d34827f1547ae73e208e2389af84cd568b870272158c6"
+    },
+    {
+      "pair_count": 20,
+      "pair_start": 140,
+      "path": "downloads/baseline-first-140.jsonl",
+      "sha256": "d21df193ba7ab1986260af98340602188101816ab7b598f6738cb984d44eeb33"
+    },
+    {
+      "pair_count": 20,
+      "pair_start": 160,
+      "path": "downloads/baseline-first-160.jsonl",
+      "sha256": "37293a4cca972e230db86beb1d60662feeb47f283f282a16fc3610750178abe6"
+    },
+    {
+      "pair_count": 20,
+      "pair_start": 180,
+      "path": "downloads/baseline-first-180.jsonl",
+      "sha256": "a9bb11f3bfe1c9cdfd830ba67cbda854ab7663d5d169cf2b9f3c2e783da09195"
+    }
+  ],
+  "metadata": {
+    "agent_a": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+    "agent_b": "rolloutu2:data/champion.bin:data/champion.bin:800:5:0.02:0:1:0:0:0:3:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1:0:0:0:1:0:data/models/match_value_objective3_v2_projected.lcmv",
+    "provenance": "stage=match_value_objective3_v2_safety;variant=PROJECTED_ALL_PLY;development=9c34c3b73ab5d08c6223c7bd0f55b89649074e89e68e6310a2f99ca6c8bba42b;plan=72587805f9a22bd981b537572e9c847cc5765123aa502caedea6a6894a722f24;lock=6f40e7579e3ba5157c2750c6540d8688af630298f2338d1ad4617a87532fffbd;execution=7fa8b2de912466c9affd0ff8188cc8403dd1b085f02de6acf10d8df0284db75a;post_build=fcd12297707986c3eabc5d5551dac2b30ee8f12bebcb662f2c76bb8cf5d3a0b5;source=0eb2a90a66f1297d2191547da8e41fcc80b64d61;arena=b54eefb0bb17e75361ebee6faa004eb0062cae17a2543d9fe5a62f213a94201e;model=af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417;table=e3eac1b6fecf314a3db45ef9fd7563db1f18e02ca09a7e63aac00bc8fd4cb28e;worlds=800;threads=4",
+    "rounds": 3,
+    "schema": 1,
+    "seed": "202610210102"
+  },
+  "pair_count": 200,
+  "pair_start": "0",
+  "result": {
+    "capped_rounds": 0,
+    "draws": 2,
+    "games": 400,
+    "losses": 211,
+    "margin_pair_clustered_se": 2.818403218537281,
+    "margin_per_game": -4.3575,
+    "match_score": 0.47,
+    "match_score_pair_clustered_se": 0.02152770798425314,
+    "pairs": 200,
+    "plies_per_game": 140.7175,
+    "points_per_game_a": 123.27,
+    "points_per_game_b": 127.6275,
+    "wins": 187
+  },
+  "schema_version": 1,
+  "sufficient_statistics": {
+    "capped_rounds": 0,
+    "draws": 2,
+    "losses": 211,
+    "margin_sum": -1743,
+    "margin_sumsq": 1279779,
+    "pairs": 200,
+    "plies_sum": 56287,
+    "points_a_sum": 49308,
+    "points_b_sum": 51051,
+    "score_quarters_sum": 376,
+    "score_quarters_sumsq": 1002,
+    "wins": 187
+  }
+}

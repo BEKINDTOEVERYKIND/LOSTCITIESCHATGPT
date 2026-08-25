@@ -1,0 +1,210 @@
+{
+  "artifact_kind": "validated_locked_actor_shard_set",
+  "baseline": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+  "candidate": "rolloutu2:data/champion.bin:data/champion.bin:800:5:0.02:0:1:0:0:0:3:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1:0:0:0:1:0:data/models/match_value_objective3_v2_projected.lcmv",
+  "pairs_per_orientation": 1000,
+  "pairs_per_shard": 100,
+  "provenance": "stage=match_value_objective3_v2_development;variant=PROJECTED_ALL_PLY;plan=72587805f9a22bd981b537572e9c847cc5765123aa502caedea6a6894a722f24;lock=6f40e7579e3ba5157c2750c6540d8688af630298f2338d1ad4617a87532fffbd;execution=7fa8b2de912466c9affd0ff8188cc8403dd1b085f02de6acf10d8df0284db75a;post_build=fcd12297707986c3eabc5d5551dac2b30ee8f12bebcb662f2c76bb8cf5d3a0b5;source=0eb2a90a66f1297d2191547da8e41fcc80b64d61;arena=b54eefb0bb17e75361ebee6faa004eb0062cae17a2543d9fe5a62f213a94201e;model=af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417;table=e3eac1b6fecf314a3db45ef9fd7563db1f18e02ca09a7e63aac00bc8fd4cb28e;worlds=800;threads=4",
+  "rounds": 3,
+  "schema_version": 1,
+  "seeds": {
+    "baseline_first": "202610200102",
+    "candidate_first": "202610200101"
+  },
+  "shards": [
+    {
+      "orientation": "candidate-first",
+      "pair_count": 100,
+      "pair_start": 0,
+      "raw_path": "panels/PROJECTED_ALL_PLY/candidate-first-0.jsonl",
+      "raw_sha256": "a80fd2f76658a5ac967d1a995742ba22b6cfe159b7473fe17df5ed52faed7012",
+      "sidecar_sha256": "a01a2ac8d0275a627bd4dcaf93a0f4ed6539090c074d51991d95af5411492d7d",
+      "timing_sha256": "5eb7d8b21176f31cfaae37003c190da634c0f636365eaa82436ecf295f4fa4b9"
+    },
+    {
+      "orientation": "candidate-first",
+      "pair_count": 100,
+      "pair_start": 100,
+      "raw_path": "panels/PROJECTED_ALL_PLY/candidate-first-100.jsonl",
+      "raw_sha256": "c03ba4b06359a9ce25315d15bdb75bf67953ec177913d077242a6ba21bf31623",
+      "sidecar_sha256": "3c8abf06c2200907cf093ff9e77e41573d0b966811596ac77bdc54bfe532ae39",
+      "timing_sha256": "f3809e8abd2ac1904b43d1a26c230e4aef55509230c0e13476a20d6e1ded9134"
+    },
+    {
+      "orientation": "candidate-first",
+      "pair_count": 100,
+      "pair_start": 200,
+      "raw_path": "panels/PROJECTED_ALL_PLY/candidate-first-200.jsonl",
+      "raw_sha256": "3c5deec8c665e1c7b5238be05396a2c726c04d222dad511f1eaf82a9c5bfde3e",
+      "sidecar_sha256": "42b10983dc11b97aa8ca2c0aadb48475f59ef4444d2af797876965c2c5e964d4",
+      "timing_sha256": "1cd99a74a54a194b78c58ab75b6febd6eb70cde85644100c7c0fc258f0efdacd"
+    },
+    {
+      "orientation": "candidate-first",
+      "pair_count": 100,
+      "pair_start": 300,
+      "raw_path": "panels/PROJECTED_ALL_PLY/candidate-first-300.jsonl",
+      "raw_sha256": "778e8fe35b3e36c2535392c6837aa5ada3609113353061a7003af86845428602",
+      "sidecar_sha256": "7656be392e8cde2e469289d1e556fa3b250d2e1df334029dfb1345748f1c8d17",
+      "timing_sha256": "5c7087e1b9062b8bcfc52ccb3b8319bd6f897dacf180beabb84f8a3e98ef4358"
+    },
+    {
+      "orientation": "candidate-first",
+      "pair_count": 100,
+      "pair_start": 400,
+      "raw_path": "panels/PROJECTED_ALL_PLY/candidate-first-400.jsonl",
+      "raw_sha256": "048396b23df16fbfc48764c31c3ce9820fa664b66d8f09520d496506b621eb7d",
+      "sidecar_sha256": "2efd5fd149048f95b28556f29bfb659ce43548cd5b72cd82c4c05c8437bf41dc",
+      "timing_sha256": "5592cc89ec89eea3e99e639e60bad74621c8d05d143f571532fad04595fa29fd"
+    },
+    {
+      "orientation": "candidate-first",
+      "pair_count": 100,
+      "pair_start": 500,
+      "raw_path": "panels/PROJECTED_ALL_PLY/candidate-first-500.jsonl",
+      "raw_sha256": "fb902044bfffe28ad4e98db5c97331a45ac65194453ac75873a0954f1f7deca3",
+      "sidecar_sha256": "38562f8f807cc19877c3f28712df76230194aea0d38df5f90e5ef74f47d07dd8",
+      "timing_sha256": "d2cf56bd9c1b6ea0903e7e02570abb59c240b0ab6d9374771a00936f834c1f11"
+    },
+    {
+      "orientation": "candidate-first",
+      "pair_count": 100,
+      "pair_start": 600,
+      "raw_path": "panels/PROJECTED_ALL_PLY/candidate-first-600.jsonl",
+      "raw_sha256": "9330ee88880ff468092ab319a989ae8f0ec06d2b09da93a451b109bd6bdfa10f",
+      "sidecar_sha256": "72aec01b739a3e49b0afc3b81ac53d756923f3353ff7ea2c493205b66f545183",
+      "timing_sha256": "6671b5ccb459b24c0750e574ebeda30b5dea4403268c0a6cf4dbda578463b610"
+    },
+    {
+      "orientation": "candidate-first",
+      "pair_count": 100,
+      "pair_start": 700,
+      "raw_path": "panels/PROJECTED_ALL_PLY/candidate-first-700.jsonl",
+      "raw_sha256": "64e51fcc8301c5515105f5c7eb5b90a55b443dd5614ce541d626acf093edbb7e",
+      "sidecar_sha256": "68d0fff4b8a8e06972fb3d61900a1eafea8def9d6e6e2f389a6fad143b6437d7",
+      "timing_sha256": "60db56b35d93fcef980030e08107669cd39c8e8f00da475780ca36c9c30a6dd8"
+    },
+    {
+      "orientation": "candidate-first",
+      "pair_count": 100,
+      "pair_start": 800,
+      "raw_path": "panels/PROJECTED_ALL_PLY/candidate-first-800.jsonl",
+      "raw_sha256": "51c09b07fa1acd9241e368dfe27692bcdd6c53ccbb3b29fbdfbb467a40394756",
+      "sidecar_sha256": "23231b613ceaea38efdf5941e3f45c1810d00efed3e4de98f8462f48481c15f5",
+      "timing_sha256": "132e0edd2dbaa272b09036846a895f96c754e1eb333d93fdfc7e9df85757f14b"
+    },
+    {
+      "orientation": "candidate-first",
+      "pair_count": 100,
+      "pair_start": 900,
+      "raw_path": "panels/PROJECTED_ALL_PLY/candidate-first-900.jsonl",
+      "raw_sha256": "9765eb69b0a162f299348afb21075d8ff2634b4e27e3e959f2cc7e4836dbfe58",
+      "sidecar_sha256": "a6fb266e1a0bdf8922df39a3dde830a3a5b58f87dec347b31693592f8d6bfefb",
+      "timing_sha256": "7e125343e13d0294586dc6ed17e213a2710c498748f34b63fcdbcde1c6a4d4b8"
+    },
+    {
+      "orientation": "baseline-first",
+      "pair_count": 100,
+      "pair_start": 0,
+      "raw_path": "panels/PROJECTED_ALL_PLY/baseline-first-0.jsonl",
+      "raw_sha256": "5a62bfdf1d6cca24a6fb5806c558c73bd3b6f1959de3c7cdecef2ab75c2ba204",
+      "sidecar_sha256": "8096803d5f2b229e3816289c3ab525276205178c5ed7d3bb16f4d6b04fa1e5ac",
+      "timing_sha256": "5a69d72dddcf0caf2b48843ddc4f9514345f7fcfa0f6bb78a4d7c3eb232b0ba1"
+    },
+    {
+      "orientation": "baseline-first",
+      "pair_count": 100,
+      "pair_start": 100,
+      "raw_path": "panels/PROJECTED_ALL_PLY/baseline-first-100.jsonl",
+      "raw_sha256": "d766e39afbdd6826b28d5fb11bcf5d9a14683820588ca1a28c5f8d39a1531ee4",
+      "sidecar_sha256": "c46111148eeea47aecde9875d7cbf199822d5868b68ff2c9782d556ba3ab8d4f",
+      "timing_sha256": "802b1bdfedb4e223e9c2c4c26cbd4e9efee024ba17d7faacb4afafec206c67d1"
+    },
+    {
+      "orientation": "baseline-first",
+      "pair_count": 100,
+      "pair_start": 200,
+      "raw_path": "panels/PROJECTED_ALL_PLY/baseline-first-200.jsonl",
+      "raw_sha256": "f6ba729d1fba1885517a55bcc8575058bb01d5fffaedfaa0a531a601c30b27c3",
+      "sidecar_sha256": "a0ce1e4ed58dcc767e2b6bf8fe451c95c239292a6051bbc555ee68341b7da56d",
+      "timing_sha256": "8dc826d1a211c3a1e3f5a49a9c6cbe1a30617653fae7bafebffeb201128f694f"
+    },
+    {
+      "orientation": "baseline-first",
+      "pair_count": 100,
+      "pair_start": 300,
+      "raw_path": "panels/PROJECTED_ALL_PLY/baseline-first-300.jsonl",
+      "raw_sha256": "3431b51f1baead03c64cd33951b90933299c7ca97caebab3c0c7ebc497a5b2ca",
+      "sidecar_sha256": "09b426fdc475970fbefeaf5660bb538b4615110485825f7988025bdf62d9db54",
+      "timing_sha256": "be5c9426f76d991abdea4903f7728062cba63e49c734cb4a2b9cd795f5259c76"
+    },
+    {
+      "orientation": "baseline-first",
+      "pair_count": 100,
+      "pair_start": 400,
+      "raw_path": "panels/PROJECTED_ALL_PLY/baseline-first-400.jsonl",
+      "raw_sha256": "7c3cd688677c180b8a6eed88ec430ff465d798965a3a314ef1a6e68f71ddf441",
+      "sidecar_sha256": "e05e8c5d02aee809647220dad8c2e749fc138346baf3eebf769dd323d5acfba0",
+      "timing_sha256": "ac0073879ed8c438d620a2cb3f42d4aa2011525cdd957e5ea3b054f6bf927b1b"
+    },
+    {
+      "orientation": "baseline-first",
+      "pair_count": 100,
+      "pair_start": 500,
+      "raw_path": "panels/PROJECTED_ALL_PLY/baseline-first-500.jsonl",
+      "raw_sha256": "60cae8b8b5ca6bfa832ab72c776c270e44e23cea84fd754210f3d7e93e8d44d1",
+      "sidecar_sha256": "1d2ad057a13a6a34ed4d5699fec20d651dd125e092b3c4c838a6d4ce2960e176",
+      "timing_sha256": "fdd579cd862f65dd2d65455de92370a92460b3c2175a7210cf7a3f7750d7ce8c"
+    },
+    {
+      "orientation": "baseline-first",
+      "pair_count": 100,
+      "pair_start": 600,
+      "raw_path": "panels/PROJECTED_ALL_PLY/baseline-first-600.jsonl",
+      "raw_sha256": "6c6ff96bb82bd3c390461faf388b145f3b76e15d1da35f2072eef605b05d469e",
+      "sidecar_sha256": "c6be2630554490e1a019088c0e3283887d2b1d6f7c73c4a8659d0db06a6b985e",
+      "timing_sha256": "68933c281102769be9e1328378aa4102a838d2bb3deb003bf3f4d67706da0b01"
+    },
+    {
+      "orientation": "baseline-first",
+      "pair_count": 100,
+      "pair_start": 700,
+      "raw_path": "panels/PROJECTED_ALL_PLY/baseline-first-700.jsonl",
+      "raw_sha256": "55051e83c94e988e55f90b68c4a904f66fd4c270e5b68eca3ed8fbf6034ef58a",
+      "sidecar_sha256": "5ff6ea4e840c8ca9289e66f79cea259d9f546b8692daf444f738aad4e6da0817",
+      "timing_sha256": "47d5f5b2dd41b8199bff6a1683e83890b8d861875bcc3d253dc5adef62245f53"
+    },
+    {
+      "orientation": "baseline-first",
+      "pair_count": 100,
+      "pair_start": 800,
+      "raw_path": "panels/PROJECTED_ALL_PLY/baseline-first-800.jsonl",
+      "raw_sha256": "4f40a11908f1bb0748ccff2c78e7cbb8d5bbf54974115326e61b7437e8765259",
+      "sidecar_sha256": "681fc6b9025f6fd694644088311256cc820ce3ef743a256a6c788cd5a0f69f8a",
+      "timing_sha256": "769314c4eca0e57aab550a6c00d8c1ba8c1202d9b24bd3ead835e178597bdcc3"
+    },
+    {
+      "orientation": "baseline-first",
+      "pair_count": 100,
+      "pair_start": 900,
+      "raw_path": "panels/PROJECTED_ALL_PLY/baseline-first-900.jsonl",
+      "raw_sha256": "847c3e43c699200dc87f8525a2e03c8576951b2a064d205735ea854f9a2fab6f",
+      "sidecar_sha256": "f48e7d13bc44a3f0d96f7acef7c7bbaa4cb5d18a5724461ee3c61ebb7b3a70bc",
+      "timing_sha256": "ec637d5524b8d56058e823b18277b90ab3519cd4958ca6730b2a260e98b6f383"
+    }
+  ],
+  "shards_per_orientation": 10,
+  "starts": [
+    0,
+    100,
+    200,
+    300,
+    400,
+    500,
+    600,
+    700,
+    800,
+    900
+  ],
+  "status": "complete_structurally_valid_before_efficacy_merge"
+}

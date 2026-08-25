@@ -1,0 +1,396 @@
+{
+  "artifact_kind": "locked_reciprocal_arena_result",
+  "baseline": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+  "blocks": [
+    {
+      "artifact_kind": "merged_arena_pair_evidence",
+      "canonical_pair_rows_sha256": "6de3d0a992974e2a22042ab6980646d0ea49afa3afc2fd538a7851ff2bc3e38a",
+      "inputs": [
+        {
+          "pair_count": 100,
+          "pair_start": 0,
+          "path": "panels/PROJECTED_ALL_PLY/candidate-first-0.jsonl",
+          "sha256": "a80fd2f76658a5ac967d1a995742ba22b6cfe159b7473fe17df5ed52faed7012"
+        },
+        {
+          "pair_count": 100,
+          "pair_start": 100,
+          "path": "panels/PROJECTED_ALL_PLY/candidate-first-100.jsonl",
+          "sha256": "c03ba4b06359a9ce25315d15bdb75bf67953ec177913d077242a6ba21bf31623"
+        },
+        {
+          "pair_count": 100,
+          "pair_start": 200,
+          "path": "panels/PROJECTED_ALL_PLY/candidate-first-200.jsonl",
+          "sha256": "3c5deec8c665e1c7b5238be05396a2c726c04d222dad511f1eaf82a9c5bfde3e"
+        },
+        {
+          "pair_count": 100,
+          "pair_start": 300,
+          "path": "panels/PROJECTED_ALL_PLY/candidate-first-300.jsonl",
+          "sha256": "778e8fe35b3e36c2535392c6837aa5ada3609113353061a7003af86845428602"
+        },
+        {
+          "pair_count": 100,
+          "pair_start": 400,
+          "path": "panels/PROJECTED_ALL_PLY/candidate-first-400.jsonl",
+          "sha256": "048396b23df16fbfc48764c31c3ce9820fa664b66d8f09520d496506b621eb7d"
+        },
+        {
+          "pair_count": 100,
+          "pair_start": 500,
+          "path": "panels/PROJECTED_ALL_PLY/candidate-first-500.jsonl",
+          "sha256": "fb902044bfffe28ad4e98db5c97331a45ac65194453ac75873a0954f1f7deca3"
+        },
+        {
+          "pair_count": 100,
+          "pair_start": 600,
+          "path": "panels/PROJECTED_ALL_PLY/candidate-first-600.jsonl",
+          "sha256": "9330ee88880ff468092ab319a989ae8f0ec06d2b09da93a451b109bd6bdfa10f"
+        },
+        {
+          "pair_count": 100,
+          "pair_start": 700,
+          "path": "panels/PROJECTED_ALL_PLY/candidate-first-700.jsonl",
+          "sha256": "64e51fcc8301c5515105f5c7eb5b90a55b443dd5614ce541d626acf093edbb7e"
+        },
+        {
+          "pair_count": 100,
+          "pair_start": 800,
+          "path": "panels/PROJECTED_ALL_PLY/candidate-first-800.jsonl",
+          "sha256": "51c09b07fa1acd9241e368dfe27692bcdd6c53ccbb3b29fbdfbb467a40394756"
+        },
+        {
+          "pair_count": 100,
+          "pair_start": 900,
+          "path": "panels/PROJECTED_ALL_PLY/candidate-first-900.jsonl",
+          "sha256": "9765eb69b0a162f299348afb21075d8ff2634b4e27e3e959f2cc7e4836dbfe58"
+        }
+      ],
+      "metadata": {
+        "agent_a": "rolloutu2:data/champion.bin:data/champion.bin:800:5:0.02:0:1:0:0:0:3:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1:0:0:0:1:0:data/models/match_value_objective3_v2_projected.lcmv",
+        "agent_b": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+        "provenance": "stage=match_value_objective3_v2_development;variant=PROJECTED_ALL_PLY;plan=72587805f9a22bd981b537572e9c847cc5765123aa502caedea6a6894a722f24;lock=6f40e7579e3ba5157c2750c6540d8688af630298f2338d1ad4617a87532fffbd;execution=7fa8b2de912466c9affd0ff8188cc8403dd1b085f02de6acf10d8df0284db75a;post_build=fcd12297707986c3eabc5d5551dac2b30ee8f12bebcb662f2c76bb8cf5d3a0b5;source=0eb2a90a66f1297d2191547da8e41fcc80b64d61;arena=b54eefb0bb17e75361ebee6faa004eb0062cae17a2543d9fe5a62f213a94201e;model=af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417;table=e3eac1b6fecf314a3db45ef9fd7563db1f18e02ca09a7e63aac00bc8fd4cb28e;worlds=800;threads=4",
+        "rounds": 3,
+        "schema": 1,
+        "seed": "202610200101"
+      },
+      "pair_count": 1000,
+      "pair_start": "0",
+      "result": {
+        "capped_rounds": 0,
+        "draws": 10,
+        "games": 2000,
+        "losses": 919,
+        "margin_pair_clustered_se": 1.2907061912853066,
+        "margin_per_game": 2.9245,
+        "match_score": 0.538,
+        "match_score_pair_clustered_se": 0.009913590635046378,
+        "pairs": 1000,
+        "plies_per_game": 140.724,
+        "points_per_game_a": 122.3775,
+        "points_per_game_b": 119.453,
+        "wins": 1071
+      },
+      "schema_version": 1,
+      "sufficient_statistics": {
+        "capped_rounds": 0,
+        "draws": 10,
+        "losses": 919,
+        "margin_sum": 5849,
+        "margin_sumsq": 6691237,
+        "pairs": 1000,
+        "plies_sum": 281448,
+        "points_a_sum": 244755,
+        "points_b_sum": 238906,
+        "score_quarters_sum": 2152,
+        "score_quarters_sumsq": 6202,
+        "wins": 1071
+      }
+    },
+    {
+      "artifact_kind": "merged_arena_pair_evidence",
+      "canonical_pair_rows_sha256": "2dc35469b1186afaabefb230b32af9e2b7bdd6c166a3819d9f597f85546ed982",
+      "inputs": [
+        {
+          "pair_count": 100,
+          "pair_start": 0,
+          "path": "panels/PROJECTED_ALL_PLY/baseline-first-0.jsonl",
+          "sha256": "5a62bfdf1d6cca24a6fb5806c558c73bd3b6f1959de3c7cdecef2ab75c2ba204"
+        },
+        {
+          "pair_count": 100,
+          "pair_start": 100,
+          "path": "panels/PROJECTED_ALL_PLY/baseline-first-100.jsonl",
+          "sha256": "d766e39afbdd6826b28d5fb11bcf5d9a14683820588ca1a28c5f8d39a1531ee4"
+        },
+        {
+          "pair_count": 100,
+          "pair_start": 200,
+          "path": "panels/PROJECTED_ALL_PLY/baseline-first-200.jsonl",
+          "sha256": "f6ba729d1fba1885517a55bcc8575058bb01d5fffaedfaa0a531a601c30b27c3"
+        },
+        {
+          "pair_count": 100,
+          "pair_start": 300,
+          "path": "panels/PROJECTED_ALL_PLY/baseline-first-300.jsonl",
+          "sha256": "3431b51f1baead03c64cd33951b90933299c7ca97caebab3c0c7ebc497a5b2ca"
+        },
+        {
+          "pair_count": 100,
+          "pair_start": 400,
+          "path": "panels/PROJECTED_ALL_PLY/baseline-first-400.jsonl",
+          "sha256": "7c3cd688677c180b8a6eed88ec430ff465d798965a3a314ef1a6e68f71ddf441"
+        },
+        {
+          "pair_count": 100,
+          "pair_start": 500,
+          "path": "panels/PROJECTED_ALL_PLY/baseline-first-500.jsonl",
+          "sha256": "60cae8b8b5ca6bfa832ab72c776c270e44e23cea84fd754210f3d7e93e8d44d1"
+        },
+        {
+          "pair_count": 100,
+          "pair_start": 600,
+          "path": "panels/PROJECTED_ALL_PLY/baseline-first-600.jsonl",
+          "sha256": "6c6ff96bb82bd3c390461faf388b145f3b76e15d1da35f2072eef605b05d469e"
+        },
+        {
+          "pair_count": 100,
+          "pair_start": 700,
+          "path": "panels/PROJECTED_ALL_PLY/baseline-first-700.jsonl",
+          "sha256": "55051e83c94e988e55f90b68c4a904f66fd4c270e5b68eca3ed8fbf6034ef58a"
+        },
+        {
+          "pair_count": 100,
+          "pair_start": 800,
+          "path": "panels/PROJECTED_ALL_PLY/baseline-first-800.jsonl",
+          "sha256": "4f40a11908f1bb0748ccff2c78e7cbb8d5bbf54974115326e61b7437e8765259"
+        },
+        {
+          "pair_count": 100,
+          "pair_start": 900,
+          "path": "panels/PROJECTED_ALL_PLY/baseline-first-900.jsonl",
+          "sha256": "847c3e43c699200dc87f8525a2e03c8576951b2a064d205735ea854f9a2fab6f"
+        }
+      ],
+      "metadata": {
+        "agent_a": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+        "agent_b": "rolloutu2:data/champion.bin:data/champion.bin:800:5:0.02:0:1:0:0:0:3:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1:0:0:0:1:0:data/models/match_value_objective3_v2_projected.lcmv",
+        "provenance": "stage=match_value_objective3_v2_development;variant=PROJECTED_ALL_PLY;plan=72587805f9a22bd981b537572e9c847cc5765123aa502caedea6a6894a722f24;lock=6f40e7579e3ba5157c2750c6540d8688af630298f2338d1ad4617a87532fffbd;execution=7fa8b2de912466c9affd0ff8188cc8403dd1b085f02de6acf10d8df0284db75a;post_build=fcd12297707986c3eabc5d5551dac2b30ee8f12bebcb662f2c76bb8cf5d3a0b5;source=0eb2a90a66f1297d2191547da8e41fcc80b64d61;arena=b54eefb0bb17e75361ebee6faa004eb0062cae17a2543d9fe5a62f213a94201e;model=af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417;table=e3eac1b6fecf314a3db45ef9fd7563db1f18e02ca09a7e63aac00bc8fd4cb28e;worlds=800;threads=4",
+        "rounds": 3,
+        "schema": 1,
+        "seed": "202610200102"
+      },
+      "pair_count": 1000,
+      "pair_start": "0",
+      "result": {
+        "capped_rounds": 0,
+        "draws": 14,
+        "games": 2000,
+        "losses": 1073,
+        "margin_pair_clustered_se": 1.3078336395844958,
+        "margin_per_game": -4.61,
+        "match_score": 0.46,
+        "match_score_pair_clustered_se": 0.009855055663065639,
+        "pairs": 1000,
+        "plies_per_game": 140.706,
+        "points_per_game_a": 118.3675,
+        "points_per_game_b": 122.9775,
+        "wins": 913
+      },
+      "schema_version": 1,
+      "sufficient_statistics": {
+        "capped_rounds": 0,
+        "draws": 14,
+        "losses": 1073,
+        "margin_sum": -9220,
+        "margin_sumsq": 6919882,
+        "pairs": 1000,
+        "plies_sum": 281412,
+        "points_a_sum": 236735,
+        "points_b_sum": 245955,
+        "score_quarters_sum": 1840,
+        "score_quarters_sumsq": 4938,
+        "wins": 913
+      }
+    }
+  ],
+  "candidate": "rolloutu2:data/champion.bin:data/champion.bin:800:5:0.02:0:1:0:0:0:3:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1:0:0:0:1:0:data/models/match_value_objective3_v2_projected.lcmv",
+  "candidate_result": {
+    "capped_rounds": 0,
+    "draws": 24,
+    "losses": 1832,
+    "margin_pair_clustered_se": 0.9187425239221068,
+    "margin_per_game": 3.76725,
+    "match_score": 0.539,
+    "match_score_pair_clustered_se": 0.0069893025653744835,
+    "one_sided_95_lower_bound": 0.527502597279959,
+    "orientation_match_scores": [
+      0.538,
+      0.54
+    ],
+    "promotion_gate_lower_bound": 0.527502597279959,
+    "wins": 2144
+  },
+  "estimator": "equal-weight reciprocal blocks; second orientation inverted",
+  "input_block_snapshots": [
+    {
+      "path": "merged/PROJECTED_ALL_PLY-candidate-first.json",
+      "sha256": "e73e91ecd4e9abddd6c0b64a267e329ec18ead3a65ce7378561f5cd00bc2d553"
+    },
+    {
+      "path": "merged/PROJECTED_ALL_PLY-baseline-first.json",
+      "sha256": "5701c95828fb674ee0021057cd64eafb718a47d9054cac3dcbc3d92887f1878b"
+    }
+  ],
+  "promotion_gate_configuration": {
+    "critical_z": 1.645,
+    "require_each_orientation_above_half": true,
+    "require_positive_margin": true,
+    "require_raw_input_validation": true
+  },
+  "promotion_gate_passed": true,
+  "provenance": "stage=match_value_objective3_v2_development;variant=PROJECTED_ALL_PLY;plan=72587805f9a22bd981b537572e9c847cc5765123aa502caedea6a6894a722f24;lock=6f40e7579e3ba5157c2750c6540d8688af630298f2338d1ad4617a87532fffbd;execution=7fa8b2de912466c9affd0ff8188cc8403dd1b085f02de6acf10d8df0284db75a;post_build=fcd12297707986c3eabc5d5551dac2b30ee8f12bebcb662f2c76bb8cf5d3a0b5;source=0eb2a90a66f1297d2191547da8e41fcc80b64d61;arena=b54eefb0bb17e75361ebee6faa004eb0062cae17a2543d9fe5a62f213a94201e;model=af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417;table=e3eac1b6fecf314a3db45ef9fd7563db1f18e02ca09a7e63aac00bc8fd4cb28e;worlds=800;threads=4",
+  "raw_input_validation": {
+    "blocks": [
+      {
+        "block": "first",
+        "inputs": [
+          {
+            "pair_count": 100,
+            "pair_start": 0,
+            "path": "panels/PROJECTED_ALL_PLY/candidate-first-0.jsonl",
+            "sha256": "a80fd2f76658a5ac967d1a995742ba22b6cfe159b7473fe17df5ed52faed7012"
+          },
+          {
+            "pair_count": 100,
+            "pair_start": 100,
+            "path": "panels/PROJECTED_ALL_PLY/candidate-first-100.jsonl",
+            "sha256": "c03ba4b06359a9ce25315d15bdb75bf67953ec177913d077242a6ba21bf31623"
+          },
+          {
+            "pair_count": 100,
+            "pair_start": 200,
+            "path": "panels/PROJECTED_ALL_PLY/candidate-first-200.jsonl",
+            "sha256": "3c5deec8c665e1c7b5238be05396a2c726c04d222dad511f1eaf82a9c5bfde3e"
+          },
+          {
+            "pair_count": 100,
+            "pair_start": 300,
+            "path": "panels/PROJECTED_ALL_PLY/candidate-first-300.jsonl",
+            "sha256": "778e8fe35b3e36c2535392c6837aa5ada3609113353061a7003af86845428602"
+          },
+          {
+            "pair_count": 100,
+            "pair_start": 400,
+            "path": "panels/PROJECTED_ALL_PLY/candidate-first-400.jsonl",
+            "sha256": "048396b23df16fbfc48764c31c3ce9820fa664b66d8f09520d496506b621eb7d"
+          },
+          {
+            "pair_count": 100,
+            "pair_start": 500,
+            "path": "panels/PROJECTED_ALL_PLY/candidate-first-500.jsonl",
+            "sha256": "fb902044bfffe28ad4e98db5c97331a45ac65194453ac75873a0954f1f7deca3"
+          },
+          {
+            "pair_count": 100,
+            "pair_start": 600,
+            "path": "panels/PROJECTED_ALL_PLY/candidate-first-600.jsonl",
+            "sha256": "9330ee88880ff468092ab319a989ae8f0ec06d2b09da93a451b109bd6bdfa10f"
+          },
+          {
+            "pair_count": 100,
+            "pair_start": 700,
+            "path": "panels/PROJECTED_ALL_PLY/candidate-first-700.jsonl",
+            "sha256": "64e51fcc8301c5515105f5c7eb5b90a55b443dd5614ce541d626acf093edbb7e"
+          },
+          {
+            "pair_count": 100,
+            "pair_start": 800,
+            "path": "panels/PROJECTED_ALL_PLY/candidate-first-800.jsonl",
+            "sha256": "51c09b07fa1acd9241e368dfe27692bcdd6c53ccbb3b29fbdfbb467a40394756"
+          },
+          {
+            "pair_count": 100,
+            "pair_start": 900,
+            "path": "panels/PROJECTED_ALL_PLY/candidate-first-900.jsonl",
+            "sha256": "9765eb69b0a162f299348afb21075d8ff2634b4e27e3e959f2cc7e4836dbfe58"
+          }
+        ],
+        "pair_count": 1000,
+        "pair_start": "0"
+      },
+      {
+        "block": "second",
+        "inputs": [
+          {
+            "pair_count": 100,
+            "pair_start": 0,
+            "path": "panels/PROJECTED_ALL_PLY/baseline-first-0.jsonl",
+            "sha256": "5a62bfdf1d6cca24a6fb5806c558c73bd3b6f1959de3c7cdecef2ab75c2ba204"
+          },
+          {
+            "pair_count": 100,
+            "pair_start": 100,
+            "path": "panels/PROJECTED_ALL_PLY/baseline-first-100.jsonl",
+            "sha256": "d766e39afbdd6826b28d5fb11bcf5d9a14683820588ca1a28c5f8d39a1531ee4"
+          },
+          {
+            "pair_count": 100,
+            "pair_start": 200,
+            "path": "panels/PROJECTED_ALL_PLY/baseline-first-200.jsonl",
+            "sha256": "f6ba729d1fba1885517a55bcc8575058bb01d5fffaedfaa0a531a601c30b27c3"
+          },
+          {
+            "pair_count": 100,
+            "pair_start": 300,
+            "path": "panels/PROJECTED_ALL_PLY/baseline-first-300.jsonl",
+            "sha256": "3431b51f1baead03c64cd33951b90933299c7ca97caebab3c0c7ebc497a5b2ca"
+          },
+          {
+            "pair_count": 100,
+            "pair_start": 400,
+            "path": "panels/PROJECTED_ALL_PLY/baseline-first-400.jsonl",
+            "sha256": "7c3cd688677c180b8a6eed88ec430ff465d798965a3a314ef1a6e68f71ddf441"
+          },
+          {
+            "pair_count": 100,
+            "pair_start": 500,
+            "path": "panels/PROJECTED_ALL_PLY/baseline-first-500.jsonl",
+            "sha256": "60cae8b8b5ca6bfa832ab72c776c270e44e23cea84fd754210f3d7e93e8d44d1"
+          },
+          {
+            "pair_count": 100,
+            "pair_start": 600,
+            "path": "panels/PROJECTED_ALL_PLY/baseline-first-600.jsonl",
+            "sha256": "6c6ff96bb82bd3c390461faf388b145f3b76e15d1da35f2072eef605b05d469e"
+          },
+          {
+            "pair_count": 100,
+            "pair_start": 700,
+            "path": "panels/PROJECTED_ALL_PLY/baseline-first-700.jsonl",
+            "sha256": "55051e83c94e988e55f90b68c4a904f66fd4c270e5b68eca3ed8fbf6034ef58a"
+          },
+          {
+            "pair_count": 100,
+            "pair_start": 800,
+            "path": "panels/PROJECTED_ALL_PLY/baseline-first-800.jsonl",
+            "sha256": "4f40a11908f1bb0748ccff2c78e7cbb8d5bbf54974115326e61b7437e8765259"
+          },
+          {
+            "pair_count": 100,
+            "pair_start": 900,
+            "path": "panels/PROJECTED_ALL_PLY/baseline-first-900.jsonl",
+            "sha256": "847c3e43c699200dc87f8525a2e03c8576951b2a064d205735ea854f9a2fab6f"
+          }
+        ],
+        "pair_count": 1000,
+        "pair_start": "0"
+      }
+    ],
+    "method": "reopened, SHA-256 checked, and exactly remerged recorded raw inputs",
+    "status": "validated"
+  },
+  "schema_version": 1,
+  "statistical_gate_passed": true
+}

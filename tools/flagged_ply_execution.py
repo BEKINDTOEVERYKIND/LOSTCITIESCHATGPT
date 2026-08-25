@@ -54,6 +54,7 @@ TOOL_PATHS = (
     "tools/render_flagged_ply_audit.py",
     "tools/gate_actor_panel.py",
     "tools/match_value_campaign.py",
+    "tools/policy_cost_artifact.py",
     "tools/merge_arena.py",
 )
 _HEX40 = re.compile(r"[0-9a-f]{40}\Z")
@@ -63,7 +64,9 @@ _ROLLOUT_KINDS = {
     "rollout2": 2, "rolloutu2": 2,
     "rollout3": 3, "rolloutu3": 3,
     "rollout4": 3, "rolloutu4": 3,
+    "rollout5": 2, "rolloutu5": 2,
 }
+_POLICY_COST_KINDS = {"rollout5", "rolloutu5"}
 
 
 class ExecutionError(RuntimeError):
@@ -151,8 +154,21 @@ def _actor_provenance(root: Path, spec: Any, label: str) -> dict[str, Any]:
             "size": path.stat().st_size,
         })
     result: dict[str, Any] = {"spec": spec, "checkpoints": checkpoints}
+    if fields[0] in _POLICY_COST_KINDS:
+        if len(fields) < 4 or not fields[3]:
+            raise ExecutionError(f"{label} policy-cost artifact is absent")
+        artifact, artifact_relative = _repo_file(
+            root, fields[3], f"{label} policy-cost artifact"
+        )
+        result["policy_cost_artifact"] = {
+            "path": artifact_relative,
+            "sha256": sha256(artifact),
+            "size": artifact.stat().st_size,
+        }
     # Tail field 41 is the optional controller-bound match-value table.
-    table_index = 1 + checkpoint_count + 41
+    tail_start = 4 if fields[0] in _POLICY_COST_KINDS \
+        else 1 + checkpoint_count
+    table_index = tail_start + 41
     if len(fields) > table_index:
         table_path, table_relative = _repo_file(
             root, fields[table_index], f"{label} match-value table")
@@ -180,6 +196,12 @@ def _actor_assets(provenance: dict[str, Any]) -> list[dict[str, Any]]:
             "kind": "match_value_table",
             "role": "controller",
             **provenance["match_value_table"],
+        })
+    if "policy_cost_artifact" in provenance:
+        assets.append({
+            "kind": "policy_cost_artifact",
+            "role": "root_selection",
+            **provenance["policy_cost_artifact"],
         })
     return assets
 
@@ -475,6 +497,62 @@ def authoritative_final_result(root: Path) -> dict[str, Any]:
                     actors.get("legacy") != reference["spec"] or \
                     challenger["spec"] not in actors.values():
                 raise ExecutionError("match-value source/actor binding mismatch")
+        elif decision_kind == \
+                "match_value_objective3_v2_reserved_final_gate":
+            required = {
+                "complete_equal_reciprocal_blocks", "raw_inputs_validated",
+                "zero_capped_rounds",
+                "pair_clustered_orientation_stratified_score_lcb_above_half",
+                "pair_clustered_orientation_stratified_margin_lcb_above_zero",
+                "each_reciprocal_orientation_strictly_above_half",
+            }
+            if decision.get("status") != "complete_reserved_final_test":
+                raise ExecutionError("objective-3 v2 final decision schema mismatch")
+            passed = _gate_boolean(
+                decision, "promotion_gate_passed", required)
+            if mode != "component_final" or \
+                    "objective3_result" not in roles or \
+                    "match_value_source_binding" not in roles:
+                raise ExecutionError(
+                    "objective-3 component lacks its result/source binding")
+
+            # The policy-cost prerequisite verifier is also the independent,
+            # raw-backed Objective-3 replay.  Reuse that single fail-closed
+            # authority instead of teaching this older audit helper a second
+            # subtly different interpretation of the 110-shard campaign.
+            try:
+                from tools.policy_cost_campaign import (
+                    PREREQUISITE_PATH, authoritative_prerequisite,
+                )
+                prerequisite = authoritative_prerequisite(root)
+            except (ImportError, OSError, ValueError, RuntimeError) as exc:
+                raise ExecutionError(
+                    f"cannot revalidate objective-3 v2 result: {exc}") from exc
+            result_name, result_binding = roles["objective3_result"]
+            if result_name != PREREQUISITE_PATH or \
+                    prerequisite["result"]["sha256"] != \
+                    result_binding["sha256"] or \
+                    prerequisite["promotion_gate_passed"] is not passed or \
+                    prerequisite["actor"]["spec"] != challenger["spec"]:
+                raise ExecutionError("objective-3 result/disposition binding drift")
+            objective3_result = strict_json(root / result_name)
+            if objective3_result.get("final") != decision or \
+                    objective3_result.get("baseline_actor") != \
+                    reference["spec"]:
+                raise ExecutionError("objective-3 decisive result drift")
+
+            source_name, _ = roles["match_value_source_binding"]
+            source_binding = strict_json(root / source_name)
+            actors = source_binding.get("actors", {}).get("actors", {}) \
+                if isinstance(source_binding.get("actors"), dict) else {}
+            if source_binding.get("artifact_kind") != \
+                    "match_value_objective3_v2_pre_efficacy_manifest" or \
+                    source_binding.get("source") != {
+                        "commit": source_commit, "tree": source_tree} or \
+                    not isinstance(actors, dict) or \
+                    actors.get("legacy") != reference["spec"] or \
+                    challenger["spec"] not in actors.values():
+                raise ExecutionError("objective-3 source/actor binding mismatch")
         else:
             raise ExecutionError("unrecognized decisive final-gate schema")
         if mode == "composition_final":

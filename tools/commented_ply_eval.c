@@ -515,6 +515,76 @@ static void print_metric(const char *name, MetricSummary value,
            (unsigned long long)samples_hash);
 }
 
+static const char *policy_cost_reason(const SearchStats *stats)
+{
+    switch (stats->policy_cost_gate_reason) {
+    case POLICY_COST_GATE_INVALID_PRIMARY: return "invalid_primary";
+    case POLICY_COST_GATE_ADJUSTED_BASELINE: return "adjusted_baseline";
+    case POLICY_COST_GATE_PRIMARY_EVIDENCE: return "primary_all_pair_gate";
+    case POLICY_COST_GATE_INVALID_FRESH: return "invalid_fresh";
+    case POLICY_COST_GATE_FRESH_LEADER_MISMATCH: return "fresh_leader_mismatch";
+    case POLICY_COST_GATE_FRESH_EVIDENCE: return "fresh_all_pair_gate";
+    case POLICY_COST_GATE_DISCARD_GUARD: return "discard_guard";
+    case POLICY_COST_GATE_CAP_INVALID: return "continuation_cap";
+    case POLICY_COST_GATE_SELECTED: return "selected";
+    default: return "invalid_authority";
+    }
+}
+
+static void print_policy_cost(const SearchStats *stats)
+{
+    if (!stats->policy_cost_active) {
+        fputs("null", stdout);
+        return;
+    }
+    printf("{\"active\":true,\"artifact_fingerprint\":\"%016llx\","
+           "\"anchor_interval\":%d,\"lambda_action\":%.12g,"
+           "\"lambda_draw\":%.12g,\"legacy_override_min\":%.12g,"
+           "\"proposed\":%d,\"selected\":%d,"
+           "\"gate_reason\":\"%s\",\"cap_valid\":%s,"
+           "\"primary\":{\"valid\":%s,\"passed\":%s,"
+           "\"z\":3.5,\"worlds\":%d,\"protected_rivals\":%d},"
+           "\"fresh\":{\"valid\":%s,\"passed\":%s,"
+           "\"z\":2.58,\"worlds\":%d,\"protected_rivals\":%d},"
+           "\"candidates\":[",
+           (unsigned long long)stats->policy_cost_fingerprint,
+           stats->policy_cost_anchor_interval,
+           stats->policy_cost_lambda_action, stats->policy_cost_lambda_draw,
+           stats->policy_cost_override_min,
+           stats->policy_cost_proposed, stats->policy_cost_selected,
+           policy_cost_reason(stats),
+           stats->policy_cost_cap_valid ? "true" : "false",
+           stats->policy_cost_primary_valid ? "true" : "false",
+           stats->policy_cost_primary_passed ? "true" : "false",
+           stats->worlds, stats->policy_cost_primary_protected,
+           stats->policy_cost_fresh_valid ? "true" : "false",
+           stats->policy_cost_fresh_passed ? "true" : "false",
+           stats->policy_cost_fresh_worlds,
+           stats->policy_cost_fresh_protected);
+    for (int c = 0; c < stats->n; c++) {
+        char text[24];
+        move_text(stats->mv[c], text);
+        if (c) putchar(',');
+        printf("{\"index\":%d,\"move\":", c);
+        json_string(text);
+        printf(",\"joint_prior\":%.12g,\"semantic_action_mass\":%.12g,"
+               "\"conditional_draw_mass\":%.12g,\"cost\":%.12g,"
+               "\"primary_q\":%.12g,\"primary_adjusted_q\":%.12g,"
+               "\"fresh_evaluated\":%s,\"fresh_q\":%.12g,"
+               "\"fresh_q_se\":%.12g,\"fresh_delta_vs_baseline\":%.12g,"
+               "\"fresh_delta_se\":%.12g,\"fresh_adjusted_q\":%.12g}",
+               stats->prior[c], stats->policy_semantic_prior[c],
+               stats->policy_conditional_draw_prior[c],
+               stats->policy_cost_penalty[c], stats->q[c],
+               stats->policy_adjusted_q[c],
+               stats->policy_cost_fresh_worlds > 0 ? "true" : "false",
+               stats->prefix_q[c], stats->prefix_se[c],
+               stats->prefix_delta[c], stats->prefix_dse[c],
+               stats->policy_fresh_adjusted_q[c]);
+    }
+    fputs("]}", stdout);
+}
+
 static double log_choose(int n, int k)
 {
     return lgamma((double)n + 1.0) - lgamma((double)k + 1.0) -
@@ -768,7 +838,10 @@ int main(int argc, char **argv)
         printf("\"worlds\":%d,\"world_cap\":%d,\"candidates\":%d,",
                actor_stats.worlds, actor_stats.max_worlds, actor_stats.n);
         printf("\"confirmation_worlds\":%d,", actor_stats.confirm_worlds);
-        printf("\"fresh_worlds\":%d,", actor_stats.prefix_confirm_worlds);
+        printf("\"fresh_worlds\":%d,",
+               actor_stats.policy_cost_active
+                   ? actor_stats.policy_cost_fresh_worlds
+                   : actor_stats.prefix_confirm_worlds);
         printf("\"controller_veto_worlds\":%d,",
                actor_stats.prefix_veto_worlds);
         printf("\"unfinished_cap_leaves\":%llu,",
@@ -778,9 +851,12 @@ int main(int argc, char **argv)
         printf("\"cycle_breaks\":%llu,\"skip_reason\":%d,",
                (unsigned long long)actor_stats.cycle_breaks,
                actor_stats.skip_reason);
-        printf("\"ranker_attempted\":%s,\"ranker_passed\":%s}",
+        printf("\"ranker_attempted\":%s,\"ranker_passed\":%s,"
+               "\"policy_cost\":",
                actor_stats.prefix_ranker_attempted ? "true" : "false",
                actor_stats.prefix_ranker_passed ? "true" : "false");
+        print_policy_cost(&actor_stats);
+        putchar('}');
     }
     printf("},");
 

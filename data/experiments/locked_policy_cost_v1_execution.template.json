@@ -1,0 +1,14 @@
+{
+  "artifact_kind": "locked_policy_cost_v1_execution_template",
+  "instructions": [
+    "Do not rename or commit this template as the execution addendum.",
+    "First persist and independently verify the terminal objective-3 v2 disposition.",
+    "Verify the four exact-17 audit bindings and both canonical exact-17 exclusion manifests (text and JSON) before generating the addendum.",
+    "From the definition/lock parent, run tools/policy_cost_campaign.py prepare-execution with the exact parent commit and tree.",
+    "Review the generated canonical JSON without running discovery, search, truth, SELECT, TEST, safety, or final evidence.",
+    "Launch only by one non-forced attempt-1 push adding exactly data/experiments/locked_policy_cost_v1_execution.json."
+  ],
+  "results": null,
+  "schema": "lc-policy-cost-v1-execution-template-v1",
+  "status": "inert_template_not_a_launch_binding"
+}

@@ -34,6 +34,19 @@ enum {
     SEARCH_METRIC_LAST_DECK_RULE
 };
 
+enum {
+    POLICY_COST_GATE_NONE = 0,
+    POLICY_COST_GATE_INVALID_PRIMARY,
+    POLICY_COST_GATE_ADJUSTED_BASELINE,
+    POLICY_COST_GATE_PRIMARY_EVIDENCE,
+    POLICY_COST_GATE_INVALID_FRESH,
+    POLICY_COST_GATE_FRESH_LEADER_MISMATCH,
+    POLICY_COST_GATE_FRESH_EVIDENCE,
+    POLICY_COST_GATE_DISCARD_GUARD,
+    POLICY_COST_GATE_CAP_INVALID,
+    POLICY_COST_GATE_SELECTED
+};
+
 typedef struct {
     int n;
     int nlegal;             /* legal moves before policy-shortlist filtering */
@@ -68,6 +81,23 @@ typedef struct {
     int prefix_ranker_passed; /* ranker retained the confirmed proposal          */
     double prefix_ranker_score; /* ranker-minus-root residual proposal log-odds */
     double prefix_ranker_threshold; /* configured minimum residual support      */
+    int policy_cost_active; /* calibrated rollout5 root selector was used */
+    int policy_cost_anchor_interval; /* shared spline segment at root nply */
+    int policy_cost_proposed; /* primary adjusted all-pair leader          */
+    int policy_cost_selected; /* final selection after independent panel   */
+    int policy_cost_primary_passed; /* primary 3.5-SE all-pair gate          */
+    int policy_cost_fresh_passed; /* fresh 2.58-SE all-pair gate             */
+    int policy_cost_primary_valid; /* complete finite primary fixed-world panel */
+    int policy_cost_fresh_valid; /* complete finite independent panel          */
+    int policy_cost_fresh_worlds; /* independent policy-cost evidence worlds   */
+    int policy_cost_gate_reason; /* POLICY_COST_GATE_* final authority reason */
+    int policy_cost_cap_valid; /* no primary/fresh continuation cap leaf      */
+    int policy_cost_primary_protected; /* raw-positive policy rivals checked   */
+    int policy_cost_fresh_protected; /* same count on independent panel       */
+    uint64_t policy_cost_fingerprint; /* checked external artifact content    */
+    double policy_cost_lambda_action;
+    double policy_cost_lambda_draw;
+    double policy_cost_override_min; /* v1 binds legacy low-prior floor off */
     int metric_kind;        /* SEARCH_METRIC_* meaning of q[]               */
     int planner_turns;      /* own visible-card turns used by scheduler      */
     int planner_score;      /* best guaranteed current-hand score            */
@@ -152,6 +182,11 @@ typedef struct {
     double prefix_veto_se[MAX_MOVES]; /* SE of independent-controller mean       */
     double prefix_veto_delta[MAX_MOVES]; /* paired delta against candidate zero   */
     double prefix_veto_dse[MAX_MOVES]; /* SE of independent-controller delta      */
+    double policy_semantic_prior[MAX_MOVES]; /* P_A after suit averaging       */
+    double policy_conditional_draw_prior[MAX_MOVES]; /* P_D = joint/P_A      */
+    double policy_cost_penalty[MAX_MOVES]; /* deterministic policy cost        */
+    double policy_adjusted_q[MAX_MOVES]; /* raw primary Q minus policy cost    */
+    double policy_fresh_adjusted_q[MAX_MOVES]; /* independent-panel counterpart */
     uint8_t pqualified[MAX_MOVES]; /* passed the primary significance gates   */
     uint8_t csupported[MAX_MOVES]; /* candidate passed both independent gates */
     uint8_t guard_rejected[MAX_MOVES]; /* supported but blocked structural risk */
@@ -187,6 +222,39 @@ int rollout_policy_prefix_indices(
     const Move *mv, const float *prob, int n, int baseline,
     int root_width, float cand_floor, float cand_mass, int min_cand,
     int *order);
+/* Exact hierarchical policy admission used by rollout5 calibration.  The
+ * supplied arrays must be the complete legal list and one normalized,
+ * suit-symmetrized policy vector for st; baseline must be its literal first
+ * argmax.  Returns -1 on malformed/subset input, otherwise the admitted count
+ * (at most five), with baseline uniquely at order[0]. */
+int rollout_action_core_indices(
+    const State *st, const Move *mv, const float *prob, int n, int baseline,
+    int root_width, int action_core_count, int min_cand,
+    float cand_floor, float cand_mass, int *order,
+    int *core_candidates, int *draw_candidates);
+
+/* The policy-cost family has a stricter, campaign-frozen hierarchy than the
+ * legacy action-core helper above.  It constructs the one-percent semantic-
+ * core master exactly once, admits positive-probability safe draw variants
+ * without a joint-probability floor, and obtains the two-percent support only
+ * by filtering that master.  No candidate may be refilled or reordered. */
+#define ROLLOUT_POLICY_COST_FLOORS 2
+#define ROLLOUT_POLICY_COST_MAX_CANDIDATES 5
+typedef struct {
+    int n[ROLLOUT_POLICY_COST_FLOORS];
+    int core_candidates[ROLLOUT_POLICY_COST_FLOORS];
+    int draw_candidates[ROLLOUT_POLICY_COST_FLOORS];
+    int order[ROLLOUT_POLICY_COST_FLOORS]
+             [ROLLOUT_POLICY_COST_MAX_CANDIDATES];
+} RolloutPolicyCostSupport;
+
+/* `mv` and `prob` must be the complete legal suit-symmetrized policy and
+ * baseline its literal first argmax.  Index 0 is the canonical 1% master;
+ * index 1 is its exact no-refill 2% mask.  Returns 1 on success, 0 on any
+ * malformed input or failed nesting proof. */
+int rollout_policy_cost_support(
+    const State *st, const Move *mv, const float *prob, int n, int baseline,
+    RolloutPolicyCostSupport *support);
 /* Exact terminal objective used by rollout mode 0/1/2. */
 double rollout_terminal_objective(const State *terminal, int p, int mode);
 
@@ -239,7 +307,7 @@ int rollout_near_greedy_pick(const Move *mv, const float *prob, int n,
                              int depth, int player);
 
 /* Fixed-world, policy-focused diagnostic panel.  This is deliberately not a
- * second gameplay selector: callers supply at most five complete moves that
+ * second gameplay selector: callers supply at most eight complete moves that
  * were admitted from policy-ranked complete semantic moves.  Every candidate sees the
  * same sanitized hidden worlds, production continuation roles, cycle/cap
  * handling, and exact last-deck solver.  baseline is an index into candidate
@@ -254,19 +322,38 @@ typedef struct {
     int exact_hidden_support;
     int hidden_support;
     int objective;
-    double q[5];
-    double se[5];
-    double delta[5];
-    double delta_se[5];
+    int panel_role; /* ROLLOUT_AUDIT_PANEL_* frozen evidence domain */
+    uint64_t hidden_world_fingerprint; /* ordered hidden support/worlds */
+    double q[ROLLOUT_MAX_CANDIDATES];
+    double se[ROLLOUT_MAX_CANDIDATES];
+    double delta[ROLLOUT_MAX_CANDIDATES];
+    double delta_se[ROLLOUT_MAX_CANDIDATES];
+    /* Candidate-minus-rival paired panels.  These make every all-pair gate
+     * reproducible from the same fixed worlds; diagonal entries are zero. */
+    double pair_delta[ROLLOUT_MAX_CANDIDATES][ROLLOUT_MAX_CANDIDATES];
+    double pair_delta_se[ROLLOUT_MAX_CANDIDATES][ROLLOUT_MAX_CANDIDATES];
     uint64_t exact_terminal_leaves;
     uint64_t unfinished_cap_leaves;
     uint64_t cycle_breaks;
     uint64_t cap_reserve_forces;
 } RolloutAuditPanel;
 
+enum {
+    ROLLOUT_AUDIT_PANEL_PRIMARY = 0,
+    ROLLOUT_AUDIT_PANEL_FRESH = 1
+};
+
 int rollout_audit_panel(const struct Agent *a, const State *st,
                         const Move *candidate, int n, int baseline,
                         uint64_t seed, int worlds,
                         RolloutAuditPanel *out);
+/* Role-explicit form for frozen policy-cost P/F evidence.  FRESH uses the
+ * same late-support, suit-role, world-RNG, and continuation-seed domains as
+ * rollout5's independent production panel.  The legacy entry point above is
+ * exactly a PRIMARY wrapper. */
+int rollout_audit_panel_role(
+    const struct Agent *a, const State *st,
+    const Move *candidate, int n, int baseline, int panel_role,
+    uint64_t seed, int worlds, RolloutAuditPanel *out);
 
 #endif

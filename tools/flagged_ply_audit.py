@@ -146,12 +146,15 @@ def actor_layout(spec: str) -> tuple[list[str], int]:
     if not fields or fields[0] not in {
         "rollout", "rolloutu", "rollout2", "rolloutu2",
         "rollout3", "rolloutu3", "rollout4", "rolloutu4",
+        "rollout5", "rolloutu5",
     }:
         raise AuditError("both audit actors must be rollout specifications")
     count = 3 if fields[0] in {
         "rollout3", "rolloutu3", "rollout4", "rolloutu4",
     } else (
-        2 if fields[0] in {"rollout2", "rolloutu2"} else 1
+        2 if fields[0] in {
+            "rollout2", "rolloutu2", "rollout5", "rolloutu5",
+        } else 1
     )
     if len(fields) <= count:
         raise AuditError(f"actor spec has missing checkpoint: {spec!r}")
@@ -186,10 +189,26 @@ def actor_provenance(spec: str) -> dict[str, Any]:
             for path in paths
         ],
     }
+    policy_cost_actor = fields[0] in {"rollout5", "rolloutu5"}
+    if policy_cost_actor:
+        if len(fields) < 4 or not fields[3]:
+            raise AuditError("actor policy-cost artifact is absent")
+        artifact = Path(fields[3])
+        if not artifact.is_absolute():
+            artifact = ROOT / artifact
+        artifact = artifact.resolve()
+        if not artifact.is_file():
+            raise AuditError(f"actor policy-cost artifact is absent: {artifact}")
+        provenance["policy_cost_artifact"] = {
+            "path": str(artifact.relative_to(ROOT))
+            if artifact.is_relative_to(ROOT) else str(artifact),
+            "sha256": sha256(artifact),
+        }
     # Optional rollout-tail field 41 is a controller-bound match-value table.
     # It is just as strength-defining as a network checkpoint and therefore
     # must be hashed whenever a win_q=3 actor supplies it.
-    match_value_field = 1 + checkpoint_count + 41
+    tail_start = 4 if policy_cost_actor else 1 + checkpoint_count
+    match_value_field = tail_start + 41
     if len(fields) > match_value_field:
         table = Path(fields[match_value_field])
         if not table.is_absolute():

@@ -44,8 +44,13 @@ ROLLOUT_KINDS = {
     "rolloutu3",
     "rollout4",
     "rolloutu4",
+    "rollout5",
+    "rolloutu5",
 }
-TWO_NETWORK_ROLLOUT_KINDS = {"rollout2", "rolloutu2"}
+POLICY_COST_ROLLOUT_KINDS = {"rollout5", "rolloutu5"}
+TWO_NETWORK_ROLLOUT_KINDS = {
+    "rollout2", "rolloutu2", *POLICY_COST_ROLLOUT_KINDS,
+}
 VETO_NETWORK_ROLLOUT_KINDS = {"rollout3", "rolloutu3"}
 RANKER_NETWORK_ROLLOUT_KINDS = {"rollout4", "rolloutu4"}
 THREE_NETWORK_ROLLOUT_KINDS = {
@@ -114,6 +119,8 @@ def rollout_tail_start(fields: list[str]) -> int:
     """Index of the unchanged rollout tail after its checkpoint field(s)."""
     if not fields or fields[0] not in ROLLOUT_KINDS:
         raise RuntimeError("actor is not a rollout network spec")
+    if fields[0] in POLICY_COST_ROLLOUT_KINDS:
+        return 4
     if fields[0] in THREE_NETWORK_ROLLOUT_KINDS:
         return 4
     return 3 if fields[0] in TWO_NETWORK_ROLLOUT_KINDS else 2
@@ -128,6 +135,15 @@ def rollout_match_value_path(fields: list[str]) -> Path | None:
     if not fields[match_value_index]:
         raise RuntimeError("showcase actor has an empty match-value table path")
     return repo_path(Path(fields[match_value_index]))
+
+
+def rollout_policy_cost_path(fields: list[str]) -> Path | None:
+    """Return rollout5's strength-defining checked spline artifact."""
+    if not fields or fields[0] not in POLICY_COST_ROLLOUT_KINDS:
+        return None
+    if len(fields) < 4 or not fields[3]:
+        raise RuntimeError("rollout5 actor has no policy-cost artifact path")
+    return repo_path(Path(fields[3]))
 
 
 def same_semantic_action(first: dict, second: dict) -> bool:
@@ -550,6 +566,7 @@ def main() -> None:
         if initial_actor_fields[0] in ROLLOUT_KINDS
         else None
     )
+    policy_cost_artifact = rollout_policy_cost_path(initial_actor_fields)
     for role, checkpoint in actor_checkpoints:
         if paths_alias(args.output, checkpoint):
             checkpoint_label = (
@@ -565,6 +582,12 @@ def main() -> None:
     ):
         raise RuntimeError(
             "--output must not replace the actor match-value table"
+        )
+    if policy_cost_artifact is not None and paths_alias(
+        args.output, policy_cost_artifact
+    ):
+        raise RuntimeError(
+            "--output must not replace the actor policy-cost artifact"
         )
     viewer_source = None
     viewer_start = viewer_end = None
@@ -588,6 +611,12 @@ def main() -> None:
             raise RuntimeError(
                 "--embed-viewer must not replace the actor match-value table"
             )
+        if policy_cost_artifact is not None and paths_alias(
+            args.embed_viewer, policy_cost_artifact
+        ):
+            raise RuntimeError(
+                "--embed-viewer must not replace the actor policy-cost artifact"
+            )
         viewer_source, viewer_start, viewer_end = viewer_template(args.embed_viewer)
     check_destination(args.output, "output")
     if args.embed_viewer:
@@ -602,6 +631,11 @@ def main() -> None:
     match_value_hash = (
         hashlib.sha256(match_value_table.read_bytes()).hexdigest()
         if match_value_table is not None
+        else None
+    )
+    policy_cost_hash = (
+        hashlib.sha256(policy_cost_artifact.read_bytes()).hexdigest()
+        if policy_cost_artifact is not None
         else None
     )
     model_hash = checkpoint_hashes["root"]
@@ -648,6 +682,15 @@ def main() -> None:
         if final_match_value_hash != match_value_hash:
             raise RuntimeError(
                 "actor match-value table changed while the showcase was "
+                "being analyzed"
+            )
+    if policy_cost_artifact is not None:
+        final_policy_cost_hash = hashlib.sha256(
+            policy_cost_artifact.read_bytes()
+        ).hexdigest()
+        if final_policy_cost_hash != policy_cost_hash:
+            raise RuntimeError(
+                "actor policy-cost artifact changed while the showcase was "
                 "being analyzed"
             )
     final_model_hash = final_checkpoint_hashes["root"]
@@ -917,6 +960,17 @@ def main() -> None:
                 "controller-bound round-boundary full-match value"
             ),
         }
+    policy_cost_provenance = {}
+    if policy_cost_artifact is not None:
+        assert policy_cost_hash is not None
+        match_id = f"{match_id}-{policy_cost_hash}"
+        policy_cost_provenance = {
+            "policy_cost_artifact_path": actor_fields[3],
+            "policy_cost_artifact_sha256": policy_cost_hash,
+            "policy_cost_artifact_role": (
+                "calibrated root-only policy-frequency spline"
+            ),
+        }
     game["meta"].update(
         actor_label=actor_label,
         actor_method=actor_method,
@@ -945,6 +999,7 @@ def main() -> None:
         ),
         **multi_model_provenance,
         **match_value_provenance,
+        **policy_cost_provenance,
     )
 
     output_payload = json.dumps(game, separators=(",", ":")) + "\n"

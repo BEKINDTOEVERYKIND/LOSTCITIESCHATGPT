@@ -21,6 +21,12 @@
  *            [:deck2_replan_cores[:bounded_late_root
  *            [:bounded_late_min[:action_ranker_min
  *            [:match_value_path]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]
+ *   rollout5:ROOT:CONT:POLICY_COST_PATH[:ROLLOUT_TAIL]
+ *   rolloutu5:ROOT:CONT:POLICY_COST_PATH[:ROLLOUT_TAIL]
+ *          Version 5 retains the exact 42-field rollout tail (including the
+ *          optional field-42 match-value path).  Its extra header artifact
+ *          owns calibrated policy-frequency costs; legacy field positions do
+ *          not move and empty-tail tokenization semantics do not change.
  *                 objective: 0 margin; 1 final match result; 2 final hybrid;
  *                   3 controller-bound round-boundary match-value table
  *                 symmetries: 1, 5, 10, 20, or 120 exact suit relabellings

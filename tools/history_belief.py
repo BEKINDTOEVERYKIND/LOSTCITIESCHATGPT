@@ -38,8 +38,13 @@ ROLLOUT_KINDS = {
     "rolloutu3",
     "rollout4",
     "rolloutu4",
+    "rollout5",
+    "rolloutu5",
 }
-TWO_NETWORK_ROLLOUT_KINDS = {"rollout2", "rolloutu2"}
+POLICY_COST_ROLLOUT_KINDS = {"rollout5", "rolloutu5"}
+TWO_NETWORK_ROLLOUT_KINDS = {
+    "rollout2", "rolloutu2", *POLICY_COST_ROLLOUT_KINDS,
+}
 VETO_NETWORK_ROLLOUT_KINDS = {"rollout3", "rolloutu3"}
 RANKER_NETWORK_ROLLOUT_KINDS = {"rollout4", "rolloutu4"}
 THREE_NETWORK_ROLLOUT_KINDS = {
@@ -93,7 +98,27 @@ def source_actor_provenance(actor_spec: str) -> dict[str, Any]:
 
     provenance: dict[str, Any] = {"checkpoints": checkpoints}
     if kind in ROLLOUT_KINDS:
-        tail_start = len(roles) + 1
+        tail_start = 4 if kind in POLICY_COST_ROLLOUT_KINDS else len(roles) + 1
+        if kind in POLICY_COST_ROLLOUT_KINDS:
+            if len(fields) < 4 or not fields[3]:
+                raise ViewError(
+                    "source actor spec does not identify its policy-cost artifact"
+                )
+            policy_cost_path = Path(fields[3])
+            if not policy_cost_path.is_absolute():
+                policy_cost_path = ROOT / policy_cost_path
+            try:
+                policy_cost_hash = hashlib.sha256(
+                    policy_cost_path.read_bytes()
+                ).hexdigest()
+            except OSError as exc:
+                raise ViewError(
+                    f"cannot verify source actor policy-cost artifact: {exc}"
+                ) from exc
+            provenance["policy_cost_artifact"] = {
+                "path": fields[3],
+                "sha256": policy_cost_hash,
+            }
         match_value_index = tail_start + 41
         if len(fields) > match_value_index:
             if not fields[match_value_index]:
@@ -300,6 +325,12 @@ def validate_actor_prefix(
         raise ViewError(
             f"source actor spec does not identify its {role} checkpoint"
         )
+    if kind in POLICY_COST_ROLLOUT_KINDS and (
+        len(fields) < 4 or not fields[3]
+    ):
+        raise ViewError(
+            "source actor spec does not identify its policy-cost artifact"
+        )
     artifact_provenance = source_actor_provenance(actor_spec)
     try:
         source_hash = artifact_provenance["checkpoints"][0]["sha256"]
@@ -347,7 +378,9 @@ def validate_actor_prefix(
                     "models only unmodified argmax actions"
                 )
         elif kind in ROLLOUT_KINDS:
-            if three_network_actor:
+            if kind in POLICY_COST_ROLLOUT_KINDS:
+                tail_start = 4
+            elif three_network_actor:
                 tail_start = 4
             else:
                 tail_start = 3 if multi_network_actor else 2

@@ -111,10 +111,23 @@ class ActionCoreCampaignTests(unittest.TestCase):
         self.assertIn("five-move budget", why["structural_reason"])
         self.assertIn("not a claim", why["claim_limit"])
         self.assertTrue(all((ROOT / path).is_file() for path in SOURCE_FILES))
+        # SOURCE_FILES is the immutable inventory frozen with the historical
+        # action-core campaign.  rollout5's separately versioned policy-cost
+        # ABI was added later and must neither be retroactively hashed into
+        # that one-shot definition nor make its revalidation depend on the
+        # current checkout's dynamic src glob.
+        current_src = {
+            str(path.relative_to(ROOT))
+            for path in (ROOT / "src").glob("*.[ch]")
+        }
+        frozen_src = {
+            path for path in SOURCE_FILES if path.startswith("src/")
+        }
         self.assertEqual(
-            {str(path.relative_to(ROOT)) for path in (ROOT / "src").glob("*.[ch]")},
-            {path for path in SOURCE_FILES if path.startswith("src/")},
+            current_src - frozen_src,
+            {"src/policy_cost.c", "src/policy_cost.h"},
         )
+        self.assertFalse(frozen_src - current_src)
 
     def test_no_user_position_or_training_data_enters_campaign(self) -> None:
         plan = strict_json(PLAN)

@@ -1,0 +1,158 @@
+{
+  "artifact_kind": "locked_match_value_objective3_v2_execution",
+  "authoritative_final_actor_result": {
+    "actor_assets": {
+      "challenger": [],
+      "reference": [
+        {
+          "kind": "checkpoint",
+          "path": "data/champion.bin",
+          "role": 0,
+          "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+          "size": 2823748
+        }
+      ],
+      "winner": [
+        {
+          "kind": "checkpoint",
+          "path": "data/champion.bin",
+          "role": 0,
+          "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+          "size": 2823748
+        }
+      ]
+    },
+    "authoritative_results": [
+      {
+        "path": "data/experiments/world800_result.json",
+        "role": "world_winner",
+        "sha256": "798a4f0948295445d25dd34cb1a8e3f96794e24f032a76a82df7c92485da4db8"
+      }
+    ],
+    "challenger": null,
+    "decisive_result": null,
+    "no_change": true,
+    "path": "data/experiments/final_actor_result.json",
+    "promotion_gate_passed": false,
+    "reference": {
+      "checkpoints": [
+        {
+          "path": "data/champion.bin",
+          "role": 0,
+          "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+          "size": 2823748
+        }
+      ],
+      "spec": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
+    },
+    "selection_mode": "no_challenge",
+    "sha256": "5ad3566c5fb66aa45efa0c3b45eff6bde83eacece2eefd13a6794eb57530e476",
+    "source_commit": "08f9e1a5218e03c399b257b852efe20b0089c7b0",
+    "source_tree": "c70405a09b88919b228f96d19d84d83875d4fea4",
+    "winner": {
+      "checkpoints": [
+        {
+          "path": "data/champion.bin",
+          "role": 0,
+          "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+          "size": 2823748
+        }
+      ],
+      "spec": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
+    }
+  },
+  "build": {
+    "cflags": "-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11",
+    "compiler": "gcc",
+    "compiler_semantic_version_command": "gcc -dumpfullversion -dumpversion",
+    "ldflags": "-lm -pthread",
+    "required_compiler_semantic_version": "13.3.0",
+    "runner": "ubuntu-24.04"
+  },
+  "campaign": {
+    "critical_z": 1.645,
+    "development_pairs_per_orientation": 1000,
+    "final_pairs_per_orientation": 2500,
+    "manual_dispatch": false,
+    "optional_stopping": false,
+    "repository_write": false,
+    "retry": false,
+    "safety_pairs_per_orientation": 200,
+    "variants": [
+      "RAW_ALL_PLY",
+      "PROJECTED_ALL_PLY"
+    ]
+  },
+  "definition_lock": {
+    "definition_commit": "6dc8114e1332aadd4374384465279255ec2c437e",
+    "definition_tree": "dfe2fc7dbbc8ec246eaa2b6c2eb5d56067d99003",
+    "lock_commit": "0eb2a90a66f1297d2191547da8e41fcc80b64d61",
+    "path": "data/experiments/locked_match_value_objective3_v2_definition_lock.json",
+    "sha256": "6f40e7579e3ba5157c2750c6540d8688af630298f2338d1ad4617a87532fffbd",
+    "size": 12327
+  },
+  "diagnostic_exact17_audit": {
+    "canonical_json": {
+      "path": "data/experiments/commented_ply_audit_v3.json",
+      "sha256": "be63dcae2ae1a179cf43a0c47e9971755290f9b3bfd90cc40fd4b6bd2838bbd7",
+      "size": 110628
+    },
+    "canonical_markdown": {
+      "path": "data/experiments/commented_ply_audit_v3.md",
+      "sha256": "a30eb93e4623e75ec2dae4c2cb73103b801d67954e0b02298e1a5b1082ebcd71",
+      "size": 7751
+    },
+    "cases": 17,
+    "evidence": {
+      "path": "data/experiments/commented_ply_audit_v3_evidence.zip",
+      "sha256": "aacec0f3da9bbedd5d6512cf7bf2ef0d993232ed888d64f2e8099f5b15c03994",
+      "size": 221494
+    },
+    "raw_shards": 17,
+    "result": {
+      "path": "data/experiments/commented_ply_audit_v3_result.json",
+      "sha256": "9897b402116b897942031ecbd46c50127b358c5a2c579e9c854720c667f55a82",
+      "size": 17435
+    },
+    "results": null,
+    "run": {
+      "attempt": 1,
+      "conclusion": "success",
+      "head_sha": "330488423fad6f7a83fc1b1ace2bb8fae75449b1",
+      "id": 32717551770
+    },
+    "selection_use": "forbidden",
+    "total_paired_worlds": 18432
+  },
+  "helper": {
+    "path": "tools/match_value_objective3_v2.py",
+    "sha256": "c879a71ed0e4dc6fce86a7d72a949814205c877d494b72e177adb8c723876b6c"
+  },
+  "plan": {
+    "path": "data/experiments/locked_match_value_objective3_v2_plan.json",
+    "sha256": "72587805f9a22bd981b537572e9c847cc5765123aa502caedea6a6894a722f24"
+  },
+  "results": null,
+  "schema": "lc-match-value-objective3-v2-execution-v1",
+  "source_parent_commit": "0eb2a90a66f1297d2191547da8e41fcc80b64d61",
+  "source_parent_tree": "3b134d1f43ac39a088d50e6cff5e27f4678f453a",
+  "status": "launch_bound_before_table_build_or_efficacy",
+  "subject": {
+    "baseline": {
+      "checkpoints": [
+        {
+          "path": "data/champion.bin",
+          "role": 0,
+          "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+          "size": 2823748
+        }
+      ],
+      "spec": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
+    },
+    "selection_rule": "mechanically revalidate final_actor_result; exact-17 audit is provenance only and cannot select a candidate"
+  },
+  "workflow": {
+    "path": ".github/workflows/match-value-objective3-v2.yml",
+    "sha256": "fea6bb1b2b4e1a573a6a74f2c95f46654aa0065b58ee5709c5f30aff8af56975"
+  }
+}

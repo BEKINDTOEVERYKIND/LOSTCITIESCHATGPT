@@ -1,0 +1,121 @@
+{
+  "actors": {
+    "actors": {
+      "PROJECTED_ALL_PLY": "rolloutu2:data/champion.bin:data/champion.bin:800:5:0.02:0:1:0:0:0:3:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1:0:0:0:1:0:data/models/match_value_objective3_v2_projected.lcmv",
+      "RAW_ALL_PLY": "rolloutu2:data/champion.bin:data/champion.bin:800:5:0.02:0:1:0:0:0:3:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1:0:0:0:1:0:data/models/match_value_objective3_v2_raw.lcmv",
+      "legacy": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
+    },
+    "artifact_kind": "locked_match_value_objective3_v2_actors",
+    "model": {
+      "path": "data/champion.bin",
+      "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417"
+    },
+    "schema": "lc-match-value-objective3-v2-actors-v1",
+    "world_cap": 800
+  },
+  "artifact_kind": "match_value_objective3_v2_pre_efficacy_manifest",
+  "bindings": {
+    ".github/workflows/match-value-objective3-v2.yml": "fea6bb1b2b4e1a573a6a74f2c95f46654aa0065b58ee5709c5f30aff8af56975",
+    "campaign/data/experiments/locked_match_value_objective3_v2_execution.json": "7fa8b2de912466c9affd0ff8188cc8403dd1b085f02de6acf10d8df0284db75a",
+    "data/experiments/commented_ply_audit_v3_result.json": "9897b402116b897942031ecbd46c50127b358c5a2c579e9c854720c667f55a82",
+    "data/experiments/final_actor_result.json": "5ad3566c5fb66aa45efa0c3b45eff6bde83eacece2eefd13a6794eb57530e476",
+    "data/experiments/locked_match_value_objective3_v2_plan.json": "72587805f9a22bd981b537572e9c847cc5765123aa502caedea6a6894a722f24",
+    "transport/BUILD_INFO.txt": "3ba45a4ba0f92c176936021272e3c7a70ea4850c4990d98ab9c76aabbea52322",
+    "transport/bindings/actors.json": "e561f389c63a879152eed878cd5d45691699ec44309535c9c0b2725c117e0d68",
+    "transport/bindings/table-manifest.json": "4113810b359dec03c9a56ebdf10b349357af71ff104af56403cf3bd65daeb5d3",
+    "transport/table-build.log": "60ce1a86e0bc324c924f0dbd9e5d7bef17ab1d39fe29fe452dcff26d9c576dcf"
+  },
+  "build": {
+    "cflags": "-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11",
+    "compiler": "gcc",
+    "compiler_semantic_version_command": "gcc -dumpfullversion -dumpversion",
+    "ldflags": "-lm -pthread",
+    "required_compiler_semantic_version": "13.3.0",
+    "runner": "ubuntu-24.04"
+  },
+  "diagnostic_audit_selection_use": "forbidden",
+  "results": null,
+  "schema": "lc-match-value-objective3-v2-pre-efficacy-manifest-v1",
+  "source": {
+    "commit": "0eb2a90a66f1297d2191547da8e41fcc80b64d61",
+    "tree": "3b134d1f43ac39a088d50e6cff5e27f4678f453a"
+  },
+  "status": "tables_and_actors_frozen_before_first_efficacy_match",
+  "tables": {
+    "artifact_kind": "controller_bound_match_value_table_pair",
+    "projected": {
+      "controller": {
+        "build_profile_hex": "0030d23b",
+        "controller_abi": 1,
+        "controller_words": [
+          0,
+          20,
+          4,
+          1,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          300
+        ],
+        "net_fingerprint": "ef1aeb51963d96f0"
+      },
+      "isotonic_projected": true,
+      "max_isotonic_adjustment": [
+        0.0,
+        0.0
+      ],
+      "path": "data/models/match_value_objective3_v2_projected.lcmv",
+      "payload_fingerprint": "a2d3a5eaf72307b8",
+      "role_balance_complete": true,
+      "role_cycle_size": 400,
+      "samples_per_policy_lead": 16000,
+      "sha256": "e3eac1b6fecf314a3db45ef9fd7563db1f18e02ca09a7e63aac00bc8fd4cb28e",
+      "size": 113448,
+      "source_seed": "202610200001",
+      "total_round_simulations": 9632000,
+      "version": 1
+    },
+    "raw": {
+      "controller": {
+        "build_profile_hex": "0030d23b",
+        "controller_abi": 1,
+        "controller_words": [
+          0,
+          20,
+          4,
+          1,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          300
+        ],
+        "net_fingerprint": "ef1aeb51963d96f0"
+      },
+      "isotonic_projected": false,
+      "max_isotonic_adjustment": [
+        0.0,
+        0.0
+      ],
+      "path": "data/models/match_value_objective3_v2_raw.lcmv",
+      "payload_fingerprint": "73bf163836fc16c5",
+      "role_balance_complete": true,
+      "role_cycle_size": 400,
+      "samples_per_policy_lead": 16000,
+      "sha256": "de7786c592f2fdbde7287bb10610c1065e605528eef6914041b4c6000216408b",
+      "size": 113448,
+      "source_seed": "202610200001",
+      "total_round_simulations": 9632000,
+      "version": 1
+    },
+    "schema": "lc-controller-bound-match-value-table-pair-v2",
+    "single_builder_invocation": true,
+    "status": "complete_valid_single_transition_generation",
+    "variants_share_identical_transition_histograms": true
+  }
+}

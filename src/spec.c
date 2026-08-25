@@ -1,5 +1,6 @@
 #include "spec.h"
 #include "match_value.h"
+#include "policy_cost.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -56,6 +57,11 @@ static int match_value_matches_rollout(const Agent *a)
            c->max_plies == LC_MAX_PLIES;
 }
 
+/* rollout5 is deliberately narrower than the legacy experimental surface.
+ * Its calibrated artifact owns ordinary root selection and is invalid if an
+ * uncalibrated planner, resolver, advisory row, controller veto, or ranker can
+ * change that candidate set or decision.  The one-card exact solver remains
+ * intrinsic and runs before policy-cost selection. */
 static void validate_rollout(const Agent *a, const char *label)
 {
     int valid =
@@ -126,6 +132,7 @@ static void validate_rollout(const Agent *a, const char *label)
           !a->veto_continuation_net)) &&
         (a->action_ranker_net || a->action_ranker_min == 0.0f) &&
         match_value_matches_rollout(a) &&
+        policy_cost_matches_agent(a) &&
         (!a->bounded_late_root ||
          (a->exact_terminal == 1 && a->no_belief &&
           a->deck2_replan_worlds == 0 && a->deck2_replan_cores == 0 &&
@@ -256,6 +263,7 @@ void spec_release(Agent *a)
     const Net *veto = a->veto_continuation_net;
     const Net *ranker = a->action_ranker_net;
     const MatchValueTable *match_value = a->match_value;
+    const PolicyCostTable *policy_cost = a->policy_cost;
     if (a->owns_action_ranker_net && ranker &&
         ranker != veto && ranker != continuation && ranker != root)
         free((void *)ranker);
@@ -267,16 +275,20 @@ void spec_release(Agent *a)
     if (a->owns_net && root) free((void *)root);
     if (a->owns_match_value && match_value)
         match_value_free((MatchValueTable *)match_value);
+    if (a->owns_policy_cost && policy_cost)
+        policy_cost_free((PolicyCostTable *)policy_cost);
     a->net = NULL;
     a->continuation_net = NULL;
     a->veto_continuation_net = NULL;
     a->action_ranker_net = NULL;
     a->match_value = NULL;
+    a->policy_cost = NULL;
     a->owns_net = 0;
     a->owns_continuation_net = 0;
     a->owns_veto_continuation_net = 0;
     a->owns_action_ranker_net = 0;
     a->owns_match_value = 0;
+    a->owns_policy_cost = 0;
 }
 
 void spec_parse(const char *spec, Agent *a)
@@ -307,25 +319,31 @@ void spec_parse(const char *spec, Agent *a)
         !strcmp(tok, "rollout") || !strcmp(tok, "rolloutu") ||
         !strcmp(tok, "rollout2") || !strcmp(tok, "rolloutu2") ||
         !strcmp(tok, "rollout3") || !strcmp(tok, "rolloutu3") ||
-        !strcmp(tok, "rollout4") || !strcmp(tok, "rolloutu4")) {
+        !strcmp(tok, "rollout4") || !strcmp(tok, "rolloutu4") ||
+        !strcmp(tok, "rollout5") || !strcmp(tok, "rolloutu5")) {
         int is_mcts = !strcmp(tok, "mcts");
         int is_policy = !strcmp(tok, "policy");
         int is_rollout = !strcmp(tok, "rollout") || !strcmp(tok, "rolloutu") ||
                          !strcmp(tok, "rollout2") || !strcmp(tok, "rolloutu2") ||
                          !strcmp(tok, "rollout3") || !strcmp(tok, "rolloutu3") ||
-                         !strcmp(tok, "rollout4") || !strcmp(tok, "rolloutu4");
+                         !strcmp(tok, "rollout4") || !strcmp(tok, "rolloutu4") ||
+                         !strcmp(tok, "rollout5") || !strcmp(tok, "rolloutu5");
         int has_continuation_path =
             !strcmp(tok, "rollout2") || !strcmp(tok, "rolloutu2") ||
             !strcmp(tok, "rollout3") || !strcmp(tok, "rolloutu3") ||
-            !strcmp(tok, "rollout4") || !strcmp(tok, "rolloutu4");
+            !strcmp(tok, "rollout4") || !strcmp(tok, "rolloutu4") ||
+            !strcmp(tok, "rollout5") || !strcmp(tok, "rolloutu5");
         int has_veto_path =
             !strcmp(tok, "rollout3") || !strcmp(tok, "rolloutu3");
         int has_ranker_path =
             !strcmp(tok, "rollout4") || !strcmp(tok, "rolloutu4");
+        int has_policy_cost_path =
+            !strcmp(tok, "rollout5") || !strcmp(tok, "rolloutu5");
         int is_uniform = !strcmp(tok, "rolloutu") ||
                          !strcmp(tok, "rolloutu2") ||
                          !strcmp(tok, "rolloutu3") ||
-                         !strcmp(tok, "rolloutu4");
+                         !strcmp(tok, "rolloutu4") ||
+                         !strcmp(tok, "rolloutu5");
         char *path = strtok_r(NULL, ":", &save);
         if (!path) { fprintf(stderr, "agent '%s' needs a network path\n", tok); exit(1); }
         Net *n = load_net(path);
@@ -380,6 +398,27 @@ void spec_parse(const char *spec, Agent *a)
                     a->action_ranker_net = load_net(ranker_path);
                     a->owns_action_ranker_net = 1;
                 }
+            }
+            if (has_policy_cost_path) {
+                char *policy_cost_path = strtok_r(NULL, ":", &save);
+                if (!policy_cost_path) {
+                    fprintf(stderr,
+                            "agent '%s' needs a policy-cost artifact path\n",
+                            tok);
+                    exit(1);
+                }
+                int error = 0;
+                PolicyCostTable *table =
+                    policy_cost_load(policy_cost_path, &error);
+                if (!table) {
+                    fprintf(stderr,
+                            "agent '%s' cannot load policy-cost artifact '%s' "
+                            "(error %d)\n",
+                            tok, policy_cost_path, error);
+                    exit(1);
+                }
+                a->policy_cost = table;
+                a->owns_policy_cost = 1;
             }
             a->no_belief = is_uniform;
             parse_rollout_tail(save ? save : "", a, spec);

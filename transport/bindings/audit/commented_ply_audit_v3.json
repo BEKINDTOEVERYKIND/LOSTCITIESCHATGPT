@@ -1,0 +1,3179 @@
+{
+  "attempt_id": "v3",
+  "audit_definition_sha256": "12ff900ef6b69a78b3384ba26bb5b2e6a2d2fe3e2d2135e291ed2bcb4d8cde83",
+  "cases": [
+    {
+      "case_id": "ui-221-p3",
+      "evaluation": {
+        "actor": {
+          "information_view": true,
+          "policy_prior": 0.998475552,
+          "search": {
+            "candidates": 1,
+            "confirmation_worlds": 0,
+            "controller_veto_worlds": 0,
+            "cycle_breaks": 0,
+            "exact_terminal_leaves": 0,
+            "fresh_worlds": 0,
+            "ranker_attempted": false,
+            "ranker_passed": false,
+            "skip_reason": 2,
+            "unfinished_cap_leaves": 0,
+            "world_cap": 800,
+            "worlds": 0
+          },
+          "seed": "15111065617386277620",
+          "selected": "Bx p deck",
+          "spec": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
+        },
+        "belief": null,
+        "counterfactual": {
+          "actor_selected_appended": false,
+          "actor_selected_included": true,
+          "branch_neutral_rng_domains": true,
+          "branch_rng_domain_hash": "b70ae6dd431c0ffd",
+          "candidates": [
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "reference",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 24.28125,
+                  "samples_fnv1a64": "ed20cba376d5b1d2",
+                  "se": 2.1132189438
+                },
+                "hybrid": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 14.39765625,
+                  "samples_fnv1a64": "827614796dda457e",
+                  "se": 1.58410855971
+                },
+                "match_score": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 0.6318359375,
+                  "samples_fnv1a64": "2bed88345437d318",
+                  "se": 0.0150159954007
+                }
+              },
+              "move": "Bx p deck",
+              "policy_prior": 0.998475552,
+              "role": "reference",
+              "semantic_key": 12
+            },
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "inconclusive",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 2.06133978332,
+                  "delta_vs_reference": -4.4921875,
+                  "mean": 19.7890625,
+                  "samples_fnv1a64": "1c737b95c2d54ac3",
+                  "se": 2.04488184587
+                },
+                "hybrid": {
+                  "delta_se": 1.74201534725,
+                  "delta_vs_reference": -1.25,
+                  "mean": 13.14765625,
+                  "samples_fnv1a64": "39e63ce00d98f3a5",
+                  "se": 1.59290850949
+                },
+                "match_score": {
+                  "delta_se": 0.0166854332306,
+                  "delta_vs_reference": -0.01025390625,
+                  "mean": 0.62158203125,
+                  "samples_fnv1a64": "9c9fc0e94b8c0195",
+                  "se": 0.0151082385228
+                }
+              },
+              "move": "Bx p W",
+              "policy_prior": 4.47634847e-07,
+              "role": "alternative",
+              "semantic_key": 372
+            }
+          ],
+          "cap_hits": 0,
+          "completed_worlds": 1024,
+          "continuation": {
+            "checkpoint": "data/champion.bin",
+            "epsilon": 0,
+            "exact_group_average": true,
+            "fresh_information_view_each_node": true,
+            "kind": "exact_policy_argmax",
+            "recursive_actor": false,
+            "scope": "full_remaining_three_round_match",
+            "symmetries": 20,
+            "temperature": 0
+          },
+          "future_deal_set_hash": "fb6533e4f192462b",
+          "hash_algorithm": "fnv1a64",
+          "hidden_world_set_hash": "55c441b3412fddd4",
+          "nominated_candidates": 2,
+          "policy_probability_aggregation": "sum_by_semantic_move",
+          "policy_reference_candidates": 0,
+          "requested_worlds": 1024,
+          "root_information_view": true,
+          "seed": "202610010103",
+          "shared_current_hidden_worlds": true,
+          "shared_future_deals": true,
+          "world_model": "uniform_exact_card_count_plus_future_deals"
+        },
+        "schema": "lc-commented-ply-eval-v2",
+        "state": {
+          "deck_left": 42,
+          "input_deck_entries": 0,
+          "nply": 2,
+          "path": "data/probes/ui_seed2214615196_p3.state",
+          "round": 0,
+          "turn": 0
+        }
+      },
+      "review_context": {
+        "nominated_candidates": [
+          "Bx p deck",
+          "Bx p W"
+        ],
+        "note": "Low W2 pickup should not rival the deck.",
+        "reviewed_moves": [
+          "Bx p deck"
+        ],
+        "used_as_promotion_gate": false,
+        "used_as_training_label": false
+      },
+      "source": {
+        "audit_seed": "202610010103",
+        "displayed_ply": 3,
+        "game_seed": "2214615196",
+        "paired_worlds": 1024,
+        "state_path": "data/probes/ui_seed2214615196_p3.state",
+        "state_sha256": "36ecf180f669e167c09b095899d94f7de2df8a5b5580e01f423242b6d99c02da"
+      }
+    },
+    {
+      "case_id": "ui-221-p4",
+      "evaluation": {
+        "actor": {
+          "information_view": true,
+          "policy_prior": 0.999030709,
+          "search": {
+            "candidates": 1,
+            "confirmation_worlds": 0,
+            "controller_veto_worlds": 0,
+            "cycle_breaks": 0,
+            "exact_terminal_leaves": 0,
+            "fresh_worlds": 0,
+            "ranker_attempted": false,
+            "ranker_passed": false,
+            "skip_reason": 2,
+            "unfinished_cap_leaves": 0,
+            "world_cap": 800,
+            "worlds": 0
+          },
+          "seed": "15111065617386277627",
+          "selected": "Bx p deck",
+          "spec": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
+        },
+        "belief": null,
+        "counterfactual": {
+          "actor_selected_appended": false,
+          "actor_selected_included": true,
+          "branch_neutral_rng_domains": true,
+          "branch_rng_domain_hash": "cc46f8606ff4c8df",
+          "candidates": [
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "reference",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 14.8173828125,
+                  "samples_fnv1a64": "ede28f173e8a9d56",
+                  "se": 2.07853496106
+                },
+                "hybrid": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 9.33461914062,
+                  "samples_fnv1a64": "9000e7bbad184785",
+                  "se": 1.61918354716
+                },
+                "match_score": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 0.5859375,
+                  "samples_fnv1a64": "e545c12abefbeff8",
+                  "se": 0.0153534411382
+                }
+              },
+              "move": "Bx p deck",
+              "policy_prior": 0.999030709,
+              "role": "reference",
+              "semantic_key": 12
+            },
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "inconclusive",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 2.15790102747,
+                  "delta_vs_reference": -3.80859375,
+                  "mean": 11.0087890625,
+                  "samples_fnv1a64": "ed1c0695e945e0e5",
+                  "se": 2.1657765528
+                },
+                "hybrid": {
+                  "delta_se": 1.8462587358,
+                  "delta_vs_reference": -2.3388671875,
+                  "mean": 6.99575195312,
+                  "samples_fnv1a64": "ebe33c7dbb1660c3",
+                  "se": 1.63064505615
+                },
+                "match_score": {
+                  "delta_se": 0.0176686854113,
+                  "delta_vs_reference": -0.021484375,
+                  "mean": 0.564453125,
+                  "samples_fnv1a64": "21d5b8591994c7a5",
+                  "se": 0.0154405070115
+                }
+              },
+              "move": "Bx p W",
+              "policy_prior": 2.76442206e-05,
+              "role": "alternative",
+              "semantic_key": 372
+            }
+          ],
+          "cap_hits": 0,
+          "completed_worlds": 1024,
+          "continuation": {
+            "checkpoint": "data/champion.bin",
+            "epsilon": 0,
+            "exact_group_average": true,
+            "fresh_information_view_each_node": true,
+            "kind": "exact_policy_argmax",
+            "recursive_actor": false,
+            "scope": "full_remaining_three_round_match",
+            "symmetries": 20,
+            "temperature": 0
+          },
+          "future_deal_set_hash": "f5f619554f1dd521",
+          "hash_algorithm": "fnv1a64",
+          "hidden_world_set_hash": "7303c6cafae0ae06",
+          "nominated_candidates": 2,
+          "policy_probability_aggregation": "sum_by_semantic_move",
+          "policy_reference_candidates": 0,
+          "requested_worlds": 1024,
+          "root_information_view": true,
+          "seed": "202610010104",
+          "shared_current_hidden_worlds": true,
+          "shared_future_deals": true,
+          "world_model": "uniform_exact_card_count_plus_future_deals"
+        },
+        "schema": "lc-commented-ply-eval-v2",
+        "state": {
+          "deck_left": 41,
+          "input_deck_entries": 0,
+          "nply": 3,
+          "path": "data/probes/ui_seed2214615196_p4.state",
+          "round": 0,
+          "turn": 1
+        }
+      },
+      "review_context": {
+        "nominated_candidates": [
+          "Bx p deck",
+          "Bx p W"
+        ],
+        "note": "Low W2 pickup should not rival the deck.",
+        "reviewed_moves": [
+          "Bx p deck"
+        ],
+        "used_as_promotion_gate": false,
+        "used_as_training_label": false
+      },
+      "source": {
+        "audit_seed": "202610010104",
+        "displayed_ply": 4,
+        "game_seed": "2214615196",
+        "paired_worlds": 1024,
+        "state_path": "data/probes/ui_seed2214615196_p4.state",
+        "state_sha256": "c953df436306d2f2b46c5412621ef127fc4faad355361c0c790a8c93f9122456"
+      }
+    },
+    {
+      "case_id": "ui-221-p8",
+      "evaluation": {
+        "actor": {
+          "information_view": true,
+          "policy_prior": 0.949022293,
+          "search": {
+            "candidates": 1,
+            "confirmation_worlds": 0,
+            "controller_veto_worlds": 0,
+            "cycle_breaks": 0,
+            "exact_terminal_leaves": 0,
+            "fresh_worlds": 0,
+            "ranker_attempted": false,
+            "ranker_passed": false,
+            "skip_reason": 2,
+            "unfinished_cap_leaves": 0,
+            "world_cap": 800,
+            "worlds": 0
+          },
+          "seed": "15111065617386277631",
+          "selected": "B3 p deck",
+          "spec": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
+        },
+        "belief": null,
+        "counterfactual": {
+          "actor_selected_appended": false,
+          "actor_selected_included": true,
+          "branch_neutral_rng_domains": true,
+          "branch_rng_domain_hash": "46a98df370c20199",
+          "candidates": [
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "reference",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": -3.1240234375,
+                  "samples_fnv1a64": "1de4131925be82eb",
+                  "se": 2.10923956858
+                },
+                "hybrid": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": -0.497998046875,
+                  "samples_fnv1a64": "24936a6f5a361c32",
+                  "se": 1.64523652887
+                },
+                "match_score": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 0.49658203125,
+                  "samples_fnv1a64": "240338cd65193ec8",
+                  "se": 0.0155940565151
+                }
+              },
+              "move": "B3 p deck",
+              "policy_prior": 0.949022293,
+              "role": "reference",
+              "semantic_key": 16
+            },
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "reference_ahead",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 2.07574335522,
+                  "delta_vs_reference": -7.958984375,
+                  "mean": -11.0830078125,
+                  "samples_fnv1a64": "4007389c962ca129",
+                  "se": 2.13336385017
+                },
+                "hybrid": {
+                  "delta_se": 1.75095090149,
+                  "delta_vs_reference": -6.45263671875,
+                  "mean": -6.95063476563,
+                  "samples_fnv1a64": "a1c97d8fc4fdf2f6",
+                  "se": 1.63211191502
+                },
+                "match_score": {
+                  "delta_se": 0.0167739843655,
+                  "delta_vs_reference": -0.060546875,
+                  "mean": 0.43603515625,
+                  "samples_fnv1a64": "808088f732ac7428",
+                  "se": 0.0154656556926
+                }
+              },
+              "move": "B3 p W",
+              "policy_prior": 1.10669698e-05,
+              "role": "alternative",
+              "semantic_key": 376
+            }
+          ],
+          "cap_hits": 0,
+          "completed_worlds": 1024,
+          "continuation": {
+            "checkpoint": "data/champion.bin",
+            "epsilon": 0,
+            "exact_group_average": true,
+            "fresh_information_view_each_node": true,
+            "kind": "exact_policy_argmax",
+            "recursive_actor": false,
+            "scope": "full_remaining_three_round_match",
+            "symmetries": 20,
+            "temperature": 0
+          },
+          "future_deal_set_hash": "a93f19fd45d87985",
+          "hash_algorithm": "fnv1a64",
+          "hidden_world_set_hash": "3900101cd9c4ee13",
+          "nominated_candidates": 2,
+          "policy_probability_aggregation": "sum_by_semantic_move",
+          "policy_reference_candidates": 0,
+          "requested_worlds": 1024,
+          "root_information_view": true,
+          "seed": "202610010108",
+          "shared_current_hidden_worlds": true,
+          "shared_future_deals": true,
+          "world_model": "uniform_exact_card_count_plus_future_deals"
+        },
+        "schema": "lc-commented-ply-eval-v2",
+        "state": {
+          "deck_left": 37,
+          "input_deck_entries": 0,
+          "nply": 7,
+          "path": "data/probes/ui_seed2214615196_p8.state",
+          "round": 0,
+          "turn": 1
+        }
+      },
+      "review_context": {
+        "nominated_candidates": [
+          "B3 p deck",
+          "B3 p W"
+        ],
+        "note": "Low W2 pickup should not rival the deck.",
+        "reviewed_moves": [
+          "B3 p deck"
+        ],
+        "used_as_promotion_gate": false,
+        "used_as_training_label": false
+      },
+      "source": {
+        "audit_seed": "202610010108",
+        "displayed_ply": 8,
+        "game_seed": "2214615196",
+        "paired_worlds": 1024,
+        "state_path": "data/probes/ui_seed2214615196_p8.state",
+        "state_sha256": "d89468885bde9770052bd802ee5ce99c5a6f988394d34d9cab9d47245a385302"
+      }
+    },
+    {
+      "case_id": "ui-221-p10",
+      "evaluation": {
+        "actor": {
+          "information_view": true,
+          "policy_prior": 0.279080421,
+          "search": {
+            "candidates": 1,
+            "confirmation_worlds": 0,
+            "controller_veto_worlds": 0,
+            "cycle_breaks": 0,
+            "exact_terminal_leaves": 0,
+            "fresh_worlds": 0,
+            "ranker_attempted": false,
+            "ranker_passed": false,
+            "skip_reason": 2,
+            "unfinished_cap_leaves": 0,
+            "world_cap": 800,
+            "worlds": 0
+          },
+          "seed": "15111065617386277629",
+          "selected": "Wx p deck",
+          "spec": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
+        },
+        "belief": null,
+        "counterfactual": {
+          "actor_selected_appended": false,
+          "actor_selected_included": true,
+          "branch_neutral_rng_domains": true,
+          "branch_rng_domain_hash": "085a56669a5069c7",
+          "candidates": [
+            {
+              "cap_hits": 0,
+              "completed_worlds": 2048,
+              "descriptive_signal": "reference",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": -11.65625,
+                  "samples_fnv1a64": "67ea9714c69de950",
+                  "se": 1.48150285053
+                },
+                "hybrid": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": -7.6873046875,
+                  "samples_fnv1a64": "ae0939e89ecc8982",
+                  "se": 1.14935626003
+                },
+                "match_score": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 0.428955078125,
+                  "samples_fnv1a64": "df2a77d79ddb2aa8",
+                  "se": 0.010903621504
+                }
+              },
+              "move": "Wx p deck",
+              "policy_prior": 0.279080421,
+              "role": "reference",
+              "semantic_key": 24
+            },
+            {
+              "cap_hits": 0,
+              "completed_worlds": 2048,
+              "descriptive_signal": "inconclusive",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 1.43962754133,
+                  "delta_vs_reference": -1.9873046875,
+                  "mean": -13.6435546875,
+                  "samples_fnv1a64": "1831b5337d23f49f",
+                  "se": 1.50675962538
+                },
+                "hybrid": {
+                  "delta_se": 1.2081033989,
+                  "delta_vs_reference": 0.022705078125,
+                  "mean": -7.66459960937,
+                  "samples_fnv1a64": "fa69fd1a32ba788b",
+                  "se": 1.15015524249
+                },
+                "match_score": {
+                  "delta_se": 0.0115653708139,
+                  "delta_vs_reference": 0.001220703125,
+                  "mean": 0.43017578125,
+                  "samples_fnv1a64": "2309d25345f655a5",
+                  "se": 0.0108937963381
+                }
+              },
+              "move": "Wx p W",
+              "policy_prior": 4.1352283e-05,
+              "role": "alternative",
+              "semantic_key": 384
+            }
+          ],
+          "cap_hits": 0,
+          "completed_worlds": 2048,
+          "continuation": {
+            "checkpoint": "data/champion.bin",
+            "epsilon": 0,
+            "exact_group_average": true,
+            "fresh_information_view_each_node": true,
+            "kind": "exact_policy_argmax",
+            "recursive_actor": false,
+            "scope": "full_remaining_three_round_match",
+            "symmetries": 20,
+            "temperature": 0
+          },
+          "future_deal_set_hash": "253aff674e305f99",
+          "hash_algorithm": "fnv1a64",
+          "hidden_world_set_hash": "9024d2c4cbfd6129",
+          "nominated_candidates": 2,
+          "policy_probability_aggregation": "sum_by_semantic_move",
+          "policy_reference_candidates": 0,
+          "requested_worlds": 2048,
+          "root_information_view": true,
+          "seed": "202610010110",
+          "shared_current_hidden_worlds": true,
+          "shared_future_deals": true,
+          "world_model": "uniform_exact_card_count_plus_future_deals"
+        },
+        "schema": "lc-commented-ply-eval-v2",
+        "state": {
+          "deck_left": 35,
+          "input_deck_entries": 0,
+          "nply": 9,
+          "path": "data/probes/ui_seed2214615196_p10.state",
+          "round": 0,
+          "turn": 1
+        }
+      },
+      "review_context": {
+        "nominated_candidates": [
+          "Wx p deck",
+          "Wx p W"
+        ],
+        "note": "The W2 pickup was called overrated; prior evidence was inconclusive and must be reported honestly.",
+        "reviewed_moves": [
+          "Wx p deck"
+        ],
+        "used_as_promotion_gate": false,
+        "used_as_training_label": false
+      },
+      "source": {
+        "audit_seed": "202610010110",
+        "displayed_ply": 10,
+        "game_seed": "2214615196",
+        "paired_worlds": 2048,
+        "state_path": "data/probes/ui_seed2214615196_p10.state",
+        "state_sha256": "f93318b6831131a95392ad0a8bceed4a0021c35a5992fcf2cb429ea7eebbb217"
+      }
+    },
+    {
+      "case_id": "ui-221-p12",
+      "evaluation": {
+        "actor": {
+          "information_view": true,
+          "policy_prior": 0.319749862,
+          "search": {
+            "candidates": 1,
+            "confirmation_worlds": 0,
+            "controller_veto_worlds": 0,
+            "cycle_breaks": 0,
+            "exact_terminal_leaves": 0,
+            "fresh_worlds": 0,
+            "ranker_attempted": false,
+            "ranker_passed": false,
+            "skip_reason": 2,
+            "unfinished_cap_leaves": 0,
+            "world_cap": 800,
+            "worlds": 0
+          },
+          "seed": "15111065617386276099",
+          "selected": "W4 p deck",
+          "spec": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
+        },
+        "belief": null,
+        "counterfactual": {
+          "actor_selected_appended": false,
+          "actor_selected_included": true,
+          "branch_neutral_rng_domains": true,
+          "branch_rng_domain_hash": "1c09d9bcb0d9f676",
+          "candidates": [
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "reference",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": -8.8544921875,
+                  "samples_fnv1a64": "b88ec2ca5c5085b2",
+                  "se": 2.10560039104
+                },
+                "hybrid": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": -6.93686523438,
+                  "samples_fnv1a64": "010b0f8abd63c359",
+                  "se": 1.63299014277
+                },
+                "match_score": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 0.43505859375,
+                  "samples_fnv1a64": "0d8f2ef1d6960768",
+                  "se": 0.0154771042035
+                }
+              },
+              "move": "W4 p deck",
+              "policy_prior": 0.319749862,
+              "role": "reference",
+              "semantic_key": 29
+            },
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "reference_ahead",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 1.85178822426,
+                  "delta_vs_reference": -9.0615234375,
+                  "mean": -17.916015625,
+                  "samples_fnv1a64": "b2288dfe581815b8",
+                  "se": 2.0842674418
+                },
+                "hybrid": {
+                  "delta_se": 1.59280128697,
+                  "delta_vs_reference": -4.99409179687,
+                  "mean": -11.9309570313,
+                  "samples_fnv1a64": "b3096328ca9a7571",
+                  "se": 1.60279020255
+                },
+                "match_score": {
+                  "delta_se": 0.0152818011158,
+                  "delta_vs_reference": -0.04541015625,
+                  "mean": 0.3896484375,
+                  "samples_fnv1a64": "d8d9572b13d43d98",
+                  "se": 0.0151844124316
+                }
+              },
+              "move": "W4 p R",
+              "policy_prior": 0.0359238647,
+              "role": "alternative",
+              "semantic_key": 629
+            }
+          ],
+          "cap_hits": 0,
+          "completed_worlds": 1024,
+          "continuation": {
+            "checkpoint": "data/champion.bin",
+            "epsilon": 0,
+            "exact_group_average": true,
+            "fresh_information_view_each_node": true,
+            "kind": "exact_policy_argmax",
+            "recursive_actor": false,
+            "scope": "full_remaining_three_round_match",
+            "symmetries": 20,
+            "temperature": 0
+          },
+          "future_deal_set_hash": "2fed73fc8e3fb96d",
+          "hash_algorithm": "fnv1a64",
+          "hidden_world_set_hash": "a6b7699e68cfc25e",
+          "nominated_candidates": 2,
+          "policy_probability_aggregation": "sum_by_semantic_move",
+          "policy_reference_candidates": 0,
+          "requested_worlds": 1024,
+          "root_information_view": true,
+          "seed": "202610010112",
+          "shared_current_hidden_worlds": true,
+          "shared_future_deals": true,
+          "world_model": "uniform_exact_card_count_plus_future_deals"
+        },
+        "schema": "lc-commented-ply-eval-v2",
+        "state": {
+          "deck_left": 33,
+          "input_deck_entries": 0,
+          "nply": 11,
+          "path": "data/probes/ui_seed2214615196_p12.state",
+          "round": 0,
+          "turn": 1
+        }
+      },
+      "review_context": {
+        "nominated_candidates": [
+          "W4 p deck",
+          "W4 p R"
+        ],
+        "note": "Prefer the deck to the low R2 pickup.",
+        "reviewed_moves": [
+          "W4 p deck"
+        ],
+        "used_as_promotion_gate": false,
+        "used_as_training_label": false
+      },
+      "source": {
+        "audit_seed": "202610010112",
+        "displayed_ply": 12,
+        "game_seed": "2214615196",
+        "paired_worlds": 1024,
+        "state_path": "data/probes/ui_seed2214615196_p12.state",
+        "state_sha256": "5846c87400090f42414a7ae544b4e562f3856d31f54fe8612ae288481ebc2cb0"
+      }
+    },
+    {
+      "case_id": "ui-221-p13",
+      "evaluation": {
+        "actor": {
+          "information_view": true,
+          "policy_prior": 0.591809452,
+          "search": {
+            "candidates": 1,
+            "confirmation_worlds": 0,
+            "controller_veto_worlds": 0,
+            "cycle_breaks": 0,
+            "exact_terminal_leaves": 0,
+            "fresh_worlds": 0,
+            "ranker_attempted": false,
+            "ranker_passed": false,
+            "skip_reason": 2,
+            "unfinished_cap_leaves": 0,
+            "world_cap": 800,
+            "worlds": 0
+          },
+          "seed": "15111065617386276098",
+          "selected": "Yx p deck",
+          "spec": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
+        },
+        "belief": {
+          "alpha": 1.14999998,
+          "cards": [
+            {
+              "card": "B10",
+              "held": true,
+              "marginal": 0.353950977325
+            },
+            {
+              "card": "G7",
+              "held": false,
+              "marginal": 0.314116328955
+            },
+            {
+              "card": "Y7",
+              "held": false,
+              "marginal": 0.29816994071
+            },
+            {
+              "card": "Y5",
+              "held": false,
+              "marginal": 0.295977652073
+            },
+            {
+              "card": "B9",
+              "held": true,
+              "marginal": 0.290676981211
+            },
+            {
+              "card": "Y6",
+              "held": false,
+              "marginal": 0.286259889603
+            },
+            {
+              "card": "B8",
+              "held": false,
+              "marginal": 0.256460934877
+            },
+            {
+              "card": "Y9",
+              "held": false,
+              "marginal": 0.254607409239
+            },
+            {
+              "card": "B7",
+              "held": false,
+              "marginal": 0.25438579917
+            },
+            {
+              "card": "Y8",
+              "held": false,
+              "marginal": 0.246858075261
+            },
+            {
+              "card": "W10",
+              "held": false,
+              "marginal": 0.240355074406
+            },
+            {
+              "card": "W7",
+              "held": true,
+              "marginal": 0.238159865141
+            },
+            {
+              "card": "R5",
+              "held": false,
+              "marginal": 0.230782464147
+            },
+            {
+              "card": "R6",
+              "held": false,
+              "marginal": 0.227431356907
+            },
+            {
+              "card": "R7",
+              "held": true,
+              "marginal": 0.227347552776
+            },
+            {
+              "card": "W9",
+              "held": false,
+              "marginal": 0.224154695868
+            },
+            {
+              "card": "G4",
+              "held": true,
+              "marginal": 0.223988205194
+            },
+            {
+              "card": "G9",
+              "held": false,
+              "marginal": 0.210260659456
+            },
+            {
+              "card": "W8",
+              "held": false,
+              "marginal": 0.207352638245
+            },
+            {
+              "card": "R4",
+              "held": false,
+              "marginal": 0.200878798962
+            },
+            {
+              "card": "W5",
+              "held": false,
+              "marginal": 0.196579679847
+            },
+            {
+              "card": "Y3",
+              "held": false,
+              "marginal": 0.194428101182
+            },
+            {
+              "card": "G10",
+              "held": false,
+              "marginal": 0.193530857563
+            },
+            {
+              "card": "G3",
+              "held": false,
+              "marginal": 0.18101477623
+            },
+            {
+              "card": "R8",
+              "held": false,
+              "marginal": 0.175315335393
+            },
+            {
+              "card": "R9",
+              "held": true,
+              "marginal": 0.173772186041
+            },
+            {
+              "card": "R3",
+              "held": false,
+              "marginal": 0.165077567101
+            },
+            {
+              "card": "Y2",
+              "held": false,
+              "marginal": 0.157655656338
+            },
+            {
+              "card": "Gx",
+              "held": true,
+              "marginal": 0.149961531162
+            },
+            {
+              "card": "Gx",
+              "held": false,
+              "marginal": 0.149961531162
+            },
+            {
+              "card": "W3",
+              "held": false,
+              "marginal": 0.146850496531
+            },
+            {
+              "card": "Yx",
+              "held": true,
+              "marginal": 0.133471831679
+            },
+            {
+              "card": "Yx",
+              "held": false,
+              "marginal": 0.133471831679
+            },
+            {
+              "card": "Rx",
+              "held": false,
+              "marginal": 0.131664305925
+            },
+            {
+              "card": "Rx",
+              "held": false,
+              "marginal": 0.131664305925
+            },
+            {
+              "card": "Rx",
+              "held": false,
+              "marginal": 0.131664305925
+            },
+            {
+              "card": "G2",
+              "held": false,
+              "marginal": 0.131237477064
+            },
+            {
+              "card": "Bx",
+              "held": false,
+              "marginal": 0.0805692449212
+            },
+            {
+              "card": "Wx",
+              "held": false,
+              "marginal": 0.0799668654799
+            },
+            {
+              "card": "Wx",
+              "held": false,
+              "marginal": 0.0799668654799
+            }
+          ],
+          "complete_state_used_only_as_truth_label": true,
+          "information_view": true,
+          "kind": "fixed_k",
+          "marginal_sum": 8.00000005215,
+          "n": 40,
+          "need": 8,
+          "symmetries": 20,
+          "target": {
+            "card": "Y9",
+            "held": false,
+            "marginal": 0.254607409239
+          },
+          "true_nll": 17.5086549667,
+          "uniform_marginal": 0.2,
+          "uniform_true_nll": 18.1580773559,
+          "valid": true
+        },
+        "counterfactual": {
+          "actor_selected_appended": false,
+          "actor_selected_included": true,
+          "branch_neutral_rng_domains": true,
+          "branch_rng_domain_hash": "382aee30c7cb7a8c",
+          "candidates": [
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "reference",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 28.125,
+                  "samples_fnv1a64": "1cedb0846bde68cc",
+                  "se": 2.12207621871
+                },
+                "hybrid": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 16.298828125,
+                  "samples_fnv1a64": "7f8670366c812f38",
+                  "se": 1.57223899085
+                },
+                "match_score": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 0.64892578125,
+                  "samples_fnv1a64": "772e6acfb0b09875",
+                  "se": 0.0148990965829
+                }
+              },
+              "move": "Yx p deck",
+              "policy_prior": 0.591809452,
+              "role": "reference",
+              "semantic_key": 0
+            },
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "inconclusive",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 1.86274055905,
+                  "delta_vs_reference": -0.169921875,
+                  "mean": 27.955078125,
+                  "samples_fnv1a64": "907af6729dfae65d",
+                  "se": 2.13995824546
+                },
+                "hybrid": {
+                  "delta_se": 1.49867844248,
+                  "delta_vs_reference": 0.57744140625,
+                  "mean": 16.8762695313,
+                  "samples_fnv1a64": "86bd365b2c960a32",
+                  "se": 1.56424013663
+                },
+                "match_score": {
+                  "delta_se": 0.0143749350451,
+                  "delta_vs_reference": 0.005859375,
+                  "mean": 0.65478515625,
+                  "samples_fnv1a64": "c2df5c624456b2b5",
+                  "se": 0.0148084072654
+                }
+              },
+              "move": "Yx d deck",
+              "policy_prior": 0.169189408,
+              "role": "neutral_policy_alternative",
+              "semantic_key": 60
+            }
+          ],
+          "cap_hits": 0,
+          "completed_worlds": 1024,
+          "continuation": {
+            "checkpoint": "data/champion.bin",
+            "epsilon": 0,
+            "exact_group_average": true,
+            "fresh_information_view_each_node": true,
+            "kind": "exact_policy_argmax",
+            "recursive_actor": false,
+            "scope": "full_remaining_three_round_match",
+            "symmetries": 20,
+            "temperature": 0
+          },
+          "future_deal_set_hash": "f3e0efc6677c14b1",
+          "hash_algorithm": "fnv1a64",
+          "hidden_world_set_hash": "5d5ca1c188d780df",
+          "nominated_candidates": 0,
+          "policy_probability_aggregation": "sum_by_semantic_move",
+          "policy_reference_candidates": 2,
+          "requested_worlds": 1024,
+          "root_information_view": true,
+          "seed": "202610010113",
+          "shared_current_hidden_worlds": true,
+          "shared_future_deals": true,
+          "world_model": "uniform_exact_card_count_plus_future_deals"
+        },
+        "schema": "lc-commented-ply-eval-v2",
+        "state": {
+          "deck_left": 32,
+          "input_deck_entries": 0,
+          "nply": 12,
+          "path": "data/probes/ui_seed2214615196_p13.state",
+          "round": 0,
+          "turn": 0
+        }
+      },
+      "review_context": {
+        "nominated_candidates": [],
+        "note": "Audit the exact-cardinality belief rather than an independent-card approximation.",
+        "reviewed_moves": [],
+        "used_as_promotion_gate": false,
+        "used_as_training_label": false
+      },
+      "source": {
+        "audit_seed": "202610010113",
+        "displayed_ply": 13,
+        "game_seed": "2214615196",
+        "paired_worlds": 1024,
+        "state_path": "data/probes/ui_seed2214615196_p13.state",
+        "state_sha256": "4e1ceaf963b1ddc518bc900d52f9615bb984dd42fc75580d72b1b0851dd900d4"
+      }
+    },
+    {
+      "case_id": "ui-221-p16",
+      "evaluation": {
+        "actor": {
+          "information_view": true,
+          "policy_prior": 0.101102069,
+          "search": {
+            "candidates": 4,
+            "confirmation_worlds": 0,
+            "controller_veto_worlds": 0,
+            "cycle_breaks": 0,
+            "exact_terminal_leaves": 6400,
+            "fresh_worlds": 800,
+            "ranker_attempted": false,
+            "ranker_passed": false,
+            "skip_reason": 0,
+            "unfinished_cap_leaves": 0,
+            "world_cap": 800,
+            "worlds": 800
+          },
+          "seed": "15111065617386276103",
+          "selected": "Yx d deck",
+          "spec": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
+        },
+        "belief": null,
+        "counterfactual": {
+          "actor_selected_appended": false,
+          "actor_selected_included": true,
+          "branch_neutral_rng_domains": true,
+          "branch_rng_domain_hash": "8dd7222f31576f36",
+          "candidates": [
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "reference",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": -9.2333984375,
+                  "samples_fnv1a64": "d0f4de7b3e149ac1",
+                  "se": 2.09348331274
+                },
+                "hybrid": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": -3.97729492188,
+                  "samples_fnv1a64": "5d5f1d36d8e510f4",
+                  "se": 1.63898587113
+                },
+                "match_score": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 0.46484375,
+                  "samples_fnv1a64": "846c160bbe597298",
+                  "se": 0.0155479642687
+                }
+              },
+              "move": "Y2 d deck",
+              "policy_prior": 0.632477999,
+              "role": "reference",
+              "semantic_key": 63
+            },
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "reference_ahead",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 0.992704862868,
+                  "delta_vs_reference": -2.7216796875,
+                  "mean": -11.955078125,
+                  "samples_fnv1a64": "24e22451406ecba2",
+                  "se": 2.06648673404
+                },
+                "hybrid": {
+                  "delta_se": 0.994491686441,
+                  "delta_vs_reference": -3.50522460937,
+                  "mean": -7.48251953125,
+                  "samples_fnv1a64": "8bad5ce626571ebc",
+                  "se": 1.6244934368
+                },
+                "match_score": {
+                  "delta_se": 0.00965182917747,
+                  "delta_vs_reference": -0.03369140625,
+                  "mean": 0.43115234375,
+                  "samples_fnv1a64": "78c1ce4fcdaa2bd5",
+                  "se": 0.0154142136043
+                }
+              },
+              "move": "W7 p deck",
+              "policy_prior": 0.150233835,
+              "role": "alternative",
+              "semantic_key": 32
+            },
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "inconclusive",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 0.878648867359,
+                  "delta_vs_reference": -0.33203125,
+                  "mean": -9.5654296875,
+                  "samples_fnv1a64": "43243cbf7358077f",
+                  "se": 2.09414083728
+                },
+                "hybrid": {
+                  "delta_se": 0.838749569772,
+                  "delta_vs_reference": -1.5791015625,
+                  "mean": -5.55639648438,
+                  "samples_fnv1a64": "81257e33ccb7dce4",
+                  "se": 1.63519775082
+                },
+                "match_score": {
+                  "delta_se": 0.00813059060238,
+                  "delta_vs_reference": -0.015625,
+                  "mean": 0.44921875,
+                  "samples_fnv1a64": "cdf8f940889c29d8",
+                  "se": 0.0155056960145
+                }
+              },
+              "move": "Yx d deck",
+              "policy_prior": 0.101102069,
+              "role": "alternative",
+              "semantic_key": 60
+            }
+          ],
+          "cap_hits": 0,
+          "completed_worlds": 1024,
+          "continuation": {
+            "checkpoint": "data/champion.bin",
+            "epsilon": 0,
+            "exact_group_average": true,
+            "fresh_information_view_each_node": true,
+            "kind": "exact_policy_argmax",
+            "recursive_actor": false,
+            "scope": "full_remaining_three_round_match",
+            "symmetries": 20,
+            "temperature": 0
+          },
+          "future_deal_set_hash": "7b11d6557512609f",
+          "hash_algorithm": "fnv1a64",
+          "hidden_world_set_hash": "9932475d65a43fee",
+          "nominated_candidates": 3,
+          "policy_probability_aggregation": "sum_by_semantic_move",
+          "policy_reference_candidates": 0,
+          "requested_worlds": 1024,
+          "root_information_view": true,
+          "seed": "202610010116",
+          "shared_current_hidden_worlds": true,
+          "shared_future_deals": true,
+          "world_model": "uniform_exact_card_count_plus_future_deals"
+        },
+        "schema": "lc-commented-ply-eval-v2",
+        "state": {
+          "deck_left": 29,
+          "input_deck_entries": 0,
+          "nply": 15,
+          "path": "data/probes/ui_seed2214615196_p16.state",
+          "round": 0,
+          "turn": 1
+        }
+      },
+      "review_context": {
+        "nominated_candidates": [
+          "Y2 d deck",
+          "W7 p deck",
+          "Yx d deck"
+        ],
+        "note": "Preserve White options instead of committing W7 early.",
+        "reviewed_moves": [
+          "Y2 d deck"
+        ],
+        "used_as_promotion_gate": false,
+        "used_as_training_label": false
+      },
+      "source": {
+        "audit_seed": "202610010116",
+        "displayed_ply": 16,
+        "game_seed": "2214615196",
+        "paired_worlds": 1024,
+        "state_path": "data/probes/ui_seed2214615196_p16.state",
+        "state_sha256": "e6edd1da85d41b44d26e2b2d110a5469b4be14c517d7272006c1317a08c1fce1"
+      }
+    },
+    {
+      "case_id": "ui-221-p20",
+      "evaluation": {
+        "actor": {
+          "information_view": true,
+          "policy_prior": 0.0871630907,
+          "search": {
+            "candidates": 5,
+            "confirmation_worlds": 0,
+            "controller_veto_worlds": 0,
+            "cycle_breaks": 3,
+            "exact_terminal_leaves": 8000,
+            "fresh_worlds": 800,
+            "ranker_attempted": false,
+            "ranker_passed": false,
+            "skip_reason": 0,
+            "unfinished_cap_leaves": 0,
+            "world_cap": 800,
+            "worlds": 800
+          },
+          "seed": "15111065617386276107",
+          "selected": "G4 p deck",
+          "spec": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
+        },
+        "belief": null,
+        "counterfactual": {
+          "actor_selected_appended": true,
+          "actor_selected_included": true,
+          "branch_neutral_rng_domains": true,
+          "branch_rng_domain_hash": "2f9f6bca5fd59140",
+          "candidates": [
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "reference",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": -15.4443359375,
+                  "samples_fnv1a64": "ee6473d801e153b6",
+                  "se": 2.03245927684
+                },
+                "hybrid": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": -10.0495605469,
+                  "samples_fnv1a64": "063ce0efa63b7310",
+                  "se": 1.61339886816
+                },
+                "match_score": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 0.4072265625,
+                  "samples_fnv1a64": "d988eca8e7e56865",
+                  "se": 0.0153145017668
+                }
+              },
+              "move": "W3 d deck",
+              "policy_prior": 0.0541144386,
+              "role": "reference",
+              "semantic_key": 88
+            },
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "reference_ahead",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 0.884241833492,
+                  "delta_vs_reference": -3.359375,
+                  "mean": -18.8037109375,
+                  "samples_fnv1a64": "c38992712beb4ad5",
+                  "se": 2.03362345025
+                },
+                "hybrid": {
+                  "delta_se": 0.965409145821,
+                  "delta_vs_reference": -2.4140625,
+                  "mean": -12.4636230469,
+                  "samples_fnv1a64": "f9a9e193d03db68d",
+                  "se": 1.59815166206
+                },
+                "match_score": {
+                  "delta_se": 0.00939602351295,
+                  "delta_vs_reference": -0.0224609375,
+                  "mean": 0.384765625,
+                  "samples_fnv1a64": "728eb3299e4823f8",
+                  "se": 0.0151646613909
+                }
+              },
+              "move": "W7 p deck",
+              "policy_prior": 0.0830555856,
+              "role": "alternative",
+              "semantic_key": 32
+            },
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "inconclusive",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 1.02526701828,
+                  "delta_vs_reference": 0.0947265625,
+                  "mean": -15.349609375,
+                  "samples_fnv1a64": "eee1fcd9317add4d",
+                  "se": 2.03698618584
+                },
+                "hybrid": {
+                  "delta_se": 0.95085627127,
+                  "delta_vs_reference": -0.190576171875,
+                  "mean": -10.2401367188,
+                  "samples_fnv1a64": "0772778d497e6030",
+                  "se": 1.61384440925
+                },
+                "match_score": {
+                  "delta_se": 0.00919124315242,
+                  "delta_vs_reference": -0.001953125,
+                  "mean": 0.4052734375,
+                  "samples_fnv1a64": "d1f1fc9ba65e6c58",
+                  "se": 0.0153183971153
+                }
+              },
+              "move": "Wx d deck",
+              "policy_prior": 0.608925998,
+              "role": "alternative",
+              "semantic_key": 84
+            },
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "inconclusive",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 1.19516879149,
+                  "delta_vs_reference": -2.2294921875,
+                  "mean": -17.673828125,
+                  "samples_fnv1a64": "ed642edd717e975c",
+                  "se": 2.03778323225
+                },
+                "hybrid": {
+                  "delta_se": 1.19337661633,
+                  "delta_vs_reference": -0.209130859375,
+                  "mean": -10.2586914062,
+                  "samples_fnv1a64": "fefac5b87c91c5fa",
+                  "se": 1.61420682197
+                },
+                "match_score": {
+                  "delta_se": 0.0115810745595,
+                  "delta_vs_reference": -0.0009765625,
+                  "mean": 0.40625,
+                  "samples_fnv1a64": "14ffc36560541a85",
+                  "se": 0.0153242686985
+                }
+              },
+              "move": "G4 p deck",
+              "policy_prior": 0.0871630907,
+              "role": "actor_selected_extra",
+              "semantic_key": 41
+            }
+          ],
+          "cap_hits": 0,
+          "completed_worlds": 1024,
+          "continuation": {
+            "checkpoint": "data/champion.bin",
+            "epsilon": 0,
+            "exact_group_average": true,
+            "fresh_information_view_each_node": true,
+            "kind": "exact_policy_argmax",
+            "recursive_actor": false,
+            "scope": "full_remaining_three_round_match",
+            "symmetries": 20,
+            "temperature": 0
+          },
+          "future_deal_set_hash": "e24f86b0853d3c6d",
+          "hash_algorithm": "fnv1a64",
+          "hidden_world_set_hash": "0ca95f663cc70266",
+          "nominated_candidates": 3,
+          "policy_probability_aggregation": "sum_by_semantic_move",
+          "policy_reference_candidates": 0,
+          "requested_worlds": 1024,
+          "root_information_view": true,
+          "seed": "202610010120",
+          "shared_current_hidden_worlds": true,
+          "shared_future_deals": true,
+          "world_model": "uniform_exact_card_count_plus_future_deals"
+        },
+        "schema": "lc-commented-ply-eval-v2",
+        "state": {
+          "deck_left": 26,
+          "input_deck_entries": 0,
+          "nply": 19,
+          "path": "data/probes/ui_seed2214615196_p20.state",
+          "round": 0,
+          "turn": 1
+        }
+      },
+      "review_context": {
+        "nominated_candidates": [
+          "W3 d deck",
+          "W7 p deck",
+          "Wx d deck"
+        ],
+        "note": "W7 was the concern; W3 and the wager discard were both reviewed, with no forced ordering between close discards.",
+        "reviewed_moves": [
+          "W3 d deck",
+          "Wx d deck"
+        ],
+        "used_as_promotion_gate": false,
+        "used_as_training_label": false
+      },
+      "source": {
+        "audit_seed": "202610010120",
+        "displayed_ply": 20,
+        "game_seed": "2214615196",
+        "paired_worlds": 1024,
+        "state_path": "data/probes/ui_seed2214615196_p20.state",
+        "state_sha256": "5282e4e8ef372d0fc72dfd5125af4b32c5abcc655ec94fd9cc33fabb52c19d01"
+      }
+    },
+    {
+      "case_id": "showcase-572-p14",
+      "evaluation": {
+        "actor": {
+          "information_view": true,
+          "policy_prior": 0.341023207,
+          "search": {
+            "candidates": 1,
+            "confirmation_worlds": 0,
+            "controller_veto_worlds": 0,
+            "cycle_breaks": 0,
+            "exact_terminal_leaves": 0,
+            "fresh_worlds": 0,
+            "ranker_attempted": false,
+            "ranker_passed": false,
+            "skip_reason": 2,
+            "unfinished_cap_leaves": 0,
+            "world_cap": 800,
+            "worlds": 0
+          },
+          "seed": "15111065617386276197",
+          "selected": "R4 d deck",
+          "spec": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
+        },
+        "belief": null,
+        "counterfactual": {
+          "actor_selected_appended": false,
+          "actor_selected_included": true,
+          "branch_neutral_rng_domains": true,
+          "branch_rng_domain_hash": "a8d84a2ad0b4ff97",
+          "candidates": [
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "reference",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 38.123046875,
+                  "samples_fnv1a64": "8d4785081ebffa92",
+                  "se": 2.1334610714
+                },
+                "hybrid": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 23.2440429688,
+                  "samples_fnv1a64": "51e46e6a817f7aa1",
+                  "se": 1.48703658062
+                },
+                "match_score": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 0.71337890625,
+                  "samples_fnv1a64": "9ca0db6ffd740188",
+                  "se": 0.0140614548659
+                }
+              },
+              "move": "R4 d deck",
+              "policy_prior": 0.341023207,
+              "role": "reference",
+              "semantic_key": 113
+            },
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "inconclusive",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 1.19942164386,
+                  "delta_vs_reference": -0.8837890625,
+                  "mean": 37.2392578125,
+                  "samples_fnv1a64": "d07edde51fa2b1d2",
+                  "se": 2.10107707952
+                },
+                "hybrid": {
+                  "delta_se": 1.03728589576,
+                  "delta_vs_reference": 0.248779296875,
+                  "mean": 23.4928222656,
+                  "samples_fnv1a64": "032fc750a52e322f",
+                  "se": 1.48203350132
+                },
+                "match_score": {
+                  "delta_se": 0.0100112585416,
+                  "delta_vs_reference": 0.0029296875,
+                  "mean": 0.71630859375,
+                  "samples_fnv1a64": "8e5a2a44f0a43bb5",
+                  "se": 0.0140176305216
+                }
+              },
+              "move": "G7 p deck",
+              "policy_prior": 0.221394882,
+              "role": "alternative",
+              "semantic_key": 44
+            },
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "inconclusive",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 1.36514843995,
+                  "delta_vs_reference": -1.01953125,
+                  "mean": 37.103515625,
+                  "samples_fnv1a64": "a0433d57f685f32e",
+                  "se": 2.06606380028
+                },
+                "hybrid": {
+                  "delta_se": 1.24762462061,
+                  "delta_vs_reference": 0.1931640625,
+                  "mean": 23.4372070313,
+                  "samples_fnv1a64": "6628f3eb717bc8e5",
+                  "se": 1.48157601661
+                },
+                "match_score": {
+                  "delta_se": 0.0120554145795,
+                  "delta_vs_reference": 0.00244140625,
+                  "mean": 0.7158203125,
+                  "samples_fnv1a64": "29ddf0daa5fe13f8",
+                  "se": 0.0140334911415
+                }
+              },
+              "move": "B3 d deck",
+              "policy_prior": 0.284087628,
+              "role": "alternative",
+              "semantic_key": 76
+            }
+          ],
+          "cap_hits": 0,
+          "completed_worlds": 1024,
+          "continuation": {
+            "checkpoint": "data/champion.bin",
+            "epsilon": 0,
+            "exact_group_average": true,
+            "fresh_information_view_each_node": true,
+            "kind": "exact_policy_argmax",
+            "recursive_actor": false,
+            "scope": "full_remaining_three_round_match",
+            "symmetries": 20,
+            "temperature": 0
+          },
+          "future_deal_set_hash": "fefeb17f54bfc4cf",
+          "hash_algorithm": "fnv1a64",
+          "hidden_world_set_hash": "ea490fd029134770",
+          "nominated_candidates": 3,
+          "policy_probability_aggregation": "sum_by_semantic_move",
+          "policy_reference_candidates": 0,
+          "requested_worlds": 1024,
+          "root_information_view": true,
+          "seed": "202610010214",
+          "shared_current_hidden_worlds": true,
+          "shared_future_deals": true,
+          "world_model": "uniform_exact_card_count_plus_future_deals"
+        },
+        "schema": "lc-commented-ply-eval-v2",
+        "state": {
+          "deck_left": 31,
+          "input_deck_entries": 0,
+          "nply": 13,
+          "path": "data/probes/showcase_5726968372613385_p14.state",
+          "round": 0,
+          "turn": 1
+        }
+      },
+      "review_context": {
+        "nominated_candidates": [
+          "R4 d deck",
+          "G7 p deck",
+          "B3 d deck"
+        ],
+        "note": "Evaluate both suggested alternatives against the recorded R4 discard; do not force-rank G7 versus B3.",
+        "reviewed_moves": [
+          "G7 p deck",
+          "B3 d deck"
+        ],
+        "used_as_promotion_gate": false,
+        "used_as_training_label": false
+      },
+      "source": {
+        "audit_seed": "202610010214",
+        "displayed_ply": 14,
+        "game_seed": "5726968372613385",
+        "paired_worlds": 1024,
+        "state_path": "data/probes/showcase_5726968372613385_p14.state",
+        "state_sha256": "b6c77e8b81d641bc0e9a92385980373ca2994874bcae869bc1fa5e94c9eb6b15"
+      }
+    },
+    {
+      "case_id": "showcase-572-p15",
+      "evaluation": {
+        "actor": {
+          "information_view": true,
+          "policy_prior": 0.219165847,
+          "search": {
+            "candidates": 5,
+            "confirmation_worlds": 0,
+            "controller_veto_worlds": 0,
+            "cycle_breaks": 0,
+            "exact_terminal_leaves": 8000,
+            "fresh_worlds": 800,
+            "ranker_attempted": false,
+            "ranker_passed": false,
+            "skip_reason": 0,
+            "unfinished_cap_leaves": 0,
+            "world_cap": 800,
+            "worlds": 800
+          },
+          "seed": "15111065617386276196",
+          "selected": "W4 d deck",
+          "spec": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
+        },
+        "belief": null,
+        "counterfactual": {
+          "actor_selected_appended": false,
+          "actor_selected_included": true,
+          "branch_neutral_rng_domains": true,
+          "branch_rng_domain_hash": "a954dcf672d18dc4",
+          "candidates": [
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "reference",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 26.5322265625,
+                  "samples_fnv1a64": "4707c1cf2740321c",
+                  "se": 2.16502756069
+                },
+                "hybrid": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 17.7816894531,
+                  "samples_fnv1a64": "e06646bf698e648a",
+                  "se": 1.55975618208
+                },
+                "match_score": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 0.66455078125,
+                  "samples_fnv1a64": "66e3d6a4240674f5",
+                  "se": 0.0147375415356
+                }
+              },
+              "move": "B5 d deck",
+              "policy_prior": 0.203121811,
+              "role": "reference",
+              "semantic_key": 78
+            },
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "inconclusive",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 1.88637230373,
+                  "delta_vs_reference": 3.521484375,
+                  "mean": 30.0537109375,
+                  "samples_fnv1a64": "7cd2d94798473731",
+                  "se": 2.15127145432
+                },
+                "hybrid": {
+                  "delta_se": 1.58626817509,
+                  "delta_vs_reference": 1.78740234375,
+                  "mean": 19.5690917969,
+                  "samples_fnv1a64": "0319bdc3623e0c14",
+                  "se": 1.53428434563
+                },
+                "match_score": {
+                  "delta_se": 0.015230044081,
+                  "delta_vs_reference": 0.01611328125,
+                  "mean": 0.6806640625,
+                  "samples_fnv1a64": "be95bcfb7a323c05",
+                  "se": 0.0144943812308
+                }
+              },
+              "move": "W4 d deck",
+              "policy_prior": 0.219165847,
+              "role": "alternative",
+              "semantic_key": 89
+            }
+          ],
+          "cap_hits": 0,
+          "completed_worlds": 1024,
+          "continuation": {
+            "checkpoint": "data/champion.bin",
+            "epsilon": 0,
+            "exact_group_average": true,
+            "fresh_information_view_each_node": true,
+            "kind": "exact_policy_argmax",
+            "recursive_actor": false,
+            "scope": "full_remaining_three_round_match",
+            "symmetries": 20,
+            "temperature": 0
+          },
+          "future_deal_set_hash": "8beab6d5c933d87d",
+          "hash_algorithm": "fnv1a64",
+          "hidden_world_set_hash": "ab455a4ecffe0e08",
+          "nominated_candidates": 2,
+          "policy_probability_aggregation": "sum_by_semantic_move",
+          "policy_reference_candidates": 0,
+          "requested_worlds": 1024,
+          "root_information_view": true,
+          "seed": "202610010215",
+          "shared_current_hidden_worlds": true,
+          "shared_future_deals": true,
+          "world_model": "uniform_exact_card_count_plus_future_deals"
+        },
+        "schema": "lc-commented-ply-eval-v2",
+        "state": {
+          "deck_left": 30,
+          "input_deck_entries": 0,
+          "nply": 14,
+          "path": "data/probes/showcase_5726968372613385_p15.state",
+          "round": 0,
+          "turn": 0
+        }
+      },
+      "review_context": {
+        "nominated_candidates": [
+          "B5 d deck",
+          "W4 d deck"
+        ],
+        "note": "Preserve W4 and discard B5.",
+        "reviewed_moves": [
+          "B5 d deck"
+        ],
+        "used_as_promotion_gate": false,
+        "used_as_training_label": false
+      },
+      "source": {
+        "audit_seed": "202610010215",
+        "displayed_ply": 15,
+        "game_seed": "5726968372613385",
+        "paired_worlds": 1024,
+        "state_path": "data/probes/showcase_5726968372613385_p15.state",
+        "state_sha256": "3d46c45bac79b78d0d37b198ab7440a9f835c69469bc6b0f8f99aca265e8a12b"
+      }
+    },
+    {
+      "case_id": "showcase-572-p17",
+      "evaluation": {
+        "actor": {
+          "information_view": true,
+          "policy_prior": 0.262293547,
+          "search": {
+            "candidates": 5,
+            "confirmation_worlds": 0,
+            "controller_veto_worlds": 0,
+            "cycle_breaks": 0,
+            "exact_terminal_leaves": 4000,
+            "fresh_worlds": 0,
+            "ranker_attempted": false,
+            "ranker_passed": false,
+            "skip_reason": 0,
+            "unfinished_cap_leaves": 0,
+            "world_cap": 800,
+            "worlds": 800
+          },
+          "seed": "15111065617386276202",
+          "selected": "R8 p deck",
+          "spec": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
+        },
+        "belief": null,
+        "counterfactual": {
+          "actor_selected_appended": true,
+          "actor_selected_included": true,
+          "branch_neutral_rng_domains": true,
+          "branch_rng_domain_hash": "6ba25b877fbda6d9",
+          "candidates": [
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "reference",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 36.5517578125,
+                  "samples_fnv1a64": "c99cf6c3847f5cda",
+                  "se": 2.10434826246
+                },
+                "hybrid": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 22.9701660156,
+                  "samples_fnv1a64": "8988959dd0600143",
+                  "se": 1.48722347085
+                },
+                "match_score": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 0.71142578125,
+                  "samples_fnv1a64": "9e38a1e0165cb8f5",
+                  "se": 0.0140733170342
+                }
+              },
+              "move": "B5 d R",
+              "policy_prior": 0.0977047831,
+              "role": "reference",
+              "semantic_key": 678
+            },
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "inconclusive",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 1.8358051662,
+                  "delta_vs_reference": -0.7177734375,
+                  "mean": 35.833984375,
+                  "samples_fnv1a64": "3df268ec8e9c51aa",
+                  "se": 2.12433678802
+                },
+                "hybrid": {
+                  "delta_se": 1.4451044985,
+                  "delta_vs_reference": -0.426513671875,
+                  "mean": 22.5436523438,
+                  "samples_fnv1a64": "a8d7078c5d0674c3",
+                  "se": 1.49631715033
+                },
+                "match_score": {
+                  "delta_se": 0.0138341496819,
+                  "delta_vs_reference": -0.00390625,
+                  "mean": 0.70751953125,
+                  "samples_fnv1a64": "859ccbe0b47130c8",
+                  "se": 0.0141469172393
+                }
+              },
+              "move": "R8 p R",
+              "policy_prior": 0.0264734607,
+              "role": "alternative",
+              "semantic_key": 657
+            },
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "alternative_ahead",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 1.77620553125,
+                  "delta_vs_reference": 3.892578125,
+                  "mean": 40.4443359375,
+                  "samples_fnv1a64": "39222da706bcf420",
+                  "se": 2.0489635352
+                },
+                "hybrid": {
+                  "delta_se": 1.54199439511,
+                  "delta_vs_reference": 3.66142578125,
+                  "mean": 26.6315917969,
+                  "samples_fnv1a64": "aaa3abe60652f27a",
+                  "se": 1.43102588602
+                },
+                "match_score": {
+                  "delta_se": 0.0148342583647,
+                  "delta_vs_reference": 0.03466796875,
+                  "mean": 0.74609375,
+                  "samples_fnv1a64": "918fd97cefbed5a5",
+                  "se": 0.0135377081425
+                }
+              },
+              "move": "R8 p deck",
+              "policy_prior": 0.262293547,
+              "role": "actor_selected_extra",
+              "semantic_key": 57
+            }
+          ],
+          "cap_hits": 0,
+          "completed_worlds": 1024,
+          "continuation": {
+            "checkpoint": "data/champion.bin",
+            "epsilon": 0,
+            "exact_group_average": true,
+            "fresh_information_view_each_node": true,
+            "kind": "exact_policy_argmax",
+            "recursive_actor": false,
+            "scope": "full_remaining_three_round_match",
+            "symmetries": 20,
+            "temperature": 0
+          },
+          "future_deal_set_hash": "f642bc65600ad5b1",
+          "hash_algorithm": "fnv1a64",
+          "hidden_world_set_hash": "1732eb4cbd48f8bc",
+          "nominated_candidates": 2,
+          "policy_probability_aggregation": "sum_by_semantic_move",
+          "policy_reference_candidates": 0,
+          "requested_worlds": 1024,
+          "root_information_view": true,
+          "seed": "202610010217",
+          "shared_current_hidden_worlds": true,
+          "shared_future_deals": true,
+          "world_model": "uniform_exact_card_count_plus_future_deals"
+        },
+        "schema": "lc-commented-ply-eval-v2",
+        "state": {
+          "deck_left": 29,
+          "input_deck_entries": 0,
+          "nply": 16,
+          "path": "data/probes/showcase_5726968372613385_p17.state",
+          "round": 0,
+          "turn": 0
+        }
+      },
+      "review_context": {
+        "nominated_candidates": [
+          "B5 d R",
+          "R8 p R"
+        ],
+        "note": "Discard B5 and take R4 rather than prematurely play R8.",
+        "reviewed_moves": [
+          "B5 d R"
+        ],
+        "used_as_promotion_gate": false,
+        "used_as_training_label": false
+      },
+      "source": {
+        "audit_seed": "202610010217",
+        "displayed_ply": 17,
+        "game_seed": "5726968372613385",
+        "paired_worlds": 1024,
+        "state_path": "data/probes/showcase_5726968372613385_p17.state",
+        "state_sha256": "48dcd397d6378a3340b65e0fa7636685e01f6675bb082679ce4de0e688afb3d3"
+      }
+    },
+    {
+      "case_id": "showcase-572-p32",
+      "evaluation": {
+        "actor": {
+          "information_view": true,
+          "policy_prior": 0.971569538,
+          "search": {
+            "candidates": 1,
+            "confirmation_worlds": 0,
+            "controller_veto_worlds": 0,
+            "cycle_breaks": 0,
+            "exact_terminal_leaves": 0,
+            "fresh_worlds": 0,
+            "ranker_attempted": false,
+            "ranker_passed": false,
+            "skip_reason": 4,
+            "unfinished_cap_leaves": 0,
+            "world_cap": 800,
+            "worlds": 0
+          },
+          "seed": "15111065617386276219",
+          "selected": "Bx p deck",
+          "spec": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
+        },
+        "belief": null,
+        "counterfactual": {
+          "actor_selected_appended": false,
+          "actor_selected_included": true,
+          "branch_neutral_rng_domains": true,
+          "branch_rng_domain_hash": "68840901f5e71a43",
+          "candidates": [
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "reference",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 33.8603515625,
+                  "samples_fnv1a64": "6046a48718c546ac",
+                  "se": 2.11837549312
+                },
+                "hybrid": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 18.3922363281,
+                  "samples_fnv1a64": "cd53ed6aaea61569",
+                  "se": 1.55377556376
+                },
+                "match_score": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 0.6669921875,
+                  "samples_fnv1a64": "0c2c492d3b4fe8b8",
+                  "se": 0.0147025591702
+                }
+              },
+              "move": "W10 p deck",
+              "policy_prior": 0.0173169822,
+              "role": "reference",
+              "semantic_key": 35
+            },
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "inconclusive",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 0.510799735351,
+                  "delta_vs_reference": -0.880859375,
+                  "mean": 32.9794921875,
+                  "samples_fnv1a64": "4909fbb676af24da",
+                  "se": 2.11600689824
+                },
+                "hybrid": {
+                  "delta_se": 0.45947553966,
+                  "delta_vs_reference": 0.24892578125,
+                  "mean": 18.6411621094,
+                  "samples_fnv1a64": "4abeed12c9f887e6",
+                  "se": 1.54864723646
+                },
+                "match_score": {
+                  "delta_se": 0.0044227869229,
+                  "delta_vs_reference": 0.0029296875,
+                  "mean": 0.669921875,
+                  "samples_fnv1a64": "5487dcc5be9f8578",
+                  "se": 0.0146534324227
+                }
+              },
+              "move": "Bx p deck",
+              "policy_prior": 0.971569538,
+              "role": "alternative",
+              "semantic_key": 12
+            },
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "alternative_ahead",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 0.741937661908,
+                  "delta_vs_reference": 4.0380859375,
+                  "mean": 37.8984375,
+                  "samples_fnv1a64": "6ae2b3e70c530ca6",
+                  "se": 2.11934467134
+                },
+                "hybrid": {
+                  "delta_se": 0.637976717275,
+                  "delta_vs_reference": 2.98510742188,
+                  "mean": 21.37734375,
+                  "samples_fnv1a64": "875a5936f67edfb3",
+                  "se": 1.51784658374
+                },
+                "match_score": {
+                  "delta_se": 0.006137239395,
+                  "delta_vs_reference": 0.02783203125,
+                  "mean": 0.69482421875,
+                  "samples_fnv1a64": "4b9cc0c9407b51f5",
+                  "se": 0.0143555882377
+                }
+              },
+              "move": "R10 p deck",
+              "policy_prior": 0.000862163026,
+              "role": "alternative",
+              "semantic_key": 59
+            }
+          ],
+          "cap_hits": 0,
+          "completed_worlds": 1024,
+          "continuation": {
+            "checkpoint": "data/champion.bin",
+            "epsilon": 0,
+            "exact_group_average": true,
+            "fresh_information_view_each_node": true,
+            "kind": "exact_policy_argmax",
+            "recursive_actor": false,
+            "scope": "full_remaining_three_round_match",
+            "symmetries": 20,
+            "temperature": 0
+          },
+          "future_deal_set_hash": "76efad713c833117",
+          "hash_algorithm": "fnv1a64",
+          "hidden_world_set_hash": "8d6fbf4574f04583",
+          "nominated_candidates": 3,
+          "policy_probability_aggregation": "sum_by_semantic_move",
+          "policy_reference_candidates": 0,
+          "requested_worlds": 1024,
+          "root_information_view": true,
+          "seed": "202610010232",
+          "shared_current_hidden_worlds": true,
+          "shared_future_deals": true,
+          "world_model": "uniform_exact_card_count_plus_future_deals"
+        },
+        "schema": "lc-commented-ply-eval-v2",
+        "state": {
+          "deck_left": 16,
+          "input_deck_entries": 0,
+          "nply": 31,
+          "path": "data/probes/showcase_5726968372613385_p32.state",
+          "round": 0,
+          "turn": 1
+        }
+      },
+      "review_context": {
+        "nominated_candidates": [
+          "W10 p deck",
+          "Bx p deck",
+          "R10 p deck"
+        ],
+        "note": "Compare the third Blue wager with safe ten plays.",
+        "reviewed_moves": [
+          "W10 p deck",
+          "R10 p deck"
+        ],
+        "used_as_promotion_gate": false,
+        "used_as_training_label": false
+      },
+      "source": {
+        "audit_seed": "202610010232",
+        "displayed_ply": 32,
+        "game_seed": "5726968372613385",
+        "paired_worlds": 1024,
+        "state_path": "data/probes/showcase_5726968372613385_p32.state",
+        "state_sha256": "af77ac75182db847db1b09e2fc53a75e44def177305120becc6e7f691044a63a"
+      }
+    },
+    {
+      "case_id": "ui-725-p21",
+      "evaluation": {
+        "actor": {
+          "information_view": true,
+          "policy_prior": 0.65929234,
+          "search": {
+            "candidates": 5,
+            "confirmation_worlds": 0,
+            "controller_veto_worlds": 0,
+            "cycle_breaks": 0,
+            "exact_terminal_leaves": 4000,
+            "fresh_worlds": 0,
+            "ranker_attempted": false,
+            "ranker_passed": false,
+            "skip_reason": 0,
+            "unfinished_cap_leaves": 0,
+            "world_cap": 800,
+            "worlds": 800
+          },
+          "seed": "15111065617386276306",
+          "selected": "Bx d deck",
+          "spec": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
+        },
+        "belief": null,
+        "counterfactual": {
+          "actor_selected_appended": false,
+          "actor_selected_included": true,
+          "branch_neutral_rng_domains": true,
+          "branch_rng_domain_hash": "45bd6382b21d99bc",
+          "candidates": [
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "reference",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 12.3779296875,
+                  "samples_fnv1a64": "51a1b7024cf041a2",
+                  "se": 2.11380063484
+                },
+                "hybrid": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 8.28491210937,
+                  "samples_fnv1a64": "0924b206f76c62a5",
+                  "se": 1.62483246802
+                },
+                "match_score": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 0.57666015625,
+                  "samples_fnv1a64": "77a8742f01a81f75",
+                  "se": 0.0153936370825
+                }
+              },
+              "move": "Bx d deck",
+              "policy_prior": 0.65929234,
+              "role": "reference",
+              "semantic_key": 72
+            },
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "inconclusive",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 1.51788521524,
+                  "delta_vs_reference": -0.6162109375,
+                  "mean": 11.76171875,
+                  "samples_fnv1a64": "c2af95ab96e43303",
+                  "se": 2.14481372538
+                },
+                "hybrid": {
+                  "delta_se": 1.48136432148,
+                  "delta_vs_reference": -1.73979492187,
+                  "mean": 6.5451171875,
+                  "samples_fnv1a64": "5b3fec0fde38da31",
+                  "se": 1.63659394302
+                },
+                "match_score": {
+                  "delta_se": 0.0143245789958,
+                  "delta_vs_reference": -0.01708984375,
+                  "mean": 0.5595703125,
+                  "samples_fnv1a64": "3b29576e5774e6e5",
+                  "se": 0.01550590644
+                }
+              },
+              "move": "Bx d G",
+              "policy_prior": 0.103585325,
+              "role": "alternative",
+              "semantic_key": 552
+            },
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "inconclusive",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 1.4769780158,
+                  "delta_vs_reference": -1.0986328125,
+                  "mean": 11.279296875,
+                  "samples_fnv1a64": "c39df4857ed5e3d5",
+                  "se": 2.14967207899
+                },
+                "hybrid": {
+                  "delta_se": 1.43917172703,
+                  "delta_vs_reference": 0.335693359375,
+                  "mean": 8.62060546875,
+                  "samples_fnv1a64": "fa7242438259fd2c",
+                  "se": 1.62500216629
+                },
+                "match_score": {
+                  "delta_se": 0.013920136989,
+                  "delta_vs_reference": 0.00390625,
+                  "mean": 0.58056640625,
+                  "samples_fnv1a64": "9e5d76d220431488",
+                  "se": 0.0153896396279
+                }
+              },
+              "move": "G5 p deck",
+              "policy_prior": 0.0331971422,
+              "role": "alternative",
+              "semantic_key": 42
+            }
+          ],
+          "cap_hits": 0,
+          "completed_worlds": 1024,
+          "continuation": {
+            "checkpoint": "data/champion.bin",
+            "epsilon": 0,
+            "exact_group_average": true,
+            "fresh_information_view_each_node": true,
+            "kind": "exact_policy_argmax",
+            "recursive_actor": false,
+            "scope": "full_remaining_three_round_match",
+            "symmetries": 20,
+            "temperature": 0
+          },
+          "future_deal_set_hash": "38f22397c1e6cd35",
+          "hash_algorithm": "fnv1a64",
+          "hidden_world_set_hash": "35f0a5d3fdfdc0c0",
+          "nominated_candidates": 3,
+          "policy_probability_aggregation": "sum_by_semantic_move",
+          "policy_reference_candidates": 0,
+          "requested_worlds": 1024,
+          "root_information_view": true,
+          "seed": "202610010321",
+          "shared_current_hidden_worlds": true,
+          "shared_future_deals": true,
+          "world_model": "uniform_exact_card_count_plus_future_deals"
+        },
+        "schema": "lc-commented-ply-eval-v2",
+        "state": {
+          "deck_left": 24,
+          "input_deck_entries": 0,
+          "nply": 20,
+          "path": "data/probes/ui_seed725402798_p21.state",
+          "round": 0,
+          "turn": 0
+        }
+      },
+      "review_context": {
+        "nominated_candidates": [
+          "Bx d deck",
+          "Bx d G",
+          "G5 p deck"
+        ],
+        "note": "Avoid overvaluing G5; audit the clean Blue-wager discard with both relevant draw sources.",
+        "reviewed_moves": [
+          "Bx d deck",
+          "Bx d G"
+        ],
+        "used_as_promotion_gate": false,
+        "used_as_training_label": false
+      },
+      "source": {
+        "audit_seed": "202610010321",
+        "displayed_ply": 21,
+        "game_seed": "725402798",
+        "paired_worlds": 1024,
+        "state_path": "data/probes/ui_seed725402798_p21.state",
+        "state_sha256": "7868250ed7bfa0340c3810aee4e6c4987b9045e99f832c8362d9d2884d748b12"
+      }
+    },
+    {
+      "case_id": "ui-725-p22",
+      "evaluation": {
+        "actor": {
+          "information_view": true,
+          "policy_prior": 0.468385458,
+          "search": {
+            "candidates": 5,
+            "confirmation_worlds": 0,
+            "controller_veto_worlds": 0,
+            "cycle_breaks": 0,
+            "exact_terminal_leaves": 8000,
+            "fresh_worlds": 800,
+            "ranker_attempted": false,
+            "ranker_passed": false,
+            "skip_reason": 0,
+            "unfinished_cap_leaves": 0,
+            "world_cap": 800,
+            "worlds": 800
+          },
+          "seed": "15111065617386276305",
+          "selected": "R7 p deck",
+          "spec": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
+        },
+        "belief": null,
+        "counterfactual": {
+          "actor_selected_appended": false,
+          "actor_selected_included": true,
+          "branch_neutral_rng_domains": true,
+          "branch_rng_domain_hash": "0d942df23606cc31",
+          "candidates": [
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "reference",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 6.3447265625,
+                  "samples_fnv1a64": "37b32fde58db1dc6",
+                  "se": 2.1507014529
+                },
+                "hybrid": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 4.51645507813,
+                  "samples_fnv1a64": "880795f4f9198a6e",
+                  "se": 1.63848530065
+                },
+                "match_score": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 0.5419921875,
+                  "samples_fnv1a64": "95d73eaa560632b8",
+                  "se": 0.015516003506
+                }
+              },
+              "move": "R2 d deck",
+              "policy_prior": 0.300003171,
+              "role": "reference",
+              "semantic_key": 111
+            },
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "inconclusive",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 0.535776418883,
+                  "delta_vs_reference": -1.2548828125,
+                  "mean": 5.08984375,
+                  "samples_fnv1a64": "dac677bc80094c57",
+                  "se": 2.12996528107
+                },
+                "hybrid": {
+                  "delta_se": 0.534984621131,
+                  "delta_vs_reference": -0.795166015625,
+                  "mean": 3.7212890625,
+                  "samples_fnv1a64": "730131dcdece15dd",
+                  "se": 1.63867853856
+                },
+                "match_score": {
+                  "delta_se": 0.00518798582454,
+                  "delta_vs_reference": -0.00732421875,
+                  "mean": 0.53466796875,
+                  "samples_fnv1a64": "5b2fc9590e24d7d5",
+                  "se": 0.0155259964355
+                }
+              },
+              "move": "R7 p deck",
+              "policy_prior": 0.468385458,
+              "role": "alternative",
+              "semantic_key": 56
+            }
+          ],
+          "cap_hits": 0,
+          "completed_worlds": 1024,
+          "continuation": {
+            "checkpoint": "data/champion.bin",
+            "epsilon": 0,
+            "exact_group_average": true,
+            "fresh_information_view_each_node": true,
+            "kind": "exact_policy_argmax",
+            "recursive_actor": false,
+            "scope": "full_remaining_three_round_match",
+            "symmetries": 20,
+            "temperature": 0
+          },
+          "future_deal_set_hash": "322d35ab12bcaeab",
+          "hash_algorithm": "fnv1a64",
+          "hidden_world_set_hash": "bced594958ea38d2",
+          "nominated_candidates": 2,
+          "policy_probability_aggregation": "sum_by_semantic_move",
+          "policy_reference_candidates": 0,
+          "requested_worlds": 1024,
+          "root_information_view": true,
+          "seed": "202610010322",
+          "shared_current_hidden_worlds": true,
+          "shared_future_deals": true,
+          "world_model": "uniform_exact_card_count_plus_future_deals"
+        },
+        "schema": "lc-commented-ply-eval-v2",
+        "state": {
+          "deck_left": 23,
+          "input_deck_entries": 0,
+          "nply": 21,
+          "path": "data/probes/ui_seed725402798_p22.state",
+          "round": 0,
+          "turn": 1
+        }
+      },
+      "review_context": {
+        "nominated_candidates": [
+          "R2 d deck",
+          "R7 p deck"
+        ],
+        "note": "Discard R2 rather than commit R7 early.",
+        "reviewed_moves": [
+          "R2 d deck"
+        ],
+        "used_as_promotion_gate": false,
+        "used_as_training_label": false
+      },
+      "source": {
+        "audit_seed": "202610010322",
+        "displayed_ply": 22,
+        "game_seed": "725402798",
+        "paired_worlds": 1024,
+        "state_path": "data/probes/ui_seed725402798_p22.state",
+        "state_sha256": "c70dcdecbeca53a1c1c37c7536e98b3a5a1854fe42dcbe7eff2634dd3ea4809d"
+      }
+    },
+    {
+      "case_id": "ui-725-p23",
+      "evaluation": {
+        "actor": {
+          "information_view": true,
+          "policy_prior": 0.575743556,
+          "search": {
+            "candidates": 5,
+            "confirmation_worlds": 0,
+            "controller_veto_worlds": 0,
+            "cycle_breaks": 1,
+            "exact_terminal_leaves": 8000,
+            "fresh_worlds": 800,
+            "ranker_attempted": false,
+            "ranker_passed": false,
+            "skip_reason": 0,
+            "unfinished_cap_leaves": 0,
+            "world_cap": 800,
+            "worlds": 800
+          },
+          "seed": "15111065617386276304",
+          "selected": "Wx d deck",
+          "spec": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
+        },
+        "belief": null,
+        "counterfactual": {
+          "actor_selected_appended": false,
+          "actor_selected_included": true,
+          "branch_neutral_rng_domains": true,
+          "branch_rng_domain_hash": "18cdf7c2e1020be5",
+          "candidates": [
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "reference",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": -1.3408203125,
+                  "samples_fnv1a64": "1d1d0632565c416e",
+                  "se": 2.02937706289
+                },
+                "hybrid": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 0.323583984375,
+                  "samples_fnv1a64": "fd28bb2f849ce1bc",
+                  "se": 1.64075421131
+                },
+                "match_score": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 0.50390625,
+                  "samples_fnv1a64": "8cd597d92879edd8",
+                  "se": 0.0155862904851
+                }
+              },
+              "move": "Wx d deck",
+              "policy_prior": 0.575743556,
+              "role": "reference",
+              "semantic_key": 84
+            },
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "inconclusive",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 1.36614675968,
+                  "delta_vs_reference": 2.5048828125,
+                  "mean": 1.1640625,
+                  "samples_fnv1a64": "9618b00fa711b351",
+                  "se": 2.07463937064
+                },
+                "hybrid": {
+                  "delta_se": 1.26048459425,
+                  "delta_vs_reference": 0.027587890625,
+                  "mean": 0.351171875,
+                  "samples_fnv1a64": "e6a7035669a7c3eb",
+                  "se": 1.64417787043
+                },
+                "match_score": {
+                  "delta_se": 0.0121836113773,
+                  "delta_vs_reference": -0.0009765625,
+                  "mean": 0.5029296875,
+                  "samples_fnv1a64": "afb4174488fa4538",
+                  "se": 0.0156018037416
+                }
+              },
+              "move": "G5 p deck",
+              "policy_prior": 0.0430534258,
+              "role": "alternative",
+              "semantic_key": 42
+            }
+          ],
+          "cap_hits": 0,
+          "completed_worlds": 1024,
+          "continuation": {
+            "checkpoint": "data/champion.bin",
+            "epsilon": 0,
+            "exact_group_average": true,
+            "fresh_information_view_each_node": true,
+            "kind": "exact_policy_argmax",
+            "recursive_actor": false,
+            "scope": "full_remaining_three_round_match",
+            "symmetries": 20,
+            "temperature": 0
+          },
+          "future_deal_set_hash": "1547f8bf0280010f",
+          "hash_algorithm": "fnv1a64",
+          "hidden_world_set_hash": "f36875ab0b1e3d3a",
+          "nominated_candidates": 2,
+          "policy_probability_aggregation": "sum_by_semantic_move",
+          "policy_reference_candidates": 0,
+          "requested_worlds": 1024,
+          "root_information_view": true,
+          "seed": "202610010323",
+          "shared_current_hidden_worlds": true,
+          "shared_future_deals": true,
+          "world_model": "uniform_exact_card_count_plus_future_deals"
+        },
+        "schema": "lc-commented-ply-eval-v2",
+        "state": {
+          "deck_left": 22,
+          "input_deck_entries": 0,
+          "nply": 22,
+          "path": "data/probes/ui_seed725402798_p23.state",
+          "round": 0,
+          "turn": 0
+        }
+      },
+      "review_context": {
+        "nominated_candidates": [
+          "Wx d deck",
+          "G5 p deck"
+        ],
+        "note": "Avoid overvaluing G5 when the White wager can be discarded.",
+        "reviewed_moves": [
+          "Wx d deck"
+        ],
+        "used_as_promotion_gate": false,
+        "used_as_training_label": false
+      },
+      "source": {
+        "audit_seed": "202610010323",
+        "displayed_ply": 23,
+        "game_seed": "725402798",
+        "paired_worlds": 1024,
+        "state_path": "data/probes/ui_seed725402798_p23.state",
+        "state_sha256": "49aa9380b2bcc49b3d55fb971b79e910ec98b71eba1b4be7e03b499d21ca80d7"
+      }
+    },
+    {
+      "case_id": "ui-725-p25",
+      "evaluation": {
+        "actor": {
+          "information_view": true,
+          "policy_prior": 0.471738905,
+          "search": {
+            "candidates": 3,
+            "confirmation_worlds": 0,
+            "controller_veto_worlds": 0,
+            "cycle_breaks": 0,
+            "exact_terminal_leaves": 2400,
+            "fresh_worlds": 0,
+            "ranker_attempted": false,
+            "ranker_passed": false,
+            "skip_reason": 0,
+            "unfinished_cap_leaves": 0,
+            "world_cap": 800,
+            "worlds": 800
+          },
+          "seed": "15111065617386276310",
+          "selected": "Y4 p deck",
+          "spec": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
+        },
+        "belief": null,
+        "counterfactual": {
+          "actor_selected_appended": false,
+          "actor_selected_included": true,
+          "branch_neutral_rng_domains": true,
+          "branch_rng_domain_hash": "d437375ab4cc6a95",
+          "candidates": [
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "reference",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": -3.9345703125,
+                  "samples_fnv1a64": "791a01612003d3f2",
+                  "se": 2.16038622867
+                },
+                "hybrid": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": -1.90571289063,
+                  "samples_fnv1a64": "e8dcf5f2b86c4945",
+                  "se": 1.647588123
+                },
+                "match_score": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 0.48291015625,
+                  "samples_fnv1a64": "ab638d7be2a87448",
+                  "se": 0.0155852661866
+                }
+              },
+              "move": "Y4 p B",
+              "policy_prior": 8.43259622e-05,
+              "role": "reference",
+              "semantic_key": 245
+            },
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "inconclusive",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 2.30365868262,
+                  "delta_vs_reference": 5.724609375,
+                  "mean": 1.7900390625,
+                  "samples_fnv1a64": "6b715bce3c73af5e",
+                  "se": 2.09373514989
+                },
+                "hybrid": {
+                  "delta_se": 1.81660393967,
+                  "delta_vs_reference": 3.02060546875,
+                  "mean": 1.11489257813,
+                  "samples_fnv1a64": "a7613294fdc6dcc2",
+                  "se": 1.6440912594
+                },
+                "match_score": {
+                  "delta_se": 0.0173334213497,
+                  "delta_vs_reference": 0.02734375,
+                  "mean": 0.51025390625,
+                  "samples_fnv1a64": "b819655f8d5e2f08",
+                  "se": 0.0155911269563
+                }
+              },
+              "move": "Y4 p deck",
+              "policy_prior": 0.471738905,
+              "role": "alternative",
+              "semantic_key": 5
+            }
+          ],
+          "cap_hits": 0,
+          "completed_worlds": 1024,
+          "continuation": {
+            "checkpoint": "data/champion.bin",
+            "epsilon": 0,
+            "exact_group_average": true,
+            "fresh_information_view_each_node": true,
+            "kind": "exact_policy_argmax",
+            "recursive_actor": false,
+            "scope": "full_remaining_three_round_match",
+            "symmetries": 20,
+            "temperature": 0
+          },
+          "future_deal_set_hash": "6d8a13e90e783337",
+          "hash_algorithm": "fnv1a64",
+          "hidden_world_set_hash": "d82a2fdd0eac7abb",
+          "nominated_candidates": 2,
+          "policy_probability_aggregation": "sum_by_semantic_move",
+          "policy_reference_candidates": 0,
+          "requested_worlds": 1024,
+          "root_information_view": true,
+          "seed": "202610010325",
+          "shared_current_hidden_worlds": true,
+          "shared_future_deals": true,
+          "world_model": "uniform_exact_card_count_plus_future_deals"
+        },
+        "schema": "lc-commented-ply-eval-v2",
+        "state": {
+          "deck_left": 20,
+          "input_deck_entries": 0,
+          "nply": 24,
+          "path": "data/probes/ui_seed725402798_p25.state",
+          "round": 0,
+          "turn": 0
+        }
+      },
+      "review_context": {
+        "nominated_candidates": [
+          "Y4 p B",
+          "Y4 p deck"
+        ],
+        "note": "The face-up Blue wager pickup must be evaluated even when it falls outside the policy prefix.",
+        "reviewed_moves": [
+          "Y4 p B"
+        ],
+        "used_as_promotion_gate": false,
+        "used_as_training_label": false
+      },
+      "source": {
+        "audit_seed": "202610010325",
+        "displayed_ply": 25,
+        "game_seed": "725402798",
+        "paired_worlds": 1024,
+        "state_path": "data/probes/ui_seed725402798_p25.state",
+        "state_sha256": "ad53445e1ef4d114cdb0a29547180f4e2f47019a77c168d7733a4deaf4ea0cd2"
+      }
+    },
+    {
+      "case_id": "ui-956-p44",
+      "evaluation": {
+        "actor": {
+          "information_view": true,
+          "policy_prior": 0.291161835,
+          "search": {
+            "candidates": 2,
+            "confirmation_worlds": 0,
+            "controller_veto_worlds": 0,
+            "cycle_breaks": 0,
+            "exact_terminal_leaves": 0,
+            "fresh_worlds": 0,
+            "ranker_attempted": false,
+            "ranker_passed": false,
+            "skip_reason": 7,
+            "unfinished_cap_leaves": 0,
+            "world_cap": 800,
+            "worlds": 0
+          },
+          "seed": "15111065617386275919",
+          "selected": "W10 p deck",
+          "spec": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
+        },
+        "belief": null,
+        "counterfactual": {
+          "actor_selected_appended": false,
+          "actor_selected_included": true,
+          "branch_neutral_rng_domains": true,
+          "branch_rng_domain_hash": "7b1f5eab9eb60683",
+          "candidates": [
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "reference",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 18.3828125,
+                  "samples_fnv1a64": "b4e606cc52d2f5db",
+                  "se": 1.69415580852
+                },
+                "hybrid": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 13.809765625,
+                  "samples_fnv1a64": "2a8d0c18e465a286",
+                  "se": 1.57121684257
+                },
+                "match_score": {
+                  "delta_se": 0,
+                  "delta_vs_reference": 0,
+                  "mean": 0.62890625,
+                  "samples_fnv1a64": "21646f8d1e8a1aa5",
+                  "se": 0.0150408389551
+                }
+              },
+              "move": "W10 p deck",
+              "policy_prior": 0.291161835,
+              "role": "reference",
+              "semantic_key": 35
+            },
+            {
+              "cap_hits": 0,
+              "completed_worlds": 1024,
+              "descriptive_signal": "inconclusive",
+              "metrics": {
+                "final_margin": {
+                  "delta_se": 0.675530409544,
+                  "delta_vs_reference": 1.208984375,
+                  "mean": 19.591796875,
+                  "samples_fnv1a64": "1bd54de07748eacc",
+                  "se": 1.71112298765
+                },
+                "hybrid": {
+                  "delta_se": 0.893524891109,
+                  "delta_vs_reference": 0.10927734375,
+                  "mean": 13.9190429688,
+                  "samples_fnv1a64": "a04a9b741a153c6a",
+                  "se": 1.57294925
+                },
+                "match_score": {
+                  "delta_se": 0.00877976342523,
+                  "delta_vs_reference": 0.00048828125,
+                  "mean": 0.62939453125,
+                  "samples_fnv1a64": "aafc08669e042795",
+                  "se": 0.015044673486
+                }
+              },
+              "move": "W10 p G",
+              "policy_prior": 0.03329904,
+              "role": "alternative",
+              "semantic_key": 515
+            }
+          ],
+          "cap_hits": 0,
+          "completed_worlds": 1024,
+          "continuation": {
+            "checkpoint": "data/champion.bin",
+            "epsilon": 0,
+            "exact_group_average": true,
+            "fresh_information_view_each_node": true,
+            "kind": "exact_policy_argmax",
+            "recursive_actor": false,
+            "scope": "full_remaining_three_round_match",
+            "symmetries": 20,
+            "temperature": 0
+          },
+          "future_deal_set_hash": "d29d5168ff3126db",
+          "hash_algorithm": "fnv1a64",
+          "hidden_world_set_hash": "7f658e19e2e668e1",
+          "nominated_candidates": 2,
+          "policy_probability_aggregation": "sum_by_semantic_move",
+          "policy_reference_candidates": 0,
+          "requested_worlds": 1024,
+          "root_information_view": true,
+          "seed": "202610010444",
+          "shared_current_hidden_worlds": true,
+          "shared_future_deals": true,
+          "world_model": "uniform_exact_card_count_plus_future_deals"
+        },
+        "schema": "lc-commented-ply-eval-v2",
+        "state": {
+          "deck_left": 1,
+          "input_deck_entries": 0,
+          "nply": 43,
+          "path": "data/probes/ui_seed95647345759839_p44.state",
+          "round": 0,
+          "turn": 1
+        }
+      },
+      "review_context": {
+        "nominated_candidates": [
+          "W10 p deck",
+          "W10 p G"
+        ],
+        "note": "End the round through the last deck card instead of gifting another turn for a Green-wager pickup.",
+        "reviewed_moves": [
+          "W10 p deck"
+        ],
+        "used_as_promotion_gate": false,
+        "used_as_training_label": false
+      },
+      "source": {
+        "audit_seed": "202610010444",
+        "displayed_ply": 44,
+        "game_seed": "95647345759839",
+        "paired_worlds": 1024,
+        "state_path": "data/probes/ui_seed95647345759839_p44.state",
+        "state_sha256": "a1417203cff95c13bddc947c87e401b440e4f9c4f3489fcfcb6a792dc2ac6447"
+      }
+    }
+  ],
+  "contract": {
+    "actor_selected_action_graded_on_all_17": true,
+    "base_paired_worlds": 1024,
+    "branch_rng_domains_neutral": true,
+    "case_count": 17,
+    "complete_hidden_state_use": "p13 offline truth label only",
+    "continuation_scope": "full_remaining_three_round_match",
+    "counterfactual_caps": "zero_fail_closed",
+    "current_hidden_worlds_shared_across_actions": true,
+    "decision_input": "fresh_agent_information_view_at_every_node",
+    "exact_policy_symmetries": 20,
+    "exact_policy_teacher": "policy:data/champion.bin:0:20",
+    "future_deals_shared_across_actions": true,
+    "hash_algorithm": "fnv1a64",
+    "locked_validation_criteria_changed": false,
+    "p13_action_panel": "exact_policy20_top_two_plus_actor_if_absent",
+    "p13_belief_overlay": "fixed_k_alpha_1.15_target_Y9",
+    "paired_worlds_by_case": {
+      "showcase-572-p14": 1024,
+      "showcase-572-p15": 1024,
+      "showcase-572-p17": 1024,
+      "showcase-572-p32": 1024,
+      "ui-221-p10": 2048,
+      "ui-221-p12": 1024,
+      "ui-221-p13": 1024,
+      "ui-221-p16": 1024,
+      "ui-221-p20": 1024,
+      "ui-221-p3": 1024,
+      "ui-221-p4": 1024,
+      "ui-221-p8": 1024,
+      "ui-725-p21": 1024,
+      "ui-725-p22": 1024,
+      "ui-725-p23": 1024,
+      "ui-725-p25": 1024,
+      "ui-956-p44": 1024
+    },
+    "policy_probability_aggregation": "sum_by_semantic_move",
+    "population": "exactly 17 explicit user-commented displayed plies",
+    "promotion_gate": false,
+    "semantic_wager_deduplication": true,
+    "training_use": "forbidden_diagnostic_only",
+    "world_model": "uniform_exact_card_count_plus_future_deals"
+  },
+  "implementation": {
+    "driver_path": "tools/audit_commented_plies.py",
+    "driver_sha256": "32ba8bbafd33756cb3af78cf15b0a35e988170436a6f1a636d4e5972d7f55b93",
+    "helper_path": "bin/commented_ply_eval",
+    "helper_sha256": "ca4874dfd5990c02c07e27f4176fa4268b6f8e48be99fe3ab31aebb6293bf9fe"
+  },
+  "recovery": {
+    "previous_attempt": "v2",
+    "previous_execution": {
+      "path": "data/experiments/locked_commented_ply_audit_execution.json",
+      "sha256": "de385af4ec2e7ac004f72b1a928bc86a461e39b91c2ca05c28b452921eb6951b"
+    },
+    "previous_failure": {
+      "path": "data/experiments/commented_ply_audit_v2_preflight_failure.json",
+      "sha256": "fef8abdc6348e7ac538a604773c2b0da93cc8e05e0d6f2129fce117acbb9eb9e"
+    },
+    "production_seed_namespace": "20261001",
+    "rerun_previous_attempt": "forbidden"
+  },
+  "repository_head": "681ccfa825b00b6ce5fc5a5d1356a17473b64aa4",
+  "schema": "lc-commented-ply-audit-v2",
+  "selection": {
+    "case_ids": [
+      "ui-221-p3",
+      "ui-221-p4",
+      "ui-221-p8",
+      "ui-221-p10",
+      "ui-221-p12",
+      "ui-221-p13",
+      "ui-221-p16",
+      "ui-221-p20",
+      "showcase-572-p14",
+      "showcase-572-p15",
+      "showcase-572-p17",
+      "showcase-572-p32",
+      "ui-725-p21",
+      "ui-725-p22",
+      "ui-725-p23",
+      "ui-725-p25",
+      "ui-956-p44"
+    ]
+  },
+  "subject": {
+    "actor_spec": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+    "actor_spec_sha256": "51d1427d17774483bddd0b9d54c661346eef26323b8c1335fcc481210afd9c80",
+    "checkpoints": [
+      {
+        "path": "data/champion.bin",
+        "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417"
+      }
+    ],
+    "evaluation_net_path": "data/champion.bin"
+  },
+  "summary": {
+    "action_panels": 17,
+    "actor_reviewed_move_denominator": 16,
+    "actor_selected_extra_signals": {
+      "alternative_ahead": 1,
+      "inconclusive": 1,
+      "invalid": 0,
+      "reference_ahead": 0
+    },
+    "actor_selected_reviewed_move": 8,
+    "alternative_signals": {
+      "alternative_ahead": 1,
+      "inconclusive": 16,
+      "invalid": 0,
+      "reference_ahead": 4
+    },
+    "belief_overlays": 1,
+    "completed_cases": 17,
+    "counterfactual_cap_hits": 0,
+    "p13_neutral_alternative_signals": {
+      "alternative_ahead": 0,
+      "inconclusive": 1,
+      "invalid": 0,
+      "reference_ahead": 0
+    },
+    "reviewed_candidates_below_two_percent_policy_prior": 7,
+    "total_paired_worlds": 18432
+  }
+}
