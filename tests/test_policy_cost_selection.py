@@ -12,9 +12,9 @@ import unittest
 from unittest import mock
 
 import numpy as np
-import tools.policy_cost_selection as selection_module
+import tools.policy_cost_selection_v2 as selection_module
 
-from tools.policy_cost_selection import (
+from tools.policy_cost_selection_v2 import (
     CONFIG_BY_ID,
     CONFIG_IDS,
     DIGEST_FIELD,
@@ -36,7 +36,7 @@ from tools.policy_cost_selection import (
 )
 
 
-BASELINE = "floor-0.02_ply-14"
+BASELINE = "floor-0.02_ply-00"
 MOST_AGGRESSIVE = "floor-0.01_ply-00"
 FAKE_DISCOVERY_SHA = "0" * 64
 
@@ -165,8 +165,8 @@ WEIGHTS = {
 
 
 class FrozenConfigurationTests(unittest.TestCase):
-    def test_exact_twelve_configs(self) -> None:
-        self.assertEqual(len(CONFIG_IDS), 12)
+    def test_exact_two_all_ply_configs(self) -> None:
+        self.assertEqual(len(CONFIG_IDS), 2)
         self.assertEqual(
             {(row["policy_floor"], row["ply_lo"])
              for row in CONFIG_BY_ID.values()},
@@ -174,7 +174,7 @@ class FrozenConfigurationTests(unittest.TestCase):
         )
         self.assertEqual(CONFIG_IDS[0], BASELINE)
         self.assertEqual(SELECT_BOOTSTRAP_REPS, 20_000)
-        self.assertEqual(SELECT_BOOTSTRAP_SEED, 202611150101)
+        self.assertEqual(SELECT_BOOTSTRAP_SEED, 202612150101)
 
 
 class SelectionTests(unittest.TestCase):
@@ -184,12 +184,12 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(result["schema"], SELECT_RESULT_SCHEMA)
         self.assertEqual(result["stage"], "SELECT")
         self.assertEqual(result["selected"]["id"], MOST_AGGRESSIVE)
-        self.assertEqual(len(result["eligible_config_ids"]), 12)
+        self.assertEqual(len(result["eligible_config_ids"]), 2)
         self.assertEqual(
             result["simultaneous_inference"][
                 "protected_directed_pairwise_contrasts"
             ],
-            132,
+            2,
         )
         self.assertGreater(
             result["simultaneous_inference"]["critical_value"], 1.645
@@ -206,17 +206,15 @@ class SelectionTests(unittest.TestCase):
             result["statistically_tied_config_ids"], [BASELINE]
         )
 
-    def test_performance_tie_prefers_later_ply(self) -> None:
+    def test_performance_tie_prefers_two_percent_floor(self) -> None:
         means = {config_id: -2.0 for config_id in CONFIG_IDS}
         means[BASELINE] = 0.0
-        means["floor-0.02_ply-12"] = 1.0
-        means["floor-0.01_ply-14"] = 1.0
-        # The two incomparable one-step expansions are both eligible and tied;
-        # later onset is the first conservative tie-break.
+        means["floor-0.01_ply-00"] = 1.0
+        # The lower floor must clear its direct simultaneous-LCB comparison;
+        # the all-ply onset itself is no longer selected post hoc.
         result = select_configuration(select_rows(means, noise=0.01))
-        self.assertIn("floor-0.02_ply-12", result["eligible_config_ids"])
-        self.assertIn("floor-0.01_ply-14", result["eligible_config_ids"])
-        self.assertEqual(result["selected"]["id"], "floor-0.01_ply-14")
+        self.assertIn("floor-0.01_ply-00", result["eligible_config_ids"])
+        self.assertEqual(result["selected"]["id"], "floor-0.01_ply-00")
 
     def test_units_within_source_match_do_not_fake_precision(self) -> None:
         means = monotone_means(0.08)
@@ -422,7 +420,7 @@ class CanonicalEvidenceTests(unittest.TestCase):
             key: value for key, value in result.items() if key != DIGEST_FIELD
         }))
         changed = copy.deepcopy(result)
-        changed["selected"]["ply_lo"] = 0
+        changed["selected"]["policy_floor"] = 0.01
         self.assertFalse(verify_result_digest(changed))
 
         with tempfile.TemporaryDirectory() as directory:

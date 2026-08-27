@@ -10,8 +10,8 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = ROOT / "tools" / "policy_cost_exact17.py"
-SPEC = importlib.util.spec_from_file_location("policy_cost_exact17", MODULE_PATH)
+MODULE_PATH = ROOT / "tools" / "policy_cost_exact17_v2.py"
+SPEC = importlib.util.spec_from_file_location("policy_cost_exact17_v2", MODULE_PATH)
 assert SPEC and SPEC.loader
 exact17 = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(exact17)
@@ -31,7 +31,7 @@ class PolicyCostExact17Tests(unittest.TestCase):
         subprocess.run([
             "gcc", "-O0", "-Wall", "-Wextra", "-std=c11",
             "-fno-fast-math", "-ffp-contract=off", "-o", str(cls.binary),
-            "tools/policy_cost_dataset.c", *core, "-lm", "-pthread",
+            "tools/policy_cost_dataset_v2.c", *core, "-lm", "-pthread",
         ], cwd=ROOT, check=True, capture_output=True, text=True)
 
     @classmethod
@@ -48,6 +48,10 @@ class PolicyCostExact17Tests(unittest.TestCase):
         self.assertEqual(evidence["case_count"], 17)
         self.assertEqual(evidence["orbit_count"], 17)
         self.assertEqual(evidence["training_use"], "forbidden")
+        self.assertEqual(
+            evidence["bindings"]["native_hash_probe"]["source_path"],
+            "tools/policy_cost_dataset_v2.c",
+        )
         self.assertEqual(
             evidence["runtime_exclusion_text"]["sha256"],
             hashlib.sha256(text).hexdigest(),

@@ -1,6 +1,6 @@
 /* White-box contract tests for the new-file-only offline dataset tool. */
 #define main policy_cost_dataset_program_main
-#include "../tools/policy_cost_dataset.c"
+#include "../tools/policy_cost_dataset_v2.c"
 #undef main
 
 #include <stdio.h>
@@ -24,7 +24,7 @@ static PolicyCostTable table_for(const Agent *a)
 {
     static const uint32_t anchor[POLICY_COST_ANCHORS]={0,4,8,12,16,24,32,40,48,64};
     PolicyCostTable t;memset(&t,0,sizeof t);t.version=POLICY_COST_VERSION;
-    t.source_seed=UINT64_C(202611140101);t.payload_fingerprint=1;t.epsilon=POLICY_COST_EPSILON;
+    t.source_seed=UINT64_C(202612140101);t.payload_fingerprint=1;t.epsilon=POLICY_COST_EPSILON;
     t.primary_z=POLICY_COST_PRIMARY_Z;t.fresh_z=POLICY_COST_FRESH_Z;
     t.controller=(PolicyCostController){
         .root_net_fingerprint=match_value_net_fingerprint(a->net),
@@ -38,7 +38,7 @@ static PolicyCostTable table_for(const Agent *a)
         .cand_floor=0.01f,.override_k=3.5f,.override_min=0.0f,
     };
     for(int i=0;i<POLICY_COST_ANCHORS;i++){t.ply_anchor[i]=anchor[i];
-        t.lambda_action[i]=1.0;t.lambda_draw[i]=0.5;}
+        t.beta[i]=1.0;t.lambda_action[i]=1.0;t.lambda_draw[i]=0.5;}
     return t;
 }
 
@@ -351,13 +351,13 @@ int main(void)
         CHECK(!frozen_maintained_actor(&maintained,net),"maintained actor accepted altered continuation net");}
 
     DiscoveryCensus census;
-    CHECK(census_init(&census,1,UINT64_C(202611290999)),"census fixture allocation");
+    CHECK(census_init(&census,1,UINT64_C(202612290999)),"census fixture allocation");
     State st;Rng rng;rng_seed(&rng,9);lc_deal(&st,&rng);
     State view;agent_information_view(&st,st.turn,&view);view.deck_left=1;
     RuntimeMask mask[2];memset(mask,0,sizeof mask);mask[0].n=mask[1].n=1;
     int union_index[1]={0};unsigned char orbit[32]={0},state[PC_STATE_MAX]={0},sh[32]={0};
     discovery_account(&census,&view,mask,1);
-    discovery_pairs(&census,202611290999,1,0,&view,NULL,NULL,0,mask,
+    discovery_pairs(&census,202612290999,1,0,&view,NULL,NULL,0,mask,
                     union_index,1,orbit,state,1,sh);
     CHECK(census.exact_terminal_preempted[0]==1,
           "one-card exact roots not labeled intrinsic/non-deployable");

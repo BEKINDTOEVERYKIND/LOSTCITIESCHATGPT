@@ -58,6 +58,7 @@ static PolicyCostTable fixture(void)
     };
     for (int a = 0; a < POLICY_COST_ANCHORS; a++) {
         table.ply_anchor[a] = anchors[a];
+        table.beta[a] = 1.0;
         table.lambda_action[a] = 1.0 + 0.1 * anchors[a];
         table.lambda_draw[a] = 0.25 + 0.01 * anchors[a];
     }
@@ -114,13 +115,98 @@ static void test_schedule_and_format(void)
 {
     PolicyCostTable table = fixture();
     CHECK(policy_cost_validate(&table), "valid fixture was rejected");
+    PolicyCostTable legacy = table;
+    legacy.version = POLICY_COST_LEGACY_VERSION;
+    legacy.source_seed = POLICY_COST_LEGACY_SOURCE_SEED;
+    CHECK(policy_cost_validate(&legacy),
+          "legacy version/source-seed pair was rejected");
+    legacy.controller.ply_lo = 14;
+    CHECK(policy_cost_validate(&legacy),
+          "legacy version lost delayed-onset compatibility");
+    legacy.controller.ply_lo = 0;
+    legacy.source_seed = POLICY_COST_SOURCE_SEED;
+    CHECK(!policy_cost_validate(&legacy),
+          "legacy version accepted the v2 source seed");
+    legacy.version = POLICY_COST_VERSION;
+    legacy.source_seed = POLICY_COST_LEGACY_SOURCE_SEED;
+    CHECK(!policy_cost_validate(&legacy),
+          "v2 version accepted the legacy source seed");
+    legacy.version = POLICY_COST_LEGACY_VERSION;
+    legacy.source_seed = POLICY_COST_LEGACY_SOURCE_SEED;
+    char legacy_path[128];
+    temporary_path(legacy_path, "legacy-format");
+    CHECK(policy_cost_save(&legacy, legacy_path) == 0,
+          "legacy artifact save failed");
+    unsigned char legacy_header[40] = {0};
+    FILE *legacy_file = fopen(legacy_path, "rb");
+    CHECK(legacy_file &&
+          fread(legacy_header, 1, sizeof legacy_header, legacy_file) ==
+              sizeof legacy_header,
+          "cannot read legacy artifact header");
+    if (legacy_file) fclose(legacy_file);
+    CHECK(legacy_header[8] == POLICY_COST_LEGACY_VERSION &&
+          legacy_header[9] == 0 && legacy_header[10] == 0 &&
+          legacy_header[11] == 0,
+          "legacy artifact was rewritten with a v2 header");
+    int legacy_error = 99;
+    PolicyCostTable *legacy_loaded = policy_cost_load(
+        legacy_path, &legacy_error);
+    CHECK(legacy_loaded && legacy_error == 0 &&
+          legacy_loaded->version == POLICY_COST_LEGACY_VERSION &&
+          legacy_loaded->source_seed == POLICY_COST_LEGACY_SOURCE_SEED,
+          "legacy artifact did not round-trip byte-compatible identity");
+    policy_cost_free(legacy_loaded);
+    (void)remove(legacy_path);
+    legacy.controller.ply_lo = 14;
+    temporary_path(legacy_path, "legacy-delayed-onset");
+    CHECK(policy_cost_save(&legacy, legacy_path) == 0,
+          "legacy delayed-onset artifact save failed");
+    legacy_loaded = policy_cost_load(legacy_path, &legacy_error);
+    CHECK(legacy_loaded && legacy_error == 0 &&
+          legacy_loaded->controller.ply_lo == 14,
+          "legacy delayed-onset artifact did not remain loadable");
+    policy_cost_free(legacy_loaded);
+    (void)remove(legacy_path);
+    /* Interpolate beta and alpha independently.  At ply 20 the normalized
+     * action anchors are 2 and 1, whose incorrectly interpolated ratio would
+     * be 1.5; the correct ratio of interpolants is 4/3. */
+    table.beta[4] = 2.0;
+    table.beta[5] = 4.0;
+    table.alpha_action[4] = 4.0;
+    table.alpha_action[5] = 4.0;
+    table.alpha_draw[4] = 2.0;
+    table.alpha_draw[5] = 2.0;
+    double beta = 0.0, aa = 0.0, ad = 0.0;
     double la = 0.0, ld = 0.0;
     int interval = -1;
+    CHECK(policy_cost_coefficients(
+              &table, 20, &beta, &aa, &ad, &interval) &&
+          interval == 4 && fabs(beta - 3.0) < 1e-12 &&
+          fabs(aa - 4.0) < 1e-12 && fabs(ad - 2.0) < 1e-12,
+          "predictive spline interpolation is wrong: "
+          "i=%d beta=%.12f aa=%.12f ad=%.12f",
+          interval, beta, aa, ad);
     CHECK(policy_cost_schedule(&table, 20, &la, &ld, &interval) &&
-          interval == 4 && fabs(la - 3.0) < 1e-12 &&
-          fabs(ld - 0.45) < 1e-12,
+          interval == 4 && fabs(la - 4.0 / 3.0) < 1e-12 &&
+          fabs(ld - 2.0 / 3.0) < 1e-12,
           "shared spline interpolation is wrong: i=%d la=%.12f ld=%.12f",
           interval, la, ld);
+    Move interpolation_move[2] = {
+        { CARD_MAKE(0, 3), 0, 0 },
+        { CARD_MAKE(1, 3), 0, 0 },
+    };
+    float interpolation_prob[2] = { 0.75f, 0.25f };
+    double pa = 0.0, pd = 0.0, cost = 0.0;
+    CHECK(policy_cost_move_terms(
+              &table, 0, 20, interpolation_move, interpolation_prob, 2, 1,
+              &pa, &pd, &cost) && pa == 0.25 && pd == 1.0 &&
+          fabs(cost + (4.0 / 3.0) * log(0.25)) < 1e-12,
+          "runtime did not score with the ratio of interpolated alpha/beta: "
+          "PA=%.12f PD=%.12f cost=%.12f", pa, pd, cost);
+    double q = 5.0;
+    double scaled = beta * q + aa * log(pa) + ad * log(pd);
+    CHECK(fabs(scaled - beta * (q - cost)) < 1e-12,
+          "scaled predictive score and normalized runtime score diverged");
     CHECK(policy_cost_schedule(&table, 299, &la, &ld, &interval) &&
           interval == POLICY_COST_ANCHORS - 1 &&
           fabs(la - 7.4) < 1e-12 && fabs(ld - 0.89) < 1e-12,
@@ -128,6 +214,16 @@ static void test_schedule_and_format(void)
           interval, la, ld);
 
     PolicyCostTable bad = table;
+    bad.controller.ply_lo = 14;
+    CHECK(!policy_cost_validate(&bad),
+          "predictive artifact accepted a delayed search onset");
+    bad = table;
+    bad.beta[3] = 0.0;
+    CHECK(!policy_cost_validate(&bad), "zero beta was accepted");
+    bad = table;
+    bad.alpha_action[3] = -1.0;
+    CHECK(!policy_cost_validate(&bad), "negative action alpha was accepted");
+    bad = table;
     bad.ply_anchor[5]++;
     CHECK(!policy_cost_validate(&bad), "noncanonical anchor was accepted");
     bad = table;
@@ -145,14 +241,14 @@ static void test_schedule_and_format(void)
     bad = table;
     bad.controller.no_belief = 0;
     CHECK(!policy_cost_validate(&bad),
-          "policy-cost v1 accepted an unbound learned-belief sampler");
+          "policy-cost accepted an unbound learned-belief sampler");
     bad = table;
     bad.controller.override_min = 2.0f;
     CHECK(!policy_cost_validate(&bad),
-          "policy-cost v1 accepted the legacy low-prior practical floor");
+          "policy-cost accepted the legacy low-prior practical floor");
     bad.controller.override_min = -0.0f;
     CHECK(!policy_cost_validate(&bad),
-          "policy-cost v1 accepted a noncanonical negative-zero floor");
+          "policy-cost accepted a noncanonical negative-zero floor");
 
     char path[128];
     temporary_path(path, "format");
@@ -165,11 +261,12 @@ static void test_schedule_and_format(void)
     CHECK(loaded && error == 0 && loaded->payload_fingerprint != 0 &&
           loaded->controller.cand_floor == table.controller.cand_floor &&
           loaded->controller.override_k == table.controller.override_k &&
-          loaded->lambda_action[7] == table.lambda_action[7],
+          loaded->beta[7] == table.beta[7] &&
+          loaded->alpha_action[7] == table.alpha_action[7],
           "canonical round trip lost content or binary32 bindings");
     policy_cost_free(loaded);
 
-    enum { ARTIFACT_BYTES = 256 + 16 * POLICY_COST_ANCHORS + 8 };
+    enum { ARTIFACT_BYTES = 256 + 24 * POLICY_COST_ANCHORS + 8 };
     unsigned char raw[ARTIFACT_BYTES];
     FILE *file = fopen(path, "r+b");
     CHECK(file && fread(raw, 1, sizeof raw, file) == sizeof raw,
@@ -999,7 +1096,7 @@ static void test_rolloutu5_header_and_guards(void)
              "rollout5:data/champion.bin:data/champion.bin:%s:%s",
              path, tail);
     CHECK(parse_fails(spec),
-          "rollout5 accepted a policy-cost v1 artifact without uniform belief");
+          "rollout5 accepted a policy-cost artifact without uniform belief");
     const char *legacy_floor_tail =
         "800:5:0.01:0:1:0:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:"
         "0:0:0:0:0:0:0:0:0:0:0:0:0:3:1";
@@ -1016,6 +1113,12 @@ int main(int argc, char **argv)
 {
     if (argc == 3 && !strcmp(argv[1], "--emit")) {
         PolicyCostTable table = fixture();
+        return policy_cost_save(&table, argv[2]) == 0 ? 0 : 1;
+    }
+    if (argc == 3 && !strcmp(argv[1], "--emit-legacy")) {
+        PolicyCostTable table = fixture();
+        table.version = POLICY_COST_LEGACY_VERSION;
+        table.source_seed = POLICY_COST_LEGACY_SOURCE_SEED;
         return policy_cost_save(&table, argv[2]) == 0 ? 0 : 1;
     }
     if (argc != 1) return 2;

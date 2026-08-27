@@ -3,19 +3,22 @@ from __future__ import annotations
 import subprocess
 import tempfile
 from pathlib import Path
+import copy
 import struct
 import json
 import hashlib
+import os
 import unittest
 from unittest import mock
 
-from tools.policy_cost_artifact import (
+from tools.policy_cost_artifact_v2 import (
     ANCHORS,
     ArtifactError,
     fnv1a64,
     read_policy_cost,
 )
-from tools import policy_cost_calibration, policy_cost_campaign
+from tools.policy_cost_artifact import read_policy_cost as read_legacy_policy_cost
+from tools import policy_cost_calibration_v2 as policy_cost_calibration, policy_cost_campaign_v2 as policy_cost_campaign
 from tools import flagged_ply_audit, flagged_ply_execution
 from tools import history_belief, make_showcase
 
@@ -34,6 +37,36 @@ class PolicyCostArtifactTests(unittest.TestCase):
             stdout=subprocess.PIPE,
             text=True,
         )
+        # Ordinary CI builds under generic GCC and Clang profiles, while
+        # canonical LCPC evidence accepts only the frozen GCC-13/x86-64-v3
+        # profile.  Probe the existing writer and rebuild only the two
+        # evidence writers when necessary.  Locked preflight already builds
+        # them exactly, so this branch stays cold and does not mutate the
+        # compile-once transport before sealing.
+        with tempfile.TemporaryDirectory() as directory:
+            probe = Path(directory) / "profile-probe.lcpc"
+            subprocess.run(
+                [str(ROOT / "bin/test_policy_cost"), "--emit", str(probe)],
+                cwd=ROOT,
+                check=True,
+                stdout=subprocess.DEVNULL,
+            )
+            try:
+                read_policy_cost(probe)
+            except ArtifactError:
+                if os.environ.get("POLICY_COST_COMPILE_ONCE") == "1":
+                    raise
+                subprocess.run(
+                    ["make", "-B", "CC=gcc",
+                     f"CFLAGS={policy_cost_campaign.CFLAGS}",
+                     f"LDFLAGS={policy_cost_campaign.LDFLAGS}",
+                     "bin/test_policy_cost", "bin/build_policy_cost",
+                     "bin/commented_ply_eval", "bin/analyze"],
+                    cwd=ROOT,
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    text=True,
+                )
 
     def test_independent_reader_matches_c_writer_and_hash(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -44,10 +77,14 @@ class PolicyCostArtifactTests(unittest.TestCase):
                 check=True,
             )
             evidence = read_policy_cost(path)
-            self.assertEqual(evidence["schema"], "lc-policy-cost-v1")
+            self.assertEqual(evidence["schema"], "lc-policy-cost-v2")
+            self.assertEqual(evidence["artifact_version"], 3)
             self.assertEqual(evidence["anchors"], list(ANCHORS))
             self.assertEqual(evidence["primary_z"], 3.5)
             self.assertEqual(evidence["fresh_z"], 2.58)
+            self.assertEqual(evidence["beta"], [1.0] * len(ANCHORS))
+            self.assertEqual(len(evidence["alpha_action"]), len(ANCHORS))
+            self.assertEqual(len(evidence["alpha_draw"]), len(ANCHORS))
             self.assertEqual(
                 evidence["controller"]["cand_floor"],
                 struct.unpack("<f", struct.pack("<f", 0.01))[0],
@@ -97,6 +134,20 @@ class PolicyCostArtifactTests(unittest.TestCase):
                 cwd=ROOT,
                 check=True,
             )
+            delayed_onset = bytearray(path.read_bytes())
+            struct.pack_into("<I", delayed_onset, 64 + 4 * 14, 14)
+            struct.pack_into("<Q", delayed_onset, len(delayed_onset) - 8,
+                             fnv1a64(delayed_onset[:-8]))
+            path.write_bytes(delayed_onset)
+            with self.assertRaisesRegex(ArtifactError, "all-ply search"):
+                read_policy_cost(path)
+
+            path.unlink()
+            subprocess.run(
+                [str(ROOT / "bin/test_policy_cost"), "--emit", str(path)],
+                cwd=ROOT,
+                check=True,
+            )
             legacy_floor = bytearray(path.read_bytes())
             struct.pack_into("<f", legacy_floor, 144, 2.0)
             struct.pack_into("<Q", legacy_floor, len(legacy_floor) - 8,
@@ -111,10 +162,56 @@ class PolicyCostArtifactTests(unittest.TestCase):
                 cwd=ROOT,
                 check=True,
             )
+            zero_beta = bytearray(path.read_bytes())
+            struct.pack_into("<d", zero_beta, 256, 0.0)
+            struct.pack_into("<Q", zero_beta, len(zero_beta) - 8,
+                             fnv1a64(zero_beta[:-8]))
+            path.write_bytes(zero_beta)
+            with self.assertRaisesRegex(ArtifactError, "spline coefficient"):
+                read_policy_cost(path)
+
+            path.unlink()
+            subprocess.run(
+                [str(ROOT / "bin/test_policy_cost"), "--emit", str(path)],
+                cwd=ROOT,
+                check=True,
+            )
+            negative_alpha = bytearray(path.read_bytes())
+            struct.pack_into("<d", negative_alpha, 264, -1.0)
+            struct.pack_into("<Q", negative_alpha, len(negative_alpha) - 8,
+                             fnv1a64(negative_alpha[:-8]))
+            path.write_bytes(negative_alpha)
+            with self.assertRaisesRegex(ArtifactError, "spline coefficient"):
+                read_policy_cost(path)
+
+            path.unlink()
+            subprocess.run(
+                [str(ROOT / "bin/test_policy_cost"), "--emit", str(path)],
+                cwd=ROOT,
+                check=True,
+            )
             corrupted = bytearray(path.read_bytes())
             corrupted[256] ^= 1
             path.write_bytes(corrupted)
             with self.assertRaisesRegex(ArtifactError, "fingerprint mismatch"):
+                read_policy_cost(path)
+
+    def test_legacy_artifact_remains_byte_identical_and_loadable(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "legacy.lcpc"
+            subprocess.run(
+                [str(ROOT / "bin/test_policy_cost"), "--emit-legacy", str(path)],
+                cwd=ROOT, check=True,
+            )
+            self.assertEqual(len(path.read_bytes()), 424)
+            self.assertEqual(
+                hashlib.sha256(path.read_bytes()).hexdigest(),
+                "2c2437b37f8072178f9befdc57507ed45338ca87a23efdb2072a6c1dc3997a69",
+            )
+            legacy = read_legacy_policy_cost(path)
+            self.assertEqual(legacy["source_seed"], 202611140101)
+            with self.assertRaisesRegex(
+                    ArtifactError, "bytes, expected|dimensions or version"):
                 read_policy_cost(path)
 
     def test_trailing_bytes_fail_closed(self) -> None:
@@ -141,7 +238,7 @@ class PolicyCostArtifactTests(unittest.TestCase):
                 "--root-model", "data/champion.bin",
                 "--continuation-model", "data/champion.bin",
                 "--out", str(path),
-                "--source-seed", "202611140101",
+                "--source-seed", "202612140101",
                 "--epsilon", "0x1p-150",
                 "--objective", "0",
                 "--root-symmetries", "20",
@@ -162,8 +259,9 @@ class PolicyCostArtifactTests(unittest.TestCase):
                 "--cand-floor", "0.01",
                 "--override-k", "3.5",
                 "--override-min", "0",
-                "--lambda-action", schedule,
-                "--lambda-draw", draw,
+                "--beta", schedule,
+                "--alpha-action", schedule,
+                "--alpha-draw", draw,
             ]
             built = subprocess.run(
                 command,
@@ -174,7 +272,8 @@ class PolicyCostArtifactTests(unittest.TestCase):
             )
             manifest = json.loads(built.stdout)
             evidence = read_policy_cost(path)
-            self.assertEqual(manifest["schema"], "lc-policy-cost-build-v1")
+            self.assertEqual(manifest["schema"], "lc-policy-cost-build-v2")
+            self.assertEqual(manifest["artifact_version"], 3)
             self.assertEqual(manifest["legacy_override_min"], 0)
             self.assertEqual(manifest["no_belief"], 1)
             self.assertEqual(
@@ -313,8 +412,9 @@ class PolicyCostArtifactTests(unittest.TestCase):
                 "--cand-floor", "0.01",
                 "--override-k", "3.5",
                 "--override-min", "0",
-                "--lambda-action", ",".join(map(str, schedule_values)),
-                "--lambda-draw", ",".join(map(str, draw_values)),
+                "--beta", ",".join("1" for _ in ANCHORS),
+                "--alpha-action", ",".join(map(str, schedule_values)),
+                "--alpha-draw", ",".join(map(str, draw_values)),
             ]
             subprocess.run(command, cwd=ROOT, check=True,
                            stdout=subprocess.PIPE, text=True)
@@ -343,11 +443,15 @@ class PolicyCostArtifactTests(unittest.TestCase):
                 "train_input_sha256": "1" * 64,
             }
             calibration_payload = {
-                "schema": "lc-policy-cost-calibration-v1",
+                "schema": "lc-policy-cost-calibration-v2",
+                "calibration_passed": True,
+                "status": "passed",
+                "deployment": {"permitted": True, "reason": None},
                 "schedule": {
                     "ply_anchors": list(ANCHORS),
-                    "lambda_core": schedule_values,
-                    "lambda_draw": draw_values,
+                    "beta_search": schedule_values,
+                    "alpha_core": schedule_values,
+                    "alpha_draw": draw_values,
                 },
                 "campaign_design": {
                     "allocation_binding": {
@@ -358,8 +462,8 @@ class PolicyCostArtifactTests(unittest.TestCase):
                 "model_adequacy": {
                     "required": True,
                     "evaluated": True,
-                    "diagnostic_only_not_a_promotion_gate": True,
-                    "passed": False,
+                    "authoritative_pre_select_gate": True,
+                    "passed": True,
                 },
             }
             calibration_payload["calibration_sha256"] = hashlib.sha256(
@@ -388,12 +492,48 @@ class PolicyCostArtifactTests(unittest.TestCase):
                         return_value=select_evidence):
                 actor = policy_cost_campaign.actor_manifest(
                     execution, calibration, selection_path, artifact, artifact,
-                    "data/models/policy_cost_v1.lcpc",
+                    "data/models/policy_cost_v2.lcpc",
                 )
             self.assertEqual(
                 actor["selected_configuration"]["policy_floor"], 0.01
             )
             self.assertIn("rolloutu5:", actor["candidate_actor"])
+
+            failed_payload = copy.deepcopy(calibration_payload)
+            failed_payload["calibration_passed"] = False
+            failed_payload["status"] = "failed_model_adequacy"
+            failed_payload["deployment"] = {
+                "permitted": False,
+                "reason": "authoritative_predictive_model_adequacy_gate_failed",
+            }
+            failed_payload["model_adequacy"]["passed"] = False
+            failed_payload.pop("schedule")
+            failed_payload["calibration_sha256"] = hashlib.sha256(
+                policy_cost_calibration._canonical_json_bytes(
+                    {key: value for key, value in failed_payload.items()
+                     if key != "calibration_sha256"}
+                )
+            ).hexdigest()
+            calibration.write_bytes(
+                policy_cost_campaign.canonical_json(failed_payload)
+            )
+            failed_select_evidence = dict(
+                select_evidence,
+                calibration_sha256=policy_cost_campaign.sha256(calibration),
+            )
+            with mock.patch.object(
+                    policy_cost_campaign, "_sealed_campaign_selection",
+                    return_value=("floor-0.01_ply-00", 0.01, 0)), \
+                    mock.patch.object(
+                        policy_cost_campaign, "_validated_holdout_evidence",
+                        return_value=failed_select_evidence), \
+                    self.assertRaisesRegex(
+                        policy_cost_campaign.EvidenceError,
+                        "authoritative pre-SELECT gate"):
+                policy_cost_campaign.actor_manifest(
+                    execution, calibration, selection_path, artifact,
+                    artifact, "data/models/policy_cost_v2.lcpc",
+                )
 
     def test_rollout5_provenance_has_two_models_and_shifted_artifacts(
         self,

@@ -11,9 +11,9 @@ import tempfile
 import unittest
 from unittest import mock
 
-import tools.policy_cost_calibration as calibration
+import tools.policy_cost_calibration_v2 as calibration
 
-from tools.policy_cost_calibration import (
+from tools.policy_cost_calibration_v2 import (
     CalibrationError,
     DEFAULT_FOLD_SEED,
     DEFAULT_PLY_ANCHORS,
@@ -38,6 +38,7 @@ def observation(
     core_ratio: float,
     draw_ratio: float,
     *,
+    search_beta: float = 1.0,
     core_lambda: float = 1.5,
     draw_lambda: float = 0.5,
     search_delta: float = 0.0,
@@ -49,7 +50,7 @@ def observation(
     search_panel_id: str = "primary",
 ) -> PairObservation:
     truth_delta = (
-        search_delta
+        search_beta * search_delta
         + core_lambda * math.log(core_ratio)
         + draw_lambda * math.log(draw_ratio)
         + noise
@@ -103,17 +104,22 @@ def synthetic_rows() -> list[PairObservation]:
             draw_ratio = (0.5, 1.5, 3.0)[(2 * group + ply // 10) % 3]
             noise = ((group % 5) - 2) * 0.002
             rows.extend(primary_fresh(observation(
-                group, ply, core_ratio, draw_ratio, noise=noise,
+                group, ply, core_ratio, draw_ratio,
+                search_delta=((group % 7) - 3) * 0.17 + ply * 0.003,
+                noise=noise,
             )))
     # A large truth-panel outlier exercises Huber downweighting without
     # changing the source-match grouping contract.
     rows.extend(primary_fresh(observation(
-        17, 10, 8.0, 2.0, noise=100.0, state_suffix="outlier",
+        17, 10, 8.0, 2.0, search_delta=0.37, noise=100.0,
+        state_suffix="outlier",
     )))
     return rows
 
 
-def campaign_rows(quota: int, *, round_effect: float = 0.0) -> list[PairObservation]:
+def campaign_rows(
+    quota: int, *, round_effect: float = 0.0, gap_scale: float = 1.0,
+) -> list[PairObservation]:
     rows: list[PairObservation] = []
     ratios = (1.1, 1.5, 3.0, 6.0, 16.0, 64.0)
     for round_index in range(3):
@@ -137,8 +143,10 @@ def campaign_rows(quota: int, *, round_effect: float = 0.0) -> list[PairObservat
                         search = ((member % 5) - 2) * 0.03
                         truth = (
                             search
-                            + (1.5 + round_effect * round_index) * log_core
-                            + (0.5 + round_effect * round_index) * log_draw
+                            + gap_scale * (
+                                (1.5 + round_effect * round_index) * log_core
+                                + (0.5 + round_effect * round_index) * log_draw
+                            )
                             + ((member % 3) - 1) * 0.004
                         )
                         for panel in ("primary", "fresh"):
@@ -225,13 +233,14 @@ class PolicyCostCalibrationTests(unittest.TestCase):
             DEFAULT_PLY_ANCHORS,
             (0, 4, 8, 12, 16, 24, 32, 40, 48, 64),
         )
-        self.assertEqual(DEFAULT_FOLD_SEED, "202611140101")
+        self.assertEqual(DEFAULT_FOLD_SEED, "202612140101")
         self.assertEqual(DEFAULT_STANDARD_ERROR_FLOOR, 0.25)
 
         tail = PolicyCostSchedule(
             anchors=DEFAULT_PLY_ANCHORS,
-            lambda_core=tuple(float(i) for i in range(10)),
-            lambda_draw=tuple(0.0 for _ in range(10)),
+            beta_search=tuple(1.0 for _ in range(10)),
+            alpha_core=tuple(float(i) for i in range(10)),
+            alpha_draw=tuple(0.0 for _ in range(10)),
         )
         self.assertEqual(tail.lambdas_at(64), tail.lambdas_at(299))
         table = derived_gap_threshold_table(tail)
@@ -255,8 +264,9 @@ class PolicyCostCalibrationTests(unittest.TestCase):
     def test_scalar_thresholds_are_transitive(self) -> None:
         schedule = PolicyCostSchedule(
             anchors=ANCHORS,
-            lambda_core=(2.0, 2.0, 2.0),
-            lambda_draw=(0.75, 0.75, 0.75),
+            beta_search=(1.0, 1.0, 1.0),
+            alpha_core=(2.0, 2.0, 2.0),
+            alpha_draw=(0.75, 0.75, 0.75),
         )
         ab = schedule.required_search_advantage(
             ply=8,
@@ -284,8 +294,9 @@ class PolicyCostCalibrationTests(unittest.TestCase):
     def test_policy_gap_examples_and_one_percent_must_beat_four(self) -> None:
         schedule = PolicyCostSchedule(
             anchors=ANCHORS,
-            lambda_core=(2.0, 2.0, 2.0),
-            lambda_draw=(0.0, 0.0, 0.0),
+            beta_search=(1.0, 1.0, 1.0),
+            alpha_core=(2.0, 2.0, 2.0),
+            alpha_draw=(0.0, 0.0, 0.0),
         )
         table = derived_gap_threshold_table(schedule, plies=(5,))[0]
         thresholds = table["required_search_advantage"]
@@ -334,8 +345,9 @@ class PolicyCostCalibrationTests(unittest.TestCase):
     def test_conditional_draw_probability_is_a_separate_cost(self) -> None:
         schedule = PolicyCostSchedule(
             anchors=ANCHORS,
-            lambda_core=(4.0, 4.0, 4.0),
-            lambda_draw=(0.5, 0.5, 0.5),
+            beta_search=(1.0, 1.0, 1.0),
+            alpha_core=(4.0, 4.0, 4.0),
+            alpha_draw=(0.5, 0.5, 0.5),
         )
         threshold = schedule.required_search_advantage(
             ply=10,
@@ -409,9 +421,9 @@ class PolicyCostCalibrationTests(unittest.TestCase):
         positive = calibrate_policy_cost(precise_positive, config)
         zero = calibrate_policy_cost(precise_zero, config)
         self.assertTrue(all(value > 1.8
-                            for value in positive.schedule.lambda_core))
+                            for value in positive.schedule.alpha_core))
         self.assertTrue(all(value < 0.2
-                            for value in zero.schedule.lambda_core))
+                            for value in zero.schedule.alpha_core))
         self.assertNotIn("robust_residual_scale", positive.to_dict()["fit"])
         self.assertIn("sqrt(search_se^2 + truth_se^2 +",
                       positive.to_dict()["fit"]["variance_standardization"])
@@ -429,7 +441,7 @@ class PolicyCostCalibrationTests(unittest.TestCase):
         ))
         self.assertEqual(result.standard_error_floor, 0.25)
         self.assertTrue(all(math.isfinite(value)
-                            for value in result.schedule.lambda_core))
+                            for value in result.schedule.alpha_core))
 
     def test_each_state_has_equal_total_weight_despite_pair_count(self) -> None:
         base: list[PairObservation] = []
@@ -460,11 +472,11 @@ class PolicyCostCalibrationTests(unittest.TestCase):
         )
         base_result = calibrate_policy_cost(base, config)
         expanded_result = calibrate_policy_cost(expanded, config)
-        for left, right in zip(base_result.schedule.lambda_core,
-                               expanded_result.schedule.lambda_core):
+        for left, right in zip(base_result.schedule.alpha_core,
+                               expanded_result.schedule.alpha_core):
             self.assertAlmostEqual(left, right, places=11)
-        for left, right in zip(base_result.schedule.lambda_draw,
-                               expanded_result.schedule.lambda_draw):
+        for left, right in zip(base_result.schedule.alpha_draw,
+                               expanded_result.schedule.alpha_draw):
             self.assertAlmostEqual(left, right, places=11)
 
     def test_primary_and_fresh_may_share_one_independent_truth_panel(self) -> None:
@@ -523,27 +535,130 @@ class PolicyCostCalibrationTests(unittest.TestCase):
                 anchors=ANCHORS, smoothness_grid=(0.0,), folds=3,
             ))
 
+    def test_primary_fresh_are_separate_half_weight_observations(self) -> None:
+        primary, fresh = primary_fresh(observation(
+            0, 10, 2.0, 1.0, search_delta=0.4,
+        ))
+        design, target, weights = calibration._design(
+            (primary, fresh), ANCHORS, DEFAULT_STANDARD_ERROR_FLOOR
+        )
+        self.assertEqual(design.shape, (2, 9))
+        self.assertEqual(target.shape, (2,))
+        self.assertEqual(tuple(weights), (0.5, 0.5))
+
     def test_fit_is_nonnegative_constrained_and_recovers_signal(self) -> None:
         config = FitConfig(
             anchors=ANCHORS,
             smoothness_grid=(0.0, 0.01, 1.0),
             folds=3,
             fold_seed="constraint-test",
-            min_core_lambda=0.1,
-            min_draw_lambda=0.05,
+            min_core_alpha=0.1,
+            min_draw_alpha=0.05,
         )
         result = calibrate_policy_cost(synthetic_rows(), config)
         self.assertTrue(all(value >= 0.1
-                            for value in result.schedule.lambda_core))
+                            for value in result.schedule.alpha_core))
         self.assertTrue(all(value >= 0.05
-                            for value in result.schedule.lambda_draw))
-        for value in result.schedule.lambda_core:
+                            for value in result.schedule.alpha_draw))
+        for value in result.schedule.alpha_core:
             self.assertAlmostEqual(value, 1.5, delta=0.2)
-        for value in result.schedule.lambda_draw:
+        for value in result.schedule.alpha_draw:
             self.assertAlmostEqual(value, 0.5, delta=0.12)
-        self.assertNotIn("beta", result.to_dict()["model"])
+        for value in result.schedule.beta_search:
+            self.assertAlmostEqual(value, 1.0, delta=0.2)
+        self.assertIn("beta_search", result.to_dict()["model"]["score"])
         self.assertEqual(result.to_dict()["model"]["candidate_zero_bonus"],
                          "absent")
+
+    def test_search_shrinkage_is_fitted_instead_of_fixed_to_one(self) -> None:
+        rows: list[PairObservation] = []
+        for group in range(18):
+            for ply in ANCHORS:
+                rows.extend(primary_fresh(observation(
+                    group,
+                    ply,
+                    (1.25, 2.0, 4.0)[group % 3],
+                    (0.7, 1.0, 2.0)[(group + ply // 10) % 3],
+                    search_beta=0.4,
+                    core_lambda=1.2,
+                    draw_lambda=0.3,
+                    search_delta=((group % 9) - 4) * 0.31 + 0.01 * ply,
+                    noise=((group % 5) - 2) * 0.001,
+                )))
+        result = calibrate_policy_cost(rows, FitConfig(
+            anchors=ANCHORS,
+            smoothness_grid=(0.0,),
+            folds=3,
+            fold_seed="predictive-beta",
+        ))
+        for value in result.schedule.beta_search:
+            self.assertAlmostEqual(value, 0.4, delta=0.03)
+        for value in result.schedule.alpha_core:
+            self.assertAlmostEqual(value, 1.2, delta=0.04)
+        for value in result.schedule.alpha_draw:
+            self.assertAlmostEqual(value, 0.3, delta=0.04)
+
+    def test_noisy_search_learns_policy_shrinkage_old_residual_misses(self) -> None:
+        rows: list[PairObservation] = []
+        residual_core_cross_product = 0.0
+        group = 0
+        for core_ratio in (1.25, 2.0, 4.0):
+            gap = math.log(core_ratio)
+            for latent in (-1.0, 0.0, 1.0):
+                truth = 2.0 * gap + latent
+                for primary_error in (-2.0, 0.0, 2.0):
+                    for fresh_error in (-2.0, 0.0, 2.0):
+                        for ply in ANCHORS:
+                            state = f"latent-{group}-ply-{ply}"
+                            for panel, error in (
+                                ("primary", primary_error),
+                                ("fresh", fresh_error),
+                            ):
+                                search = truth + error
+                                rows.append(PairObservation(
+                                    source_match_id=f"latent-{group}",
+                                    state_id=state,
+                                    pair_id="pair",
+                                    ply=ply,
+                                    search_delta=search,
+                                    truth_delta=truth,
+                                    log_core_ratio=gap,
+                                    log_draw_ratio=0.0,
+                                    search_se=0.2,
+                                    truth_se=0.2,
+                                    search_panel_id=panel,
+                                    truth_panel_id="independent-truth",
+                                ))
+                                residual_core_cross_product += (
+                                    gap * (truth - search)
+                                )
+                        group += 1
+        # The rejected fixed-beta residual target has exactly zero policy-gap
+        # cross-product in this factorial design, despite informative policy.
+        self.assertAlmostEqual(residual_core_cross_product, 0.0, places=12)
+        result = calibrate_policy_cost(rows, FitConfig(
+            anchors=ANCHORS,
+            smoothness_grid=(0.0,),
+            folds=3,
+            fold_seed="latent-noisy-search",
+        ))
+        self.assertTrue(all(0.05 < value < 0.5
+                            for value in result.schedule.beta_search))
+        self.assertTrue(all(value > 1.0
+                            for value in result.schedule.alpha_core))
+
+    def test_raw_coefficients_interpolate_before_alpha_over_beta(self) -> None:
+        schedule = PolicyCostSchedule(
+            anchors=(0, 10),
+            beta_search=(1.0, 3.0),
+            alpha_core=(1.0, 9.0),
+            alpha_draw=(0.0, 6.0),
+        )
+        beta, core, draw = schedule.coefficients_at(5)
+        self.assertEqual((beta, core, draw), (2.0, 5.0, 3.0))
+        self.assertEqual(schedule.lambdas_at(5), (2.5, 1.5))
+        # Averaging the endpoint ratios would instead give (2, 1).
+        self.assertNotEqual(schedule.lambdas_at(5), (2.0, 1.0))
 
     def test_adverse_signal_projects_to_zero(self) -> None:
         rows = [
@@ -570,9 +685,9 @@ class PolicyCostCalibrationTests(unittest.TestCase):
             folds=3,
         ))
         self.assertTrue(all(value <= 1.0e-9
-                            for value in result.schedule.lambda_core))
+                            for value in result.schedule.alpha_core))
         self.assertTrue(all(value <= 1.0e-9
-                            for value in result.schedule.lambda_draw))
+                            for value in result.schedule.alpha_draw))
 
     def test_one_se_rule_prefers_smoother_exact_tie(self) -> None:
         rows = [
@@ -800,11 +915,20 @@ class LockedCampaignDesignTests(unittest.TestCase):
         )
         for partition in result.campaign_design[
                 "design_identifiability"]["partitions"]:
-            self.assertEqual(partition["rank_after_column_scaling"], 20)
+            self.assertEqual(partition["rank_after_column_scaling"], 30)
             self.assertLessEqual(
                 partition["condition_number_after_column_scaling"], 1.0e8
             )
         self.assertTrue(result.model_adequacy["passed"])
+        self.assertTrue(result.calibration_passed)
+        self.assertIsNotNone(result.schedule)
+        serialized = result.to_dict()
+        self.assertEqual(serialized["status"], "passed")
+        self.assertEqual(
+            serialized["deployment"], {"permitted": True, "reason": None}
+        )
+        self.assertIn("schedule", serialized)
+        self.assertIn("derived_gap_thresholds", serialized)
         self.assertTrue(
             result.campaign_design["allocation_binding"]["validated"]
         )
@@ -823,14 +947,14 @@ class LockedCampaignDesignTests(unittest.TestCase):
                     CalibrationError, "differs from sealed allocation"):
                 calibration._campaign_allocation_binding(rows, substituted)
         self.assertGreater(
-            result.model_adequacy["zero_cost_comparison"][
+            result.model_adequacy["gap_over_beta_only_comparison"][
                 "one_sided_lcb_z_1_645"
             ],
             0.0,
         )
         self.assertTrue(
             result.model_adequacy[
-                "pooled_zero_minus_shared_loss_reduction"
+                "pooled_beta_only_minus_gap_loss_reduction"
             ]["passed"]
         )
 
@@ -844,14 +968,61 @@ class LockedCampaignDesignTests(unittest.TestCase):
                     require_campaign_design=True,
                 ),
             )
-        self.assertGreater(
-            result.model_adequacy["relative_improvement_over_shared"][
-                "round_specific_log_linear"
-            ],
-            calibration.MODEL_LACK_MAX_RELATIVE_IMPROVEMENT,
+        self.assertFalse(result.calibration_passed)
+        self.assertIsNone(result.schedule)
+        serialized = result.to_dict()
+        self.assertEqual(serialized["status"], "failed_model_adequacy")
+        self.assertEqual(serialized["deployment"], {
+            "permitted": False,
+            "reason": "authoritative_predictive_model_adequacy_gate_failed",
+        })
+        self.assertNotIn("schedule", serialized)
+        self.assertNotIn("derived_gap_thresholds", serialized)
+        self.assertFalse(serialized["model_adequacy"]["passed"])
+        self.assertIn(
+            "nested_outer_folds", serialized["model_adequacy"]
         )
-        self.assertFalse(result.model_adequacy["richer_model_check_passed"])
-        self.assertFalse(result.model_adequacy["passed"])
+        self.assertEqual(
+            serialized["observation_input_sha256"],
+            result.observation_input_sha256,
+        )
+
+    def test_gap_model_must_beat_beta_only_before_select(self) -> None:
+        with mock.patch.object(calibration, "CAMPAIGN_CELL_QUOTA", 5):
+            result = calibrate_policy_cost(
+                campaign_rows(5, gap_scale=0.0),
+                FitConfig(
+                    smoothness_grid=(0.0,),
+                    folds=3,
+                    require_campaign_design=True,
+                ),
+            )
+        self.assertFalse(result.calibration_passed)
+        serialized = result.to_dict()
+        self.assertFalse(serialized["calibration_passed"])
+        self.assertFalse(
+            serialized["model_adequacy"][
+                "gap_over_beta_only_comparison"
+            ]["passed"]
+        )
+        self.assertNotIn("schedule", serialized)
+
+    def test_campaign_beta_design_rank_failure_is_authoritative(self) -> None:
+        with mock.patch.object(calibration, "CAMPAIGN_CELL_QUOTA", 5):
+            rows = [replace(
+                row,
+                search_delta=0.0,
+            ) for row in campaign_rows(5)]
+            with self.assertRaisesRegex(
+                    CalibrationError, "unobserved design column"):
+                calibrate_policy_cost(
+                    rows,
+                    FitConfig(
+                        smoothness_grid=(0.0,),
+                        folds=3,
+                        require_campaign_design=True,
+                    ),
+                )
 
     def test_pair_metadata_is_canonical_and_strict(self) -> None:
         row = observation(0, 0, 2.0, 1.0)

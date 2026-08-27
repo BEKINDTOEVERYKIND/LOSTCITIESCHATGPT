@@ -12,7 +12,7 @@
 
 typedef struct {
     const char *root_path, *continuation_path, *match_value_path, *out_path;
-    const char *lambda_action_text, *lambda_draw_text;
+    const char *beta_text, *alpha_action_text, *alpha_draw_text;
     uint64_t source_seed;
     double epsilon;
     PolicyCostController controller;
@@ -40,8 +40,8 @@ static void usage(const char *program)
         "--playout-prune N --exact-terminal N --no-belief 1 --dets N "
         "--confirm-dets N --root-width N --action-core-count N --min-cand N "
         "--ply-lo N --ply-hi N --discard-guard N --root-prune N --cand-floor X "
-        "--override-k 3.5 --override-min 0 --lambda-action a0,...,a9 "
-        "--lambda-draw d0,...,d9\n", program);
+        "--override-k 3.5 --override-min 0 --beta b0,...,b9 "
+        "--alpha-action a0,...,a9 --alpha-draw d0,...,d9\n", program);
 }
 
 static int parse_u64(const char *text, uint64_t *out)
@@ -86,7 +86,7 @@ static int parse_float_exact(const char *text, float *out)
 }
 
 static int parse_schedule(const char *text,
-                          double value[POLICY_COST_ANCHORS])
+                          double value[POLICY_COST_ANCHORS], int positive)
 {
     if (!text || !*text) return 0;
     const char *cursor = text;
@@ -95,7 +95,7 @@ static int parse_schedule(const char *text,
         char *end = NULL;
         double parsed = strtod(cursor, &end);
         if (errno || !end || end == cursor || !lc_double_isfinite(parsed) ||
-            parsed < 0.0 || parsed > 1000.0) return 0;
+            (positive ? parsed <= 0.0 : parsed < 0.0)) return 0;
         value[i] = parsed;
         if (i + 1 == POLICY_COST_ANCHORS) {
             if (*end) return 0;
@@ -137,8 +137,9 @@ static int parse_args(int argc, char **argv, Config *c)
         PATH_ARG("--continuation-model", continuation_path)
         PATH_ARG("--match-value", match_value_path)
         PATH_ARG("--out", out_path)
-        PATH_ARG("--lambda-action", lambda_action_text)
-        PATH_ARG("--lambda-draw", lambda_draw_text)
+        PATH_ARG("--beta", beta_text)
+        PATH_ARG("--alpha-action", alpha_action_text)
+        PATH_ARG("--alpha-draw", alpha_draw_text)
         else if (!strcmp(argv[i], "--source-seed")) {
             if (!next_value(argc, argv, &i, &v) || (c->seen & S_SEED) ||
                 !parse_u64(v, &c->source_seed)) return 0;
@@ -185,7 +186,8 @@ static int parse_args(int argc, char **argv, Config *c)
 #undef PATH_ARG
     }
     return c->root_path && c->continuation_path && c->out_path &&
-           c->lambda_action_text && c->lambda_draw_text && c->seen == S_ALL;
+           c->beta_text && c->alpha_action_text && c->alpha_draw_text &&
+           c->seen == S_ALL;
 }
 
 static void json_string(const char *text)
@@ -244,8 +246,9 @@ int main(int argc, char **argv)
     table.fresh_z = POLICY_COST_FRESH_Z;
     table.controller = config.controller;
     memcpy(table.ply_anchor, anchor, sizeof anchor);
-    if (!parse_schedule(config.lambda_action_text, table.lambda_action) ||
-        !parse_schedule(config.lambda_draw_text, table.lambda_draw) ||
+    if (!parse_schedule(config.beta_text, table.beta, 1) ||
+        !parse_schedule(config.alpha_action_text, table.alpha_action, 0) ||
+        !parse_schedule(config.alpha_draw_text, table.alpha_draw, 0) ||
         !policy_cost_validate(&table)) {
         fprintf(stderr, "invalid policy-cost controller or coefficient input\n");
         match_value_free(match_value); free(root); free(continuation); return 2;
@@ -263,19 +266,21 @@ int main(int argc, char **argv)
         (void)remove(config.out_path);
         match_value_free(match_value); free(root); free(continuation); return 1;
     }
-    printf("{\"schema\":\"lc-policy-cost-build-v1\",\"output\":");
+    printf("{\"schema\":\"lc-policy-cost-build-v2\",\"output\":");
     json_string(config.out_path);
     printf(",\"source_seed\":%" PRIu64
            ",\"payload_fingerprint\":\"%016" PRIx64
            "\",\"root_net_fingerprint\":\"%016" PRIx64
            "\",\"continuation_net_fingerprint\":\"%016" PRIx64
            "\",\"match_value_fingerprint\":\"%016" PRIx64
-           "\",\"primary_z\":3.5,\"fresh_z\":2.58,"
+           "\",\"artifact_version\":%u,"
+           "\"primary_z\":3.5,\"fresh_z\":2.58,"
            "\"no_belief\":1,\"legacy_override_min\":0}\n",
            verified->source_seed, verified->payload_fingerprint,
            verified->controller.root_net_fingerprint,
            verified->controller.continuation_net_fingerprint,
-           verified->controller.match_value_fingerprint);
+           verified->controller.match_value_fingerprint,
+           verified->version);
     policy_cost_free(verified); match_value_free(match_value);
     free(root); free(continuation); return 0;
 }

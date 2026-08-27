@@ -22,6 +22,8 @@ from tools.match_value_objective3_v2 import (
     DEFINITION_PATHS,
     DEVELOPMENT_PAIRS,
     DEVELOPMENT_SCHEMA,
+    FINAL_RESULT_PATH,
+    FINAL_RESULT_SHA256,
     FINAL_PAIRS,
     EXECUTION_PATH,
     LOCK_PATH,
@@ -43,13 +45,13 @@ from tools.match_value_objective3_v2 import (
     WORLD_CAP,
     WORKFLOW_PATH,
     EvidenceError,
-    authoritative_audit_result,
     build_actors,
     development_selection,
     evidence_manifest,
     final_gate,
     inspect_table,
     safety_gate,
+    sha256,
     table_manifest,
     terminal_result,
     validate_plan,
@@ -224,15 +226,28 @@ class MatchValueObjective3V2Tests(unittest.TestCase):
                 validate_plan(broken)
 
     def test_authoritative_audit_is_complete_bound_and_selection_forbidden(self) -> None:
-        value = authoritative_audit_result(ROOT)
-        self.assertEqual(value["selection_use"], "forbidden")
-        self.assertEqual(value["cases"], 17)
-        self.assertEqual(value["raw_shards"], 17)
+        # The audit predates Objective-3 promotion and must stay bound to the
+        # historical baseline result frozen in its definition.  Updating the
+        # live final_actor_result after a successful promotion must not rewrite
+        # the immutable diagnostic or its frozen replay helper.
+        self.assertNotEqual(sha256(ROOT / FINAL_RESULT_PATH), FINAL_RESULT_SHA256)
+        value = json.loads(
+            (ROOT / AUDIT_RESULT_PATH).read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            value["bindings"]["final_actor_result_sha256"],
+            FINAL_RESULT_SHA256,
+        )
+        self.assertTrue(value["audit"]["diagnostic_only"])
+        self.assertEqual(value["audit"]["promotion_use"], "forbidden")
+        self.assertEqual(value["audit"]["cases_completed"], 17)
+        self.assertEqual(value["audit"]["raw_shards"], 17)
         self.assertEqual(value["run"]["attempt"], 1)
         self.assertEqual(value["run"]["conclusion"], "success")
         self.assertEqual(
-            [value[key]["path"] for key in (
-                "result", "canonical_json", "canonical_markdown", "evidence")],
+            [AUDIT_RESULT_PATH, *[
+                row["path"] for row in value["persisted_evidence"]
+            ]],
             [AUDIT_RESULT_PATH, AUDIT_JSON_PATH, AUDIT_MARKDOWN_PATH,
              AUDIT_EVIDENCE_PATH],
         )

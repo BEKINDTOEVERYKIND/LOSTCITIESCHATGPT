@@ -1,14 +1,22 @@
-/* policy_cost.h -- calibrated policy-frequency costs for rollout roots.
+/* policy_cost.h -- calibrated policy-frequency arbitration for rollout roots.
  *
  * A policy-cost table turns a root policy probability into a deterministic
  * opportunity cost in the same units as the rollout objective.  The cost is
  * split into a semantic card/action term and a conditional draw-source term:
  *
- *   cost(m) = -lambda_action * log(P_action(m))
- *             -lambda_draw * log(P(m) / P_action(m))
+ *   score(m) = beta * Q(m)
+ *              + alpha_action * log(P_action(m))
+ *              + alpha_draw * log(P(m) / P_action(m))
  *
- * Ranking Q(m)-cost(m) is one scalar potential, so pairwise thresholds
- * telescope and cannot create preference cycles.  The historical practical-
+ * beta is strictly positive, so deployment divides the whole scalar by the
+ * interpolated beta and uses the equivalent opportunity cost
+ *
+ *   cost(m) = -(alpha_action / beta) * log(P_action(m))
+ *             -(alpha_draw / beta) * log(P(m) / P_action(m)).
+ *
+ * Crucially beta and both alphas are interpolated before either ratio is
+ * formed.  Ranking Q(m)-cost(m) is one scalar potential, so pairwise
+ * thresholds telescope and cannot create preference cycles.  The historical practical-
  * effect hurdle remains a distinct legacy rollout mechanism; v1 policy-cost
  * actors bind its threshold to canonical +0 and never fold it into this
  * trusted selection.
@@ -24,13 +32,15 @@
 #include "net.h"
 #include <stdint.h>
 
-#define POLICY_COST_VERSION 1U
+#define POLICY_COST_LEGACY_VERSION 1U
+#define POLICY_COST_VERSION 3U
 #define POLICY_COST_CONTROLLER_ABI 1U
 #define POLICY_COST_ANCHORS 10
 #define POLICY_COST_MAX_CANDIDATES 8
 #define POLICY_COST_PRIMARY_Z 3.5
 #define POLICY_COST_FRESH_Z 2.58
-#define POLICY_COST_SOURCE_SEED UINT64_C(202611140101)
+#define POLICY_COST_LEGACY_SOURCE_SEED UINT64_C(202611140101)
+#define POLICY_COST_SOURCE_SEED UINT64_C(202612140101)
 /* One half of the least positive binary32 value.  The policy vector is
  * binary32, so every strictly positive policy mass clears this exact
  * binary64 domain assertion while an exact zero never enters log(). */
@@ -78,11 +88,20 @@ typedef struct PolicyCostTable {
     double fresh_z;
     uint32_t ply_anchor[POLICY_COST_ANCHORS];
     PolicyCostController controller;
-    /* One round-shared schedule.  Coefficients are linearly interpolated at
-     * the integer pre-move State.nply through ply 64, then held constant;
-     * State.round remains diagnostic only. */
-    double lambda_action[POLICY_COST_ANCHORS];
-    double lambda_draw[POLICY_COST_ANCHORS];
+    /* One round-shared predictive schedule.  beta and both alpha arrays are
+     * linearly interpolated independently at the integer pre-move State.nply
+     * through ply 64, then held constant; State.round remains diagnostic
+     * only.  The aliases retain source compatibility for legacy-v1 table
+     * construction; in v1 the persisted lambdas map to alpha with beta=1. */
+    double beta[POLICY_COST_ANCHORS];
+    union {
+        double alpha_action[POLICY_COST_ANCHORS];
+        double lambda_action[POLICY_COST_ANCHORS];
+    };
+    union {
+        double alpha_draw[POLICY_COST_ANCHORS];
+        double lambda_draw[POLICY_COST_ANCHORS];
+    };
 } PolicyCostTable;
 
 typedef struct {
@@ -91,6 +110,10 @@ typedef struct {
     int anchor_interval;
     int prior_protected_rivals;
     int all_pair_passed;
+    double beta;
+    double alpha_action;
+    double alpha_draw;
+    /* Normalized alpha/beta coefficients actually applied to Q. */
     double lambda_action;
     double lambda_draw;
     double q[POLICY_COST_MAX_CANDIDATES];
@@ -109,6 +132,12 @@ int policy_cost_validate(const PolicyCostTable *table);
  * Agents: attaching a valid table must not silently compose it with an
  * uncalibrated planner, resolver, ranker, veto, or pruned root policy. */
 int policy_cost_matches_agent(const struct Agent *agent);
+/* Return the independently interpolated predictive coefficients. */
+int policy_cost_coefficients(const PolicyCostTable *table, int nply,
+                             double *beta, double *alpha_action,
+                             double *alpha_draw, int *anchor_interval);
+/* Return normalized alpha/beta costs.  This is equivalent to dividing the
+ * complete predictive score and its uncertainty by positive beta. */
 int policy_cost_schedule(const PolicyCostTable *table, int nply,
                          double *lambda_action, double *lambda_draw,
                          int *anchor_interval);

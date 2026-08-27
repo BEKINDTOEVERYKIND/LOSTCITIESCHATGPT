@@ -15,7 +15,8 @@ static const unsigned char POLICY_COST_MAGIC[8] = {
 enum {
     POLICY_COST_HEADER_BYTES = 256,
     POLICY_COST_CONTROLLER_WORDS = 18,
-    POLICY_COST_PAYLOAD_DOUBLES = POLICY_COST_ANCHORS * 2
+    POLICY_COST_LEGACY_PAYLOAD_DOUBLES = POLICY_COST_ANCHORS * 2,
+    POLICY_COST_PAYLOAD_DOUBLES = POLICY_COST_ANCHORS * 3
 };
 
 _Static_assert(sizeof(double) == 8,
@@ -167,9 +168,15 @@ int policy_cost_validate(const PolicyCostTable *table)
     static const uint32_t required_anchor[POLICY_COST_ANCHORS] = {
         0, 4, 8, 12, 16, 24, 32, 40, 48, 64
     };
-    if (!table || table->version != POLICY_COST_VERSION ||
-        table->source_seed != POLICY_COST_SOURCE_SEED ||
+    int identity_valid = table && (
+        (table->version == POLICY_COST_VERSION &&
+         table->source_seed == POLICY_COST_SOURCE_SEED) ||
+        (table->version == POLICY_COST_LEGACY_VERSION &&
+         table->source_seed == POLICY_COST_LEGACY_SOURCE_SEED));
+    if (!identity_valid ||
         !policy_cost_controller_valid(&table->controller) ||
+        (table->version == POLICY_COST_VERSION &&
+         table->controller.ply_lo != 0) ||
         !finite_double(table->epsilon) ||
         double_bits(table->epsilon) != double_bits(POLICY_COST_EPSILON) ||
         table->primary_z != POLICY_COST_PRIMARY_Z ||
@@ -177,10 +184,18 @@ int policy_cost_validate(const PolicyCostTable *table)
         return 0;
     for (int a = 0; a < POLICY_COST_ANCHORS; a++) {
         if (table->ply_anchor[a] != required_anchor[a]) return 0;
-        double la = table->lambda_action[a];
-        double ld = table->lambda_draw[a];
-        if (!finite_double(la) || !finite_double(ld) ||
-            la < 0.0 || la > 1000.0 || ld < 0.0 || ld > 1000.0)
+        double beta = table->beta[a];
+        double aa = table->alpha_action[a];
+        double ad = table->alpha_draw[a];
+        if (!finite_double(beta) || !finite_double(aa) ||
+            !finite_double(ad) || beta <= 0.0 || aa < 0.0 || ad < 0.0 ||
+            !finite_double(aa / beta) || !finite_double(ad / beta))
+            return 0;
+        /* Legacy payloads persisted the two normalized lambdas.  Mapping
+         * them to alpha at beta=1 preserves their bytes and exact runtime
+         * behavior while making the in-memory representation unambiguous. */
+        if (table->version == POLICY_COST_LEGACY_VERSION &&
+            (beta != 1.0 || aa > 1000.0 || ad > 1000.0))
             return 0;
     }
     return 1;
@@ -243,12 +258,12 @@ int policy_cost_matches_agent(const struct Agent *a)
            c->override_min == a->override_min;
 }
 
-int policy_cost_schedule(const PolicyCostTable *table, int nply,
-                         double *lambda_action, double *lambda_draw,
-                         int *anchor_interval)
+int policy_cost_coefficients(const PolicyCostTable *table, int nply,
+                             double *beta, double *alpha_action,
+                             double *alpha_draw, int *anchor_interval)
 {
     if (!policy_cost_validate(table) || nply < 0 || nply >= LC_MAX_PLIES ||
-        !lambda_action || !lambda_draw)
+        !beta || !alpha_action || !alpha_draw)
         return 0;
     int interval = POLICY_COST_ANCHORS - 1;
     for (int a = 0; a + 1 < POLICY_COST_ANCHORS; a++)
@@ -258,20 +273,41 @@ int policy_cost_schedule(const PolicyCostTable *table, int nply,
         }
     if (interval == POLICY_COST_ANCHORS - 1) {
         /* There is deliberately no unsupported post-64 tail slope. */
-        *lambda_action = table->lambda_action[interval];
-        *lambda_draw = table->lambda_draw[interval];
+        *beta = table->beta[interval];
+        *alpha_action = table->alpha_action[interval];
+        *alpha_draw = table->alpha_draw[interval];
     } else {
         double lo = table->ply_anchor[interval];
         double hi = table->ply_anchor[interval + 1];
         double t = ((double)nply - lo) / (hi - lo);
-        *lambda_action = table->lambda_action[interval] + t *
-            (table->lambda_action[interval + 1] -
-             table->lambda_action[interval]);
-        *lambda_draw = table->lambda_draw[interval] + t *
-            (table->lambda_draw[interval + 1] -
-             table->lambda_draw[interval]);
+        *beta = table->beta[interval] + t *
+            (table->beta[interval + 1] - table->beta[interval]);
+        *alpha_action = table->alpha_action[interval] + t *
+            (table->alpha_action[interval + 1] -
+             table->alpha_action[interval]);
+        *alpha_draw = table->alpha_draw[interval] + t *
+            (table->alpha_draw[interval + 1] -
+             table->alpha_draw[interval]);
     }
     if (anchor_interval) *anchor_interval = interval;
+    return finite_double(*beta) && *beta > 0.0 &&
+           finite_double(*alpha_action) && *alpha_action >= 0.0 &&
+           finite_double(*alpha_draw) && *alpha_draw >= 0.0;
+}
+
+int policy_cost_schedule(const PolicyCostTable *table, int nply,
+                         double *lambda_action, double *lambda_draw,
+                         int *anchor_interval)
+{
+    double beta = 0.0, alpha_action = 0.0, alpha_draw = 0.0;
+    if (!lambda_action || !lambda_draw ||
+        !policy_cost_coefficients(table, nply, &beta, &alpha_action,
+                                  &alpha_draw, anchor_interval))
+        return 0;
+    /* Divide only after all three schedules have been interpolated.  Doing
+     * this at anchors first would define a different (and incorrect) curve. */
+    *lambda_action = alpha_action / beta;
+    *lambda_draw = alpha_draw / beta;
     return finite_double(*lambda_action) && finite_double(*lambda_draw);
 }
 
@@ -321,11 +357,13 @@ static void store_header(const PolicyCostTable *table,
 {
     memset(h, 0, POLICY_COST_HEADER_BYTES);
     memcpy(h, POLICY_COST_MAGIC, sizeof POLICY_COST_MAGIC);
-    encode_u32(h + 8, POLICY_COST_VERSION);
+    encode_u32(h + 8, table->version);
     encode_u32(h + 12, POLICY_COST_HEADER_BYTES);
     encode_u32(h + 16, MATCH_ROUNDS);
     encode_u32(h + 20, POLICY_COST_ANCHORS);
-    encode_u32(h + 24, POLICY_COST_PAYLOAD_DOUBLES);
+    encode_u32(h + 24, table->version == POLICY_COST_LEGACY_VERSION
+                           ? POLICY_COST_LEGACY_PAYLOAD_DOUBLES
+                           : POLICY_COST_PAYLOAD_DOUBLES);
     encode_u64(h + 32, table->source_seed);
     store_controller(h, &table->controller);
     encode_u64(h + 160, double_bits(table->epsilon));
@@ -362,9 +400,13 @@ int policy_cost_save(const PolicyCostTable *table, const char *path)
     uint64_t fingerprint = fingerprint_update(
         UINT64_C(1469598103934665603), h, sizeof h);
     int ok = fwrite(h, 1, sizeof h, file) == sizeof h;
-    for (int a = 0; a < POLICY_COST_ANCHORS && ok; a++)
-        ok = write_double(file, table->lambda_action[a], &fingerprint) &&
-             write_double(file, table->lambda_draw[a], &fingerprint);
+    for (int a = 0; a < POLICY_COST_ANCHORS && ok; a++) {
+        if (table->version == POLICY_COST_VERSION)
+            ok = write_double(file, table->beta[a], &fingerprint);
+        ok = ok &&
+             write_double(file, table->alpha_action[a], &fingerprint) &&
+             write_double(file, table->alpha_draw[a], &fingerprint);
+    }
     unsigned char footer[8];
     encode_u64(footer, fingerprint);
     ok = ok && fwrite(footer, 1, sizeof footer, file) == sizeof footer;
@@ -383,13 +425,21 @@ PolicyCostTable *policy_cost_load(const char *path, int *error)
     FILE *file = fopen(path, "rb");
     if (!file) return NULL;
     unsigned char h[POLICY_COST_HEADER_BYTES];
-    if (fread(h, 1, sizeof h, file) != sizeof h ||
+    int header_read = fread(h, 1, sizeof h, file) == sizeof h;
+    uint32_t version = header_read ? decode_u32(h + 8) : 0;
+    uint32_t payload_doubles = version == POLICY_COST_VERSION
+        ? POLICY_COST_PAYLOAD_DOUBLES
+        : POLICY_COST_LEGACY_PAYLOAD_DOUBLES;
+    if (!header_read ||
         memcmp(h, POLICY_COST_MAGIC, sizeof POLICY_COST_MAGIC) != 0 ||
-        decode_u32(h + 8) != POLICY_COST_VERSION ||
+        !((version == POLICY_COST_VERSION &&
+           decode_u64(h + 32) == POLICY_COST_SOURCE_SEED) ||
+          (version == POLICY_COST_LEGACY_VERSION &&
+           decode_u64(h + 32) == POLICY_COST_LEGACY_SOURCE_SEED)) ||
         decode_u32(h + 12) != POLICY_COST_HEADER_BYTES ||
         decode_u32(h + 16) != MATCH_ROUNDS ||
         decode_u32(h + 20) != POLICY_COST_ANCHORS ||
-        decode_u32(h + 24) != POLICY_COST_PAYLOAD_DOUBLES ||
+        decode_u32(h + 24) != payload_doubles ||
         !bytes_are_zero(h + 28, 4) ||
         !bytes_are_zero(h + 148, 12) ||
         !bytes_are_zero(
@@ -406,7 +456,7 @@ PolicyCostTable *policy_cost_load(const char *path, int *error)
         if (error) *error = -3;
         return NULL;
     }
-    table->version = decode_u32(h + 8);
+    table->version = version;
     table->source_seed = decode_u64(h + 32);
     load_controller(h, &table->controller);
     table->epsilon = bits_double(decode_u64(h + 160));
@@ -418,9 +468,15 @@ PolicyCostTable *policy_cost_load(const char *path, int *error)
     uint64_t fingerprint = fingerprint_update(
         UINT64_C(1469598103934665603), h, sizeof h);
     int ok = 1;
-    for (int a = 0; a < POLICY_COST_ANCHORS && ok; a++)
-        ok = read_double(file, &table->lambda_action[a], &fingerprint) &&
-             read_double(file, &table->lambda_draw[a], &fingerprint);
+    for (int a = 0; a < POLICY_COST_ANCHORS && ok; a++) {
+        if (table->version == POLICY_COST_VERSION)
+            ok = read_double(file, &table->beta[a], &fingerprint);
+        else
+            table->beta[a] = 1.0;
+        ok = ok &&
+             read_double(file, &table->alpha_action[a], &fingerprint) &&
+             read_double(file, &table->alpha_draw[a], &fingerprint);
+    }
     unsigned char footer[8];
     ok = ok && fread(footer, 1, sizeof footer, file) == sizeof footer &&
          decode_u64(footer) == fingerprint && fgetc(file) == EOF;
@@ -509,17 +565,25 @@ int policy_cost_decide_summary(
     PolicyCostDecision *decision)
 {
     if (decision) memset(decision, 0, sizeof *decision);
+    double beta = 0.0, alpha_action = 0.0, alpha_draw = 0.0;
     double lambda_action = 0.0, lambda_draw = 0.0;
     int interval = -1;
     if (!decision || round < 0 || round >= MATCH_ROUNDS ||
-        !policy_cost_schedule(
-            table, nply, &lambda_action, &lambda_draw, &interval) ||
+        !policy_cost_coefficients(table, nply, &beta, &alpha_action,
+                                  &alpha_draw, &interval) ||
         !move || !valid_probability_vector(prob, nlegal) ||
         !candidate_index || !q || !paired_se ||
         n < 1 || n > POLICY_COST_MAX_CANDIDATES ||
         pair_stride < n || !finite_double(z) || z <= 0.0)
         return 0;
+    lambda_action = alpha_action / beta;
+    lambda_draw = alpha_draw / beta;
+    if (!finite_double(lambda_action) || !finite_double(lambda_draw))
+        return 0;
     decision->anchor_interval = interval;
+    decision->beta = beta;
+    decision->alpha_action = alpha_action;
+    decision->alpha_draw = alpha_draw;
     decision->lambda_action = lambda_action;
     decision->lambda_draw = lambda_draw;
     for (int c = 0; c < n; c++) {

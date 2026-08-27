@@ -10,7 +10,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = ROOT / "tools" / "policy_cost_allocate.py"
+MODULE_PATH = ROOT / "tools" / "policy_cost_allocate_v2.py"
 SPEC = importlib.util.spec_from_file_location("policy_cost_allocate", MODULE_PATH)
 assert SPEC and SPEC.loader
 allocate_module = importlib.util.module_from_spec(SPEC)
@@ -101,10 +101,10 @@ class PolicyCostAllocationTests(unittest.TestCase):
             (2, "retained_units", 8, "footer count"),
             (0, "generator", "different_generator", "header mismatch"),
             (0, "burned_source_deal_seeds",
-             "1..200, maintained-800 seed 1, 202611010101",
+             "1..200, maintained-800 seed 1, 202612010101",
              "header mismatch"),
             (0, "burned_source_deal_seeds",
-             "1..200, maintained-800 seed 1, and 202611290001..202611290100",
+             "1..200, maintained-800 seed 1, and 202612290001..202612290100",
              "header mismatch"),
             (1, "accepted_by_round", [1, 2, 2], "accepted-state"),
         )
@@ -279,7 +279,7 @@ class PolicyCostDatasetCTest(unittest.TestCase):
         subprocess.run([
             "gcc", "-O0", "-Wall", "-Wextra", "-std=c11",
             "-fno-fast-math", "-ffp-contract=off", "-o", str(tool),
-            "tools/policy_cost_dataset.c", *core, "-lm", "-pthread",
+            "tools/policy_cost_dataset_v2.c", *core, "-lm", "-pthread",
         ], cwd=ROOT, check=True, capture_output=True, text=True)
         run = subprocess.run([str(tool), "self-test"], cwd=ROOT, check=True,
                              capture_output=True, text=True)
@@ -294,7 +294,7 @@ class PolicyCostDatasetCTest(unittest.TestCase):
         )
         self.assertIn('"suit_orbit_information_view_sha256"', probe.stdout)
         self.assertIn('"information_view_sha256"', probe.stdout)
-        source = (ROOT / "tools" / "policy_cost_dataset.c").read_text(encoding="utf-8")
+        source = (ROOT / "tools" / "policy_cost_dataset_v2.c").read_text(encoding="utf-8")
         self.assertIn("ROLLOUT_AUDIT_PANEL_PRIMARY", source)
         self.assertIn("ROLLOUT_AUDIT_PANEL_FRESH", source)
         self.assertIn("exact_terminal_preempted", source)
@@ -311,9 +311,9 @@ class PolicyCostDatasetCTest(unittest.TestCase):
         subprocess.run([
             "gcc", "-O0", "-Wall", "-Wextra", "-std=c11",
             "-fno-fast-math", "-ffp-contract=off", "-o", str(tool),
-            "tools/policy_cost_dataset.c", *core, "-lm", "-pthread",
+            "tools/policy_cost_dataset_v2.c", *core, "-lm", "-pthread",
         ], cwd=ROOT, check=True, capture_output=True, text=True)
-        exclusions = ROOT / "data" / "experiments" / "policy_cost_v1_exact17_exclusions.txt"
+        exclusions = ROOT / "data" / "experiments" / "policy_cost_v2_exact17_exclusions.txt"
         exclusion_sha = hashlib.sha256(exclusions.read_bytes()).hexdigest()
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "discovery.jsonl"
@@ -324,16 +324,19 @@ class PolicyCostDatasetCTest(unittest.TestCase):
                 "--split", "TRAIN", "--matches", "1", "--match-start", "0",
                 "--reservoir-per-cell", "1", "--exclusions", str(exclusions),
                 "--exclusions-sha256", exclusion_sha,
-                "--smoke-seed", "202611290999",
+                "--smoke-seed", "202612290999",
             ], cwd=ROOT, check=True, capture_output=True, text=True)
             self.assertEqual(completed.stderr, "")
             self.assertTrue(output.is_file())
             self.assertTrue(reservoir.is_file())
-            self.assertIn('"seed_domain":"20261129-smoke"',
+            self.assertIn('"seed_domain":"20261229-smoke"',
                           output.read_text(encoding="utf-8"))
             self.assertIn(
                 '"burned_source_deal_seeds":"1..200, maintained-800 seed 1, '
-                '202611010101, and every 20261129 feasibility-smoke seed"',
+                '202611010101, all policy-cost-v1 fixed seeds in '
+                '20261110/11/12/13/14/15/16/21/22, every 20261129 '
+                'feasibility-smoke seed, 202612010101, and every 20261229 '
+                'feasibility-smoke seed"',
                 output.read_text(encoding="utf-8"),
             )
 
