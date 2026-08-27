@@ -113,7 +113,7 @@ class ActionCoreCampaignTests(unittest.TestCase):
         self.assertTrue(all((ROOT / path).is_file() for path in SOURCE_FILES))
         # SOURCE_FILES is the immutable inventory frozen with the historical
         # action-core campaign.  rollout5's separately versioned policy-cost
-        # ABI was added later and must neither be retroactively hashed into
+        # ABIs were added later and must neither be retroactively hashed into
         # that one-shot definition nor make its revalidation depend on the
         # current checkout's dynamic src glob.
         current_src = {
@@ -125,7 +125,12 @@ class ActionCoreCampaignTests(unittest.TestCase):
         }
         self.assertEqual(
             current_src - frozen_src,
-            {"src/policy_cost.c", "src/policy_cost.h"},
+            {
+                "src/policy_cost.c",
+                "src/policy_cost.h",
+                "src/policy_cost_v3.c",
+                "src/policy_cost_v3.h",
+            },
         )
         self.assertFalse(frozen_src - current_src)
 

@@ -1,0 +1,161 @@
+{
+  "artifact_count": 0,
+  "artifact_kind": "policy_cost_v2_locked_attempt_preflight_failure",
+  "campaign_computation": {
+    "arena_evaluation_started": false,
+    "dataset_discovery_started": false,
+    "efficacy_reducer_started": false,
+    "exact17_export_started": true,
+    "native_compilation_completed": true,
+    "native_compilation_started": true,
+    "policy_cost_build_started": false,
+    "search_label_started": false,
+    "transport_freeze_started": false,
+    "truth_label_started": false
+  },
+  "cause": {
+    "classification": "host_dependent_compiled_binary_digest_in_canonical_exact17_manifest",
+    "detail": "The checked-in v2 exact-17 JSON included the developer host's compiled native_hash_probe binary SHA-256. GitHub rebuilt the same source with the locked compiler and flags, all native self-tests passed, and the canonical exclusion text plus all 17 recomputed information-view suit-orbit hashes matched; the rebuilt binary digest was nevertheless host-dependent, so the generated JSON correctly differed and preflight failed closed before transport sealing or campaign computation.",
+    "github_error": "/tmp/.../policy_cost_v2_exact17_exclusions.json data/experiments/policy_cost_v2_exact17_exclusions.json differ: byte 773, line 1",
+    "immutable_exclusion_content_matched": true,
+    "offending_binding": "bindings.native_hash_probe.binary_sha256",
+    "source_semantics_or_exclusion_mismatch": false
+  },
+  "created_at": "2026-08-27T16:53:30Z",
+  "efficacy_data_observed": false,
+  "execution": {
+    "commit": "cdb03279707ad927daa4159dfdaa65d281e8352d",
+    "path": "data/experiments/locked_policy_cost_v2_execution.json",
+    "sha256": "9474f9302941392ff6e77aa7ad87bb484d9648fc5887a88d68a6b05c82c282ce"
+  },
+  "failed_job": {
+    "id": 98599430570,
+    "name": "preflight",
+    "step": {
+      "name": "Materialize and compile the bound parent once",
+      "number": 4
+    }
+  },
+  "fixed_seed_execution": {
+    "all_policy_cost_v2_fixed_roots_retired": true,
+    "any_policy_cost_v2_fixed_seed_executed": false,
+    "reason": "The unique attempt failed after deterministic native self-tests and exact-17 export but before discovery, search, truth, arena evaluation, or any efficacy reducer; the one-shot contract nevertheless permanently retires every v2 fixed root."
+  },
+  "github_run": {
+    "attempt": 1,
+    "conclusion": "failure",
+    "event": "push",
+    "head_sha": "cdb03279707ad927daa4159dfdaa65d281e8352d",
+    "head_tree": "47da55ec4bd1d352a25edac0dbc663debd6edd6e",
+    "id": 33095561493,
+    "url": "https://github.com/BEKINDTOEVERYKIND/LOSTCITIESCHATGPT/actions/runs/33095561493"
+  },
+  "job_disposition": [
+    {
+      "conclusion": "failure",
+      "id": 98599430570,
+      "name": "preflight"
+    },
+    {
+      "conclusion": "skipped",
+      "id": 98599661083,
+      "name": "test_discover"
+    },
+    {
+      "conclusion": "skipped",
+      "id": 98599661106,
+      "name": "train_discover"
+    },
+    {
+      "conclusion": "skipped",
+      "id": 98599661671,
+      "name": "select_discover"
+    },
+    {
+      "conclusion": "skipped",
+      "id": 98599661706,
+      "name": "reservoir_barrier"
+    },
+    {
+      "conclusion": "skipped",
+      "id": 98599663042,
+      "name": "train_evaluate"
+    },
+    {
+      "conclusion": "skipped",
+      "id": 98599663374,
+      "name": "train_calibrate"
+    },
+    {
+      "conclusion": "skipped",
+      "id": 98599663834,
+      "name": "select_evaluate"
+    },
+    {
+      "conclusion": "skipped",
+      "id": 98599664144,
+      "name": "select_configuration"
+    },
+    {
+      "conclusion": "skipped",
+      "id": 98599665538,
+      "name": "test_evaluate"
+    },
+    {
+      "conclusion": "skipped",
+      "id": 98599665871,
+      "name": "test_once"
+    },
+    {
+      "conclusion": "skipped",
+      "id": 98599666096,
+      "name": "safety_shards"
+    },
+    {
+      "conclusion": "skipped",
+      "id": 98599667453,
+      "name": "safety_merge"
+    },
+    {
+      "conclusion": "skipped",
+      "id": 98599667493,
+      "name": "final_shards"
+    },
+    {
+      "conclusion": "skipped",
+      "id": 98599668263,
+      "name": "final_merge"
+    },
+    {
+      "conclusion": "skipped",
+      "id": 98599668732,
+      "name": "infrastructure_retain"
+    },
+    {
+      "conclusion": "skipped",
+      "id": 98599669041,
+      "name": "terminal_recommendation"
+    }
+  ],
+  "locked_validation_relaxed": false,
+  "maintained_actor_disposition": {
+    "path": "data/experiments/policy_cost_v2_infrastructure_retain.json",
+    "sha256": "1f79d166fcd4b5c6f19494ec8b5479e50344e6c3884190b88b9b1c6ddd6fb080"
+  },
+  "remediation_contract": {
+    "compiled_binary_digest_for_exclusion_semantics_forbidden": true,
+    "fresh_source_archive_replay_required": true,
+    "new_campaign_version_required": true,
+    "rerun_or_retry_v2_forbidden": true,
+    "reuse_any_v2_fixed_seed_forbidden": true,
+    "source_semantic_identity_must_replace_host_binary_identity": true
+  },
+  "schema": "lc-policy-cost-v2-preflight-failure-v1",
+  "search_or_truth_label_jobs_started": false,
+  "source_parent": {
+    "commit": "e15cede7f8fa36c817728710872718df4c1235d4",
+    "tree": "38241f861fd6e8ee7be463db2588f4f7048c5a47"
+  },
+  "status": "complete_terminal_non_promotable",
+  "updated_at": "2026-08-27T16:54:20Z"
+}
