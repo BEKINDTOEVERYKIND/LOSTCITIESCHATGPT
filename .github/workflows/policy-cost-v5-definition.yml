@@ -181,6 +181,19 @@ jobs:
             'import numpy, yaml; assert numpy.__version__ == "2.3.5"; assert yaml.__version__ == "6.0.3"'
           test ! -e data/experiments/locked_policy_cost_v5_execution.json
           PYTHONPATH="$RUNTIME" python3 tools/policy_cost_campaign_v5.py validate-plan --root .
+          SOURCE_COMMIT="$(git rev-parse HEAD)"
+          SOURCE_TREE="$(git rev-parse 'HEAD^{tree}')"
+          PYTHONPATH="$RUNTIME" python3 tools/policy_cost_campaign_v5.py prepare-execution \
+            --root . \
+            --execution data/experiments/locked_policy_cost_v5_execution.json \
+            --source-parent-commit "$SOURCE_COMMIT" \
+            --source-parent-tree "$SOURCE_TREE"
+          PYTHONPATH="$RUNTIME" python3 tools/policy_cost_campaign_v5.py guard-execution \
+            --root . \
+            --execution data/experiments/locked_policy_cost_v5_execution.json \
+            --source-parent-commit "$SOURCE_COMMIT" \
+            --source-parent-tree "$SOURCE_TREE"
+          rm data/experiments/locked_policy_cost_v5_execution.json
           PYTHONPATH="$RUNTIME" make test CC=gcc \
             CFLAGS="$CFLAGS_LOCKED" LDFLAGS="$LDFLAGS_LOCKED"
           # The immutable v3/v4 definition tests asserted the then-correct

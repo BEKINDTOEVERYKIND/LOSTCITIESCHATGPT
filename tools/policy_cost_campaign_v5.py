@@ -426,7 +426,7 @@ def validate_plan(value: Mapping[str, Any]) -> None:
             "sha256": DATASET_SOURCE_SHA256,
         },
         "exact17_canonical_payload_sha256": (
-            "45abbc328f5f5c8fa4064e0a3c32f0b672290f2cc7c37d01eeac186a80a104cb"
+            "f01de64ef43a857f4fa8be49e695fb8a323760d86f23709f7c4f1038b3427d96"
         ),
         "exact17_json_schema": "lc-policy-cost-exclusions-evidence-v2",
         "portable_binding": (

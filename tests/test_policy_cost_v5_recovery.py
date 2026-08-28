@@ -487,6 +487,11 @@ class PolicyCostV5RecoveryTests(unittest.TestCase):
         evidence_path = ROOT / \
             "data/experiments/policy_cost_v5_exact17_exclusions.json"
         evidence = load(evidence_path)
+        plan = load(V5_PLAN)
+        self.assertEqual(
+            plan["v4_recovery"]["exact17_canonical_payload_sha256"],
+            evidence["canonical_payload_sha256"],
+        )
         probe = evidence["bindings"]["native_hash_probe"]
         self.assertNotIn("binary_sha256", probe)
         self.assertEqual(

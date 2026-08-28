@@ -539,7 +539,7 @@
       "sha256": "3bb622029ced29c281f9bc675c1d3c72408a51e50eb919ebf73ee7534f478b96"
     },
     "contract_repair": "replace five sparse random-slot poststrata with three native outcome-blind groups J=0, J=1, and J>=2 using fixed 22/21/21 quotas; retain every exact hashed J slot and complete max-five evaluation vector; validate the actual native producer-to-Python consumer boundary before launch",
-    "exact17_canonical_payload_sha256": "45abbc328f5f5c8fa4064e0a3c32f0b672290f2cc7c37d01eeac186a80a104cb",
+    "exact17_canonical_payload_sha256": "f01de64ef43a857f4fa8be49e695fb8a323760d86f23709f7c4f1038b3427d96",
     "exact17_json_schema": "lc-policy-cost-exclusions-evidence-v2",
     "portable_binding": "canonical exact-17 evidence binds the v5 dataset source; the platform-specific runtime ELF is sealed dynamically in build identity and transport manifests",
     "v4_failure": "the allocator assigned positive quotas to every nonempty random J slot, so rare J=3/J=4 poststrata could not satisfy data-dependent quotas despite complete cap-free discovery"
