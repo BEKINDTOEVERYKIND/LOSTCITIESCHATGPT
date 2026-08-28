@@ -1,0 +1,54 @@
+{
+  "artifact_kind": "policy_cost_v3_locked_attempt_infrastructure_disposition",
+  "available_evidence": [],
+  "execution_sha256": "5ffcf52909e9503b1e13fb44bdb7346e064e401715d9bcb560fcad5ae1119085",
+  "failed_or_skipped_stages": [
+    "final_merge:skipped",
+    "reservoir_barrier:skipped",
+    "safety_merge:skipped",
+    "select_configuration:skipped",
+    "select_discover:failure",
+    "select_evaluate:skipped",
+    "terminal:skipped",
+    "test_discover:failure",
+    "test_evaluate:skipped",
+    "test_once:skipped",
+    "train_calibrate:skipped",
+    "train_discover:failure",
+    "train_evaluate:skipped"
+  ],
+  "generated_but_unretained_discovery_outputs": {
+    "SELECT": {
+      "discovery_sha256": "4b09f435b16def6d85c45ad85292980f4a4f581fd824d7116f1df991999d161e",
+      "reservoir_sha256": "9f5384295bdcee217f617de2be574cc1ef983623194b8a737e459131df345cb6"
+    },
+    "TEST": {
+      "discovery_sha256": "87e26a91283c02f734c5df4261dfecc910ed82d4d2b802878095bb3733cde5fa",
+      "reservoir_sha256": "0a32e337fde67140314896e1620d132c2d40d7b58ac9e0718328fe5df612e7df"
+    },
+    "TRAIN": {
+      "discovery_sha256": "7d25fca1aabf153dce290db9e6ba28526ad209ad7f484f280a7b51473b7a4986",
+      "reservoir_sha256": "0f3a878f0f58b7a984bd06d6704478a88b77f6c5c22964973ac1cfb0672caffa"
+    }
+  },
+  "github_artifacts": [
+    {
+      "digest": "sha256:d0869b98d53a94bdeb559b220aaecb010a9aa08394215579af3fc1e26cf36f68",
+      "id": 9661646621,
+      "name": "policy-cost-v3-transport",
+      "size_in_bytes": 23938938
+    },
+    {
+      "digest": "sha256:34cb3255e5a296b22910e979de31f2f28a177423580a1634d4f63e8547b54f34",
+      "id": 9664381175,
+      "name": "policy-cost-v3-infrastructure-retain",
+      "size_in_bytes": 23939641
+    }
+  ],
+  "maintained_actor": "rolloutu2:data/champion.bin:data/champion.bin:800:5:0.02:0:1:0:0:0:3:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1:0:0:0:1:0:data/models/match_value_objective3_v2_projected.lcmv",
+  "partial_evidence_retained": false,
+  "promotion_gate_passed": false,
+  "raw_discovery_or_reservoir_artifact_count": 0,
+  "schema": "lc-policy-cost-v3-infrastructure-retain-v1",
+  "status": "complete_terminal_non_promotable"
+}
