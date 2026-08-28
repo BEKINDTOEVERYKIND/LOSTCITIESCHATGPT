@@ -1,0 +1,24 @@
+{
+  "artifacts": [
+    {"digest": "680627dac3a6e23348155cd1e10681f3210b2e03d7b58c50249b464233b4aa61", "id": 9680826667, "name": "policy-cost-v4-transport", "size": 23943348},
+    {"digest": "1f7bba3b0110ffb994377128a30adcc68cb167435590b06d4743265e9e8a0700", "id": 9681834325, "name": "policy-cost-v4-select-raw-discovery", "size": 35127422},
+    {"digest": "ad8cc2efddacb4386d7e1119e8af42846d508fcd62ad8ac74a8cb6bd729abc1b", "id": 9681840547, "name": "policy-cost-v4-select-allocation-attempt", "size": 35128585},
+    {"digest": "85738136d75ce2d0ac47c5f79829671a7088fdd30b5a3d554bd57abad66dd9b5", "id": 9681858220, "name": "policy-cost-v4-test-raw-discovery", "size": 35118706},
+    {"digest": "505e186d995471cc10147cdbb25db3dad72814c98092eb519ca843c9a0588c62", "id": 9681865195, "name": "policy-cost-v4-test-allocation-attempt", "size": 35119857},
+    {"digest": "2fa231fa44411d4a3831835456d498e06a488b2be88dc047788e8c8af238760c", "id": 9682453932, "name": "policy-cost-v4-train-raw-discovery", "size": 279974579},
+    {"digest": "016b3f2b577eeaa7a32c020dc4c95731a6b6aa50d97e326662db11e75d92718f", "id": 9682661660, "name": "policy-cost-v4-train-allocation-attempt", "size": 284998320},
+    {"digest": "e0bf9edc68c37dc752c81cbd39625cda2eb76a49132f1677f04baddd631d246e", "id": 9682672743, "name": "policy-cost-v4-train-discovery", "size": 284998320},
+    {"digest": "855abcc95fd017fdd44075e1425af2316c4eed7fcf0f95a7b376a86503c46bb9", "id": 9682716229, "name": "policy-cost-v4-infrastructure-retain", "size": 730072213}
+  ],
+  "artifact_count": 9,
+  "artifact_digests_verified_from_github_api": true,
+  "complete_retention_job": true,
+  "efficacy_data_present": false,
+  "final_evidence_present": false,
+  "github_run_id": 33158323330,
+  "head_sha": "6306dd8fba165c60529b7b2e7363cbbf3cc2a8f3",
+  "maintained_actor_changed": false,
+  "promotion_gate_passed": false,
+  "schema": "lc-policy-cost-v4-infrastructure-retain-v1",
+  "status": "complete_terminal_non_promotable"
+}
