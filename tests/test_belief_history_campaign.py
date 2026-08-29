@@ -455,6 +455,22 @@ class BeliefHistoryCampaignTests(unittest.TestCase):
         )
         self.assertNotIn("git -C campaign archive HEAD", text)
         self.assertEqual(text.count('if test -e "$EXECUTION"; then'), 2)
+        self.assertEqual(text.count(
+            'json.load(open(sys.argv[1]))["source_parent_commit"]'), 2)
+        self.assertEqual(text.count(
+            'json.load(open(sys.argv[1]))["source_parent_tree"]'), 2)
+        self.assertEqual(text.count(
+            "git -C ../campaign worktree add --detach ../frozen-definition"),
+            2,
+        )
+        self.assertEqual(text.count(
+            "python3 tools/belief_history_campaign.py validate-plan --root ."),
+            4,
+        )
+        self.assertEqual(text.count(
+            'test -z "$(git -C ../frozen-definition status --porcelain)"'),
+            2,
+        )
         self.assertGreaterEqual(
             text.count("belief_history_v1_result.json"), 2)
         self.assertGreaterEqual(

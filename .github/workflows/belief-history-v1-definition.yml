@@ -154,13 +154,30 @@ jobs:
           RUNTIME="$GITHUB_WORKSPACE/python-runtime"
           export PYTHONNOUSERSITE=1 PYTHONPATH="$RUNTIME"
           cd source
-          python3 tools/belief_history_campaign.py validate-plan --root .
           if test -e "$EXECUTION"; then
+            # Replay validation against the exact immutable definition parent,
+            # not later policy-cost source that legitimately extends src/*.h.
+            FROZEN_SOURCE_COMMIT="$(python3 -c \
+              'import json,sys; print(json.load(open(sys.argv[1]))["source_parent_commit"])' \
+              "$EXECUTION")"
+            FROZEN_SOURCE_TREE="$(python3 -c \
+              'import json,sys; print(json.load(open(sys.argv[1]))["source_parent_tree"])' \
+              "$EXECUTION")"
+            git -C ../campaign worktree add --detach ../frozen-definition \
+              "$FROZEN_SOURCE_COMMIT"
+            test "$(git -C ../frozen-definition rev-parse HEAD)" = \
+              "$FROZEN_SOURCE_COMMIT"
+            test "$(git -C ../frozen-definition rev-parse 'HEAD^{tree}')" = \
+              "$FROZEN_SOURCE_TREE"
+            test -z "$(git -C ../frozen-definition status --porcelain)"
+            (cd ../frozen-definition && \
+              python3 tools/belief_history_campaign.py validate-plan --root .)
             # The immutable launch and terminal result are checked by the
             # campaign history tests below. Never regenerate an execution.
             test -e data/experiments/belief_history_v1_result.json
             test -e data/experiments/belief_history_v1_run_33253283912_failure.json
           else
+            python3 tools/belief_history_campaign.py validate-plan --root .
             python3 tools/belief_history_campaign.py prepare-execution \
               --root . --output "$EXECUTION" \
               --source-parent-commit "$SOURCE_COMMIT" \
@@ -261,10 +278,26 @@ jobs:
           test -z "$(git -C source status --porcelain)"
           export PYTHONNOUSERSITE=1 PYTHONPATH="$GITHUB_WORKSPACE/python-runtime"
           cd source
-          python3 tools/belief_history_campaign.py validate-plan --root .
           if test -e "$EXECUTION"; then
+            FROZEN_SOURCE_COMMIT="$(python3 -c \
+              'import json,sys; print(json.load(open(sys.argv[1]))["source_parent_commit"])' \
+              "$EXECUTION")"
+            FROZEN_SOURCE_TREE="$(python3 -c \
+              'import json,sys; print(json.load(open(sys.argv[1]))["source_parent_tree"])' \
+              "$EXECUTION")"
+            git -C ../campaign worktree add --detach ../frozen-definition \
+              "$FROZEN_SOURCE_COMMIT"
+            test "$(git -C ../frozen-definition rev-parse HEAD)" = \
+              "$FROZEN_SOURCE_COMMIT"
+            test "$(git -C ../frozen-definition rev-parse 'HEAD^{tree}')" = \
+              "$FROZEN_SOURCE_TREE"
+            test -z "$(git -C ../frozen-definition status --porcelain)"
+            (cd ../frozen-definition && \
+              python3 tools/belief_history_campaign.py validate-plan --root .)
             test -e data/experiments/belief_history_v1_result.json
             test -e data/experiments/belief_history_v1_run_33253283912_failure.json
+          else
+            python3 tools/belief_history_campaign.py validate-plan --root .
           fi
           make test CC=clang \
             CFLAGS="-O1 -g -Wall -Wextra -std=c11 -fno-omit-frame-pointer -fsanitize=address,undefined" \
