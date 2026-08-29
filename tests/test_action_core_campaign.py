@@ -136,6 +136,8 @@ class ActionCoreCampaignTests(unittest.TestCase):
                 "src/policy_cost_v5.h",
                 "src/policy_cost_v6.c",
                 "src/policy_cost_v6.h",
+                "src/policy_cost_v7.c",
+                "src/policy_cost_v7.h",
             },
         )
         self.assertFalse(frozen_src - current_src)
