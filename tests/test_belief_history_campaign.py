@@ -7,6 +7,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import subprocess
 import tempfile
 import struct
 import unittest
@@ -16,6 +17,8 @@ from tools import belief_history_campaign as campaign
 
 
 ROOT = Path(__file__).resolve().parents[1]
+LAUNCH_COMMIT = "43dcf5e33b293392fce81d2f478cc109a77b7dd5"
+LAUNCH_PARENT = "7b31cf7564b7230b2b965dd002fd70a509003187"
 PLAN = ROOT / campaign.PLAN_PATH
 EXCLUSIONS = ROOT / campaign.EXCLUSIONS_PATH
 EXECUTION = ROOT / campaign.EXECUTION_PATH
@@ -40,7 +43,22 @@ class BeliefHistoryCampaignTests(unittest.TestCase):
                          "lc-history-belief-control-run-v1")
         self.assertEqual(plan["status"],
                          "definition_complete_inert_execution_addendum_absent")
-        self.assertFalse(EXECUTION.exists())
+        if EXECUTION.exists():
+            parent = subprocess.check_output(
+                ["git", "rev-parse", f"{LAUNCH_COMMIT}^"], cwd=ROOT,
+                text=True,
+            ).strip()
+            changed = subprocess.check_output(
+                ["git", "diff-tree", "--no-commit-id", "--name-status", "-r",
+                 LAUNCH_COMMIT], cwd=ROOT, text=True,
+            ).strip()
+            self.assertEqual(parent, LAUNCH_PARENT)
+            self.assertEqual(
+                changed,
+                "A\tdata/experiments/locked_belief_history_v1_execution.json",
+            )
+        else:
+            self.assertFalse(EXECUTION.exists())
         self.assertIn("match playing-strength evaluation", plan["non_goals"])
         self.assertFalse(
             plan["models"]["candidate"]["playing_actor_bytes_changed"])
@@ -493,13 +511,20 @@ class BeliefHistoryCampaignTests(unittest.TestCase):
         header_paths = tuple(
             path.relative_to(ROOT) for path in sorted((ROOT / "src").glob("*.h"))
         )
-        self.assertEqual(core_paths + header_paths,
-                         campaign.HISTORY_BELIEF_TRANSITIVE_PATHS)
+        bound_transitive = campaign.HISTORY_BELIEF_TRANSITIVE_PATHS
+        current_transitive = core_paths + header_paths
+        self.assertTrue(set(bound_transitive) <= set(current_transitive))
+        future_headers = set(current_transitive) - set(bound_transitive)
+        self.assertTrue(all(re.fullmatch(
+            r"src/policy_cost_v(?:[89]|[1-9][0-9]+)\.h", str(path)
+        ) for path in future_headers))
+        current_plans = tuple(path.relative_to(ROOT) for path in sorted(
+            (ROOT / "data/experiments").glob("locked_policy_cost_v*_plan.json")
+        ))
         self.assertEqual(
-            tuple(path.relative_to(ROOT) for path in sorted(
-                (ROOT / "data/experiments").glob(
-                    "locked_policy_cost_v*_plan.json"))),
-            campaign.PRIOR_POLICY_COST_PLAN_PATHS,
+            tuple(path for path in current_plans if int(re.search(
+                r"_v(\d+)_plan", str(path)
+            ).group(1)) < 8), campaign.PRIOR_POLICY_COST_PLAN_PATHS,
         )
         for paths in (
                 campaign.INTEGRATION_PATHS,

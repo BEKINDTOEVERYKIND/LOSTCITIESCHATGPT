@@ -1,0 +1,24 @@
+{
+  "artifact_count": 228,
+  "artifact_digests_verified_from_github_api": true,
+  "complete_retention_job": true,
+  "efficacy_decision_present": false,
+  "final_evidence_present": false,
+  "github_run_id": 33237653855,
+  "head_sha": "9b83d6ad8a92ecf518f63935dbe39b4d937bf15a",
+  "infrastructure_retain_artifact": {
+    "digest": "11a43fe871583308a45e12a575550c8bceb76ef746bcbcf88fd10c67e65cfbcb",
+    "id": 9715166799,
+    "name": "policy-cost-v7-infrastructure-retain",
+    "size": 765513730
+  },
+  "maintained_actor_changed": false,
+  "promotion_gate_passed": false,
+  "schema": "lc-policy-cost-v7-infrastructure-retain-v1",
+  "status": "complete_terminal_non_promotable",
+  "train_evaluation_artifacts": {
+    "complete_index_range": [0, 215],
+    "count": 216,
+    "unique_names": 216
+  }
+}

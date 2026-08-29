@@ -1,0 +1,73 @@
+{
+  "artifact_count": 228,
+  "cause": {
+    "classification": "train_allocation_canonical_order_binding_defect",
+    "efficacy_related": false,
+    "mechanism": "The native TRAIN allocator emitted all 13,824 selected units in its frozen allocation-id schedule, an intentional interleave across cells. The campaign converter preserved that order in selected_units, while the independent calibration boundary required the identical units in lexicographic (round, ply_bin, ratio_bin, pair_type, allocation_priority, identity) order. All quotas, identities, digests, and 216 evaluation shards were complete; calibration failed closed before fitting or any efficacy decision because the cross-module serialization order contracts disagreed.",
+    "stage": {
+      "error": "CalibrationError: TRAIN selected_units are not in canonical cell/priority order",
+      "job_id": 99103597866,
+      "name": "train_calibrate"
+    },
+    "train_allocation_artifact": {
+      "digest": "c9cda7dfd14beb16c421cad25e941abfeb3ee09e0d02aef909bb9ac244120d0c",
+      "id": 9711357261,
+      "name": "policy-cost-v7-train-allocation-attempt",
+      "size": 284958733
+    },
+    "train_discovery_artifact": {
+      "digest": "94f6e28c66103072906d9c3fef828ea3918bd92312b490882d6c4a8fad199914",
+      "id": 9711361776,
+      "name": "policy-cost-v7-train-discovery",
+      "size": 284958733
+    }
+  },
+  "efficacy_data_observed": false,
+  "execution": {
+    "path": "data/experiments/locked_policy_cost_v7_execution.json",
+    "sha256": "5fcb4d661798a452625ab6483d840a3fe35f43fac826d65487a716d0edf93a08"
+  },
+  "fixed_seed_execution": {
+    "all_policy_cost_v7_fixed_roots_retired": true,
+    "retired_fixed_root_count": 21,
+    "retry_forbidden": true
+  },
+  "github_run": {
+    "attempt": 1,
+    "conclusion": "failure",
+    "event": "push",
+    "head_sha": "9b83d6ad8a92ecf518f63935dbe39b4d937bf15a",
+    "head_tree": "e46e2a2322d351a5b1c210c7b2b4bacc478be5d6",
+    "id": 33237653855,
+    "url": "https://github.com/BEKINDTOEVERYKIND/LOSTCITIESCHATGPT/actions/runs/33237653855"
+  },
+  "job_disposition": {
+    "failure": 1,
+    "skipped": 9,
+    "success": 225,
+    "total": 235,
+    "train_evaluate_success": 216
+  },
+  "locked_validation_relaxed": false,
+  "maintained_actor_disposition": {
+    "changed": false,
+    "objective3_result_path": "data/experiments/match_value_objective3_v2_result.json",
+    "objective3_result_sha256": "05d6ee1b0ce59d5d502ebac27b4a59cc7c816bfc1245eccee4d5b8fbda9c6700"
+  },
+  "remediation_constraint": "A successor may only canonicalize the TRAIN selected_units JSON array after verifying the immutable allocation-id schedule and before sealing its payload digest; the allocation bindings and evaluator order remain unchanged. It must add an exact full-13,824-unit cross-module regression, use all-fresh roots, and preserve every sampling budget, adequacy criterion, safety gate, and final gate.",
+  "schema": "lc-policy-cost-v7-train-allocation-order-failure-v1",
+  "search_and_truth_labels_generated": true,
+  "source_parent": {
+    "commit": "3e49c14a2e4249358177ef9b59c02df07c0c740f",
+    "tree": "4342e74a1c7b7ede9e072e111da3fab669b2e82b"
+  },
+  "status": "complete_terminal_non_promotable",
+  "untouched_stages": [
+    "calibration_fit_and_decision",
+    "SELECT_search_and_truth",
+    "untouched_TEST_search_and_truth",
+    "200_pair_per_orientation_safety",
+    "2500_pair_per_orientation_final",
+    "promotion"
+  ]
+}
