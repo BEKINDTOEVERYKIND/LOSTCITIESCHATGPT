@@ -324,11 +324,13 @@ int main(void)
         memcpy(minus, clipped_raw, sizeof minus);
         plus[i] += 1e-3f;
         minus[i] -= 1e-3f;
-        double plus_nll, minus_nll;
-        require(belief_exact_k_eval(plus, held, 5, 2, 1.0f,
-                                    scratch, &plus_nll) &&
-                belief_exact_k_eval(minus, held, 5, 2, 1.0f,
-                                    scratch, &minus_nll),
+        double plus_nll = NAN, minus_nll = NAN;
+        int plus_ok = belief_exact_k_eval(plus, held, 5, 2, 1.0f,
+                                          scratch, &plus_nll);
+        int minus_ok = belief_exact_k_eval(minus, held, 5, 2, 1.0f,
+                                           scratch, &minus_nll);
+        require(plus_ok && minus_ok && lc_double_isfinite(plus_nll) &&
+                lc_double_isfinite(minus_nll),
                 "finite-difference exact-K evaluation failed");
         double finite_difference = (plus_nll - minus_nll) / 0.002;
         require(fabs(finite_difference - clipped_gradient[i]) < 2e-3,
