@@ -383,6 +383,7 @@ class BeliefHistoryCampaignTests(unittest.TestCase):
         self.assertIn("control-chain-manifest.json", text)
         self.assertIn("cp -a runtime complete/runtime", text)
         self.assertIn("cp -a shards complete/test-shards", text)
+        self.assertIn("mkdir -p python-runtime complete/raw", text)
         self.assertIn(
             "summary['trained_state_count'] - previous_trained == summary['source_state_count']",
             text)

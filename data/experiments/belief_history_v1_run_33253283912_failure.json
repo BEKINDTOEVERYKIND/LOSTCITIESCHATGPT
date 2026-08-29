@@ -1,0 +1,25 @@
+{
+  "campaign_id": "belief-history-v1",
+  "classification": "post_efficacy_packaging_failure",
+  "conclusion": "failure",
+  "failed_job_id": 99167815188,
+  "failed_step": "Independently reduce the complete terminal TEST evidence",
+  "head_sha": "43dcf5e33b293392fce81d2f478cc109a77b7dd5",
+  "model_or_accuracy_failure": false,
+  "proof": {
+    "all_16_test_shards_completed": true,
+    "all_artifact_zip_sha256_verified": true,
+    "all_inner_sha256_manifests_verified": true,
+    "frozen_runtime_verified": true,
+    "training_freeze_verified": true
+  },
+  "proven_defect": "mkdir was invoked as `mkdir python-runtime complete/raw` while parent directory `complete` did not exist",
+  "repair": "change only the packaging command to `mkdir -p python-runtime complete/raw`; do not rerun TRAIN or TEST",
+  "rerun_authorized": false,
+  "run_attempt": 1,
+  "run_id": 33253283912,
+  "schema": "lc-belief-history-run-failure-v1",
+  "seeds_retired": true,
+  "terminal_time_utc": "2026-08-29T22:10:37Z",
+  "url": "https://github.com/BEKINDTOEVERYKIND/LOSTCITIESCHATGPT/actions/runs/33253283912"
+}

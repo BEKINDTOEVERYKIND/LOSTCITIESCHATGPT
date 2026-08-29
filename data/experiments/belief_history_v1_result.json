@@ -1,0 +1,61 @@
+{
+  "accuracy_artifact_passed": true,
+  "actor_promotion_authorized": false,
+  "campaign_id": "belief-history-v1",
+  "complete_test_evidence": {
+    "all_inner_sha256_manifests_verified": true,
+    "canonical_verdict_sha256": "21eb3961b43c9c5bd98dcddc909f0c0001d63c07c04d040740e5cbc3c03bb929",
+    "capped_rounds": 0,
+    "exact17_reviewed_states_used": false,
+    "source_matches": 65536,
+    "states_all": 9119990,
+    "states_post_opponent_action": 8923382,
+    "test_shards": 16,
+    "uncertain_card_labels": 274351522
+  },
+  "gates": {
+    "history_vs_incumbent": true,
+    "history_vs_matched_head_control": true,
+    "matched_head_control_vs_incumbent": true,
+    "one_sided_familywise_confidence": 0.99
+  },
+  "history_vs_incumbent": {
+    "all_states_brier": {
+      "candidate": 0.15594719959419762,
+      "incumbent": 0.16188842543637377,
+      "improvement": 0.005941225842176163,
+      "simultaneous_familywise_lcb": 0.005912737943230011
+    },
+    "all_states_joint_nll": {
+      "candidate": 12.782783221833531,
+      "incumbent": 13.24176572127613,
+      "relative_improvement": 0.03466172934211713,
+      "simultaneous_familywise_lcb": 0.4568874659167775
+    },
+    "post_opponent_action_joint_nll": {
+      "candidate": 12.614095380546253,
+      "incumbent": 13.083190596361456,
+      "relative_improvement": 0.03585480256976934,
+      "simultaneous_familywise_lcb": 0.4669542713319116
+    },
+    "post_opponent_action_top_k_recall_diagnostic": {
+      "candidate": 0.5029771342310819,
+      "incumbent": 0.4768049426922941
+    }
+  },
+  "playing_actor_changed": false,
+  "playing_strength_claimed": false,
+  "run_id": 33253283912,
+  "schema": "lc-belief-history-v1-result",
+  "selected_belief_artifact": {
+    "alpha": 1.0,
+    "base_net_fingerprint": "df6f417aba8e1b04",
+    "fingerprint": "272dbef718536a05",
+    "repository_archive_path": "data/models/belief_history_v1_accuracy.lcbhm.gz",
+    "repository_archive_sha256": "166dacecbb543156d69fcfd7ad1c36d611a693283ceef2316fc9931f5fbd7923",
+    "sha256": "c07ccb5f58d38a5a086d67e17904461c266f1acb8060511bdd4ddc9b5bbd7581"
+  },
+  "selection_reason": "history passed every frozen direct proper-score comparison against both the matched-budget head control and incumbent",
+  "source_run_conclusion": "failure_after_all_efficacy_due_packaging_only",
+  "source_run_url": "https://github.com/BEKINDTOEVERYKIND/LOSTCITIESCHATGPT/actions/runs/33253283912"
+}

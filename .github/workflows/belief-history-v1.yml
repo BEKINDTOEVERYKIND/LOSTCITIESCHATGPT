@@ -747,7 +747,7 @@ jobs:
         run: |
           set -euo pipefail; test "$GITHUB_RUN_ATTEMPT" = 1
           (cd runtime && sha256sum -c SHA256SUMS); (cd freeze && sha256sum -c SHA256SUMS)
-          test ! -e python-runtime; mkdir python-runtime complete/raw
+          test ! -e python-runtime; mkdir -p python-runtime complete/raw
           WHEEL=runtime/bindings/python/numpy-2.3.5-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
           python3 -m pip install --disable-pip-version-check --no-index --no-deps --target python-runtime "$WHEEL"
           export PYTHONNOUSERSITE=1 PYTHONPATH="$PWD/python-runtime"
