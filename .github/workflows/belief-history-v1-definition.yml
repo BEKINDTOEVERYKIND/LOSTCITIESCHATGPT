@@ -170,17 +170,40 @@ jobs:
           make -j2 all CC=gcc CFLAGS="$CFLAGS_CHECK" LDFLAGS="$LDFLAGS_CHECK"
           make test CC=gcc CFLAGS="$CFLAGS_CHECK" LDFLAGS="$LDFLAGS_CHECK"
           # Match the strongest locked-definition convention: after the
-          # ordinary entry point, also discover every current non-recovery
-          # Python contract so newly added repository tests cannot be missed.
-          mapfile -t TEST_MODULES < <(find tests -maxdepth 1 -type f -name 'test_*.py' \
+          # ordinary entry point, discover every current non-recovery Python
+          # contract that Makefile does not already run.  Do not redundantly
+          # rerun covered modules: some established tests deliberately rebuild
+          # profile-bound binaries, so a second pass would no longer exercise
+          # the clean compiler profile created above.  Keep each omitted module
+          # in its own interpreter for the same isolation as `make test`.
+          mapfile -t ALL_TEST_MODULES < <(find tests -maxdepth 1 -type f -name 'test_*.py' \
             ! -name 'test_policy_cost_v3_recovery.py' \
             ! -name 'test_policy_cost_v4_recovery.py' \
             ! -name 'test_policy_cost_v5_recovery.py' \
             ! -name 'test_policy_cost_v6_recovery.py' \
             ! -name 'test_policy_cost_v7_recovery.py' -printf '%p\n' | sort | \
-            sed -e 's#/#.#g' -e 's#\.py$##')
+            sed -e 's#/#.#g' -e 's#\.py$##' | sort -u)
+          mapfile -t MAKE_TEST_MODULES < <(awk \
+            'BEGIN { in_test = 0 } \
+             /^test:/ { in_test = 1; next } \
+             in_test && /^[^[:space:]]/ { exit } \
+             in_test { print }' Makefile | grep -Eo \
+            'tests[/.]test_[A-Za-z0-9_]+' | \
+            sed -e 's#/#.#g' -e 's#\.py$##' | sort -u)
+          test "${#ALL_TEST_MODULES[@]}" -gt 0
+          test "${#MAKE_TEST_MODULES[@]}" -gt 0
+          test -z "$(comm -13 \
+            <(printf '%s\n' "${ALL_TEST_MODULES[@]}") \
+            <(printf '%s\n' "${MAKE_TEST_MODULES[@]}"))"
+          mapfile -t TEST_MODULES < <(comm -23 \
+            <(printf '%s\n' "${ALL_TEST_MODULES[@]}") \
+            <(printf '%s\n' "${MAKE_TEST_MODULES[@]}"))
           test "${#TEST_MODULES[@]}" -gt 0
-          python3 -m unittest "${TEST_MODULES[@]}"
+          test "$(( ${#MAKE_TEST_MODULES[@]} + ${#TEST_MODULES[@]} ))" \
+            -eq "${#ALL_TEST_MODULES[@]}"
+          for module in "${TEST_MODULES[@]}"; do
+            python3 -m unittest "$module"
+          done
           python3 - <<'PY'
           import pathlib,re,yaml
           paths=(

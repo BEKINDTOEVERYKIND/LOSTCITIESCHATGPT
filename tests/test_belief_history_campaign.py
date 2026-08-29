@@ -443,7 +443,19 @@ class BeliefHistoryCampaignTests(unittest.TestCase):
         self.assertIn("make -j2 all CC=gcc", text)
         self.assertIn("make test CC=gcc", text)
         self.assertIn("find tests -maxdepth 1 -type f -name 'test_*.py'", text)
-        self.assertIn("python3 -m unittest \"${TEST_MODULES[@]}\"", text)
+        self.assertIn("'tests[/.]test_[A-Za-z0-9_]+'", text)
+        self.assertIn("in_test { print }' Makefile | grep -Eo", text)
+        self.assertIn("/^test:/ { in_test = 1; next }", text)
+        self.assertIn("in_test && /^[^[:space:]]/ { exit }", text)
+        self.assertIn("mapfile -t ALL_TEST_MODULES", text)
+        self.assertIn("mapfile -t MAKE_TEST_MODULES", text)
+        self.assertIn("mapfile -t TEST_MODULES < <(comm -23", text)
+        self.assertIn("test -z \"$(comm -13", text)
+        self.assertIn("${#MAKE_TEST_MODULES[@]} + ${#TEST_MODULES[@]}", text)
+        self.assertIn('for module in "${TEST_MODULES[@]}"; do', text)
+        self.assertIn('python3 -m unittest "$module"', text)
+        self.assertNotIn(
+            'python3 -m unittest "${TEST_MODULES[@]}"', text)
         for recovery in range(3, 8):
             self.assertIn(
                 f"! -name 'test_policy_cost_v{recovery}_recovery.py'",
