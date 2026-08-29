@@ -1,8 +1,8 @@
 name: Belief-history v1 definition validation
 
-# Validate only inert source and definition inputs. The future execution
-# addendum is deliberately absent from the push path filter so its unique
-# add-only push can trigger only the locked campaign workflow.
+# Validate source and definition inputs both before and after the immutable
+# one-shot execution. The execution addendum remains absent from this push
+# filter so its unique add-only launch triggers only the campaign workflow.
 on:
   push:
     branches: [agent/correctness-and-policy-upgrade]
@@ -141,32 +141,37 @@ jobs:
             --no-deps --target python-runtime "$NUMPY_WHEEL" "$PYYAML_WHEEL"
           PYTHONNOUSERSITE=1 PYTHONPATH="$PWD/python-runtime" python3 -c \
             'import numpy,yaml; assert numpy.__version__=="2.3.5"; assert yaml.__version__=="6.0.3"'
-      - name: Validate and test a clean inert tracked worktree
+      - name: Validate and test a clean tracked worktree
         run: |
           set -euo pipefail
           test "$(gcc -dumpfullversion -dumpversion)" = 13.3.0
-          test ! -e "campaign/$EXECUTION"
           SOURCE_COMMIT="$(git -C campaign rev-parse HEAD)"
           SOURCE_TREE="$(git -C campaign rev-parse 'HEAD^{tree}')"
           git -C campaign worktree add --detach ../source "$SOURCE_COMMIT"
           test "$(git -C source rev-parse HEAD)" = "$SOURCE_COMMIT"
           test "$(git -C source rev-parse 'HEAD^{tree}')" = "$SOURCE_TREE"
           test -z "$(git -C source status --porcelain)"
-          test ! -e "source/$EXECUTION"
           RUNTIME="$GITHUB_WORKSPACE/python-runtime"
           export PYTHONNOUSERSITE=1 PYTHONPATH="$RUNTIME"
           cd source
           python3 tools/belief_history_campaign.py validate-plan --root .
-          python3 tools/belief_history_campaign.py prepare-execution \
-            --root . --output "$EXECUTION" \
-            --source-parent-commit "$SOURCE_COMMIT" \
-            --source-parent-tree "$SOURCE_TREE"
-          python3 tools/belief_history_campaign.py guard-execution \
-            --root . --execution "$EXECUTION" \
-            --source-parent-commit "$SOURCE_COMMIT" \
-            --source-parent-tree "$SOURCE_TREE"
-          rm "$EXECUTION"
-          test ! -e "$EXECUTION"
+          if test -e "$EXECUTION"; then
+            # The immutable launch and terminal result are checked by the
+            # campaign history tests below. Never regenerate an execution.
+            test -e data/experiments/belief_history_v1_result.json
+            test -e data/experiments/belief_history_v1_run_33253283912_failure.json
+          else
+            python3 tools/belief_history_campaign.py prepare-execution \
+              --root . --output "$EXECUTION" \
+              --source-parent-commit "$SOURCE_COMMIT" \
+              --source-parent-tree "$SOURCE_TREE"
+            python3 tools/belief_history_campaign.py guard-execution \
+              --root . --execution "$EXECUTION" \
+              --source-parent-commit "$SOURCE_COMMIT" \
+              --source-parent-tree "$SOURCE_TREE"
+            rm "$EXECUTION"
+            test ! -e "$EXECUTION"
+          fi
           make -j2 all CC=gcc CFLAGS="$CFLAGS_CHECK" LDFLAGS="$LDFLAGS_CHECK"
           make test CC=gcc CFLAGS="$CFLAGS_CHECK" LDFLAGS="$LDFLAGS_CHECK"
           # Match the strongest locked-definition convention: after the
@@ -248,17 +253,19 @@ jobs:
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: |
           set -euo pipefail
-          test ! -e "campaign/$EXECUTION"
           SOURCE_COMMIT="$(git -C campaign rev-parse HEAD)"
           SOURCE_TREE="$(git -C campaign rev-parse 'HEAD^{tree}')"
           git -C campaign worktree add --detach ../source "$SOURCE_COMMIT"
           test "$(git -C source rev-parse HEAD)" = "$SOURCE_COMMIT"
           test "$(git -C source rev-parse 'HEAD^{tree}')" = "$SOURCE_TREE"
           test -z "$(git -C source status --porcelain)"
-          test ! -e "source/$EXECUTION"
           export PYTHONNOUSERSITE=1 PYTHONPATH="$GITHUB_WORKSPACE/python-runtime"
           cd source
           python3 tools/belief_history_campaign.py validate-plan --root .
+          if test -e "$EXECUTION"; then
+            test -e data/experiments/belief_history_v1_result.json
+            test -e data/experiments/belief_history_v1_run_33253283912_failure.json
+          fi
           make test CC=clang \
             CFLAGS="-O1 -g -Wall -Wextra -std=c11 -fno-omit-frame-pointer -fsanitize=address,undefined" \
             LDFLAGS="-lm -pthread -fsanitize=address,undefined"

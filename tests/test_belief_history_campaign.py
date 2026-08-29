@@ -454,7 +454,11 @@ class BeliefHistoryCampaignTests(unittest.TestCase):
             2,
         )
         self.assertNotIn("git -C campaign archive HEAD", text)
-        self.assertGreaterEqual(text.count(f'test ! -e "campaign/$EXECUTION"'), 2)
+        self.assertEqual(text.count('if test -e "$EXECUTION"; then'), 2)
+        self.assertGreaterEqual(
+            text.count("belief_history_v1_result.json"), 2)
+        self.assertGreaterEqual(
+            text.count("belief_history_v1_run_33253283912_failure.json"), 2)
         self.assertIn("belief_history_campaign.py validate-plan", text)
         self.assertIn("belief_history_campaign.py prepare-execution", text)
         self.assertIn("belief_history_campaign.py guard-execution", text)
