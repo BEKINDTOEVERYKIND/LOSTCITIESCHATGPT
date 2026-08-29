@@ -1,0 +1,25 @@
+{
+  "artifact_count": 226,
+  "artifact_digests_inventoried_from_github_api": true,
+  "complete_retention_job": false,
+  "efficacy_decision_present": false,
+  "final_evidence_present": false,
+  "github_run_id": 33257645061,
+  "head_sha": "fd50b4101819d8997662dc75b7242a45602c4a4b",
+  "infrastructure_retain_failure": {
+    "error": "policy-cost campaign: infrastructure retain binding drift",
+    "job_id": 99163262625
+  },
+  "maintained_actor_changed": false,
+  "promotion_gate_passed": false,
+  "raw_stage_artifacts_available": true,
+  "schema": "lc-policy-cost-v8-infrastructure-retain-v1",
+  "status": "complete_terminal_non_promotable",
+  "train_evaluation_artifacts": {
+    "count": 215,
+    "missing_indices": [
+      8
+    ],
+    "unique_names": 215
+  }
+}

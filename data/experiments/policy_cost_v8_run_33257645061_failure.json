@@ -1,0 +1,86 @@
+{
+  "artifact_count": 226,
+  "cause": {
+    "classification": "github_runner_action_resolution_timeout",
+    "efficacy_related": false,
+    "mechanism": "TRAIN shard 8 remained outside campaign code: the GitHub-hosted runner timed out three times while resolving pinned action download metadata, before checkout, transport download, or any seed-bound command. The other 215 immutable TRAIN shards completed, but the frozen matrix correctly failed closed because the complete 216-shard set did not exist.",
+    "stage": {
+      "error": "Failed to resolve action download info after three 100-second HTTP timeouts",
+      "job_id": 99125937958,
+      "name": "train_evaluate (8)"
+    }
+  },
+  "efficacy_data_observed": false,
+  "execution": {
+    "path": "data/experiments/locked_policy_cost_v8_execution.json",
+    "sha256": "3dcdd8a980859e67f4aed39512bc6b0b12eb45955f6e860d2067a894f199c785"
+  },
+  "fixed_seed_execution": {
+    "all_policy_cost_v8_fixed_roots_retired": true,
+    "retired_fixed_root_count": 21,
+    "retry_forbidden": true
+  },
+  "github_run": {
+    "attempt": 1,
+    "conclusion": "failure",
+    "event": "push",
+    "head_sha": "fd50b4101819d8997662dc75b7242a45602c4a4b",
+    "head_tree": "ab7cb5f474e7122f8fdf9f1ac3c7ee4783114750",
+    "id": 33257645061,
+    "url": "https://github.com/BEKINDTOEVERYKIND/LOSTCITIESCHATGPT/actions/runs/33257645061"
+  },
+  "immutable_artifacts": {
+    "all_unexpired": true,
+    "artifact_digests_inventoried_from_github_api": true,
+    "train_evaluation": {
+      "count": 215,
+      "missing_indices": [
+        8
+      ],
+      "unique_names": 215
+    },
+    "transport": {
+      "digest": "377cb3ae5c0c8c96e7b017c59b0a22b83e3440c498d0cea4b9e6d99786d43a92",
+      "id": 9716403894,
+      "name": "policy-cost-v8-transport",
+      "size": 23941825
+    }
+  },
+  "job_disposition": {
+    "failure": 2,
+    "skipped": 10,
+    "success": 223,
+    "total": 235,
+    "train_evaluate_success": 215
+  },
+  "locked_validation_relaxed": false,
+  "maintained_actor_disposition": {
+    "changed": false,
+    "objective3_result_path": "data/experiments/match_value_objective3_v2_result.json",
+    "objective3_result_sha256": "05d6ee1b0ce59d5d502ebac27b4a59cc7c816bfc1245eccee4d5b8fbda9c6700"
+  },
+  "remediation_constraint": "A successor may only reduce GitHub runner/action-resolution exposure by grouping the identical frozen logical evaluation slices into fewer runner jobs. It must preserve every logical slice boundary and evaluation row, all sample budgets and adequacy criteria, unchanged TEST/safety/final gates, and use all-fresh roots.",
+  "schema": "lc-policy-cost-v8-github-action-resolution-failure-v1",
+  "search_and_truth_labels_generated": true,
+  "secondary_retention_failure": {
+    "classification": "infrastructure_retain_status_binding_rejection",
+    "error": "policy-cost campaign: infrastructure retain binding drift",
+    "job_id": 99163262625,
+    "name": "infrastructure_retain",
+    "retention_artifact_uploaded": false,
+    "raw_stage_artifacts_remain_available": true
+  },
+  "source_parent": {
+    "commit": "25da27f0f7f70ffdeac0862fd9325e822532148b",
+    "tree": "b414639e64454b80a70f4c7ada2ebe68cf276c94"
+  },
+  "status": "complete_terminal_non_promotable",
+  "untouched_stages": [
+    "calibration_fit_and_decision",
+    "SELECT_search_and_truth",
+    "untouched_TEST_search_and_truth",
+    "200_pair_per_orientation_safety",
+    "2500_pair_per_orientation_final",
+    "promotion"
+  ]
+}
