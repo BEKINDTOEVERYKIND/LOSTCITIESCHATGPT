@@ -12,6 +12,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOL = ROOT / "bin" / "belief_eval"
+METRICS = (
+    "nll_per_state",
+    "nll_per_uncertain_card",
+    "brier",
+    "auc_within_state",
+    "auc_pair_weighted",
+    "top_k_recall",
+)
 
 
 class BeliefEvalToolTest(unittest.TestCase):
@@ -43,6 +51,34 @@ class BeliefEvalToolTest(unittest.TestCase):
             check=False,
         )
 
+    def run_pair(
+        self,
+        candidate_alpha: str,
+        baseline_alpha: str | None,
+    ) -> subprocess.CompletedProcess[str]:
+        command = [
+            str(TOOL),
+            "--net", "data/champion.bin",
+            "--baseline-net", "data/champion.bin",
+            "--games", "2",
+            "--rounds", "1",
+            "--seed", "9918273",
+            "--symmetries", "1",
+            "--alpha", candidate_alpha,
+            "--min-ply", "1",
+            "--max-ply", "6",
+            "--json",
+        ]
+        if baseline_alpha is not None:
+            command[5:5] = ["--baseline-alpha", baseline_alpha]
+        return subprocess.run(
+            command,
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
     def test_uniform_prior_and_repeatability(self) -> None:
         first = self.run_eval()
         second = self.run_eval()
@@ -52,6 +88,9 @@ class BeliefEvalToolTest(unittest.TestCase):
 
         report = json.loads(first.stdout)
         self.assertEqual(report["schema"], "lc-belief-eval-v1")
+        self.assertNotIn("baseline", report)
+        self.assertNotIn("candidate_minus_baseline", report)
+        self.assertNotIn("baseline_exact_k", report["match_clustered_se"])
         self.assertEqual(report["actor"]["type"], "exact_policy_argmax")
         self.assertFalse(report["actor"]["uses_belief"])
         self.assertTrue(report["actor"]["truth_scrubbed"])
@@ -60,15 +99,83 @@ class BeliefEvalToolTest(unittest.TestCase):
 
         learned = report["exact_k"]
         prior = report["uniform_card_count_prior"]
-        for key in (
-            "nll_per_state",
-            "nll_per_uncertain_card",
-            "brier",
-            "auc_within_state",
-            "auc_pair_weighted",
-            "top_k_recall",
-        ):
+        for key in METRICS:
             self.assertAlmostEqual(learned[key], prior[key], places=10)
+
+    def test_identical_baseline_has_zero_paired_delta(self) -> None:
+        implicit = self.run_pair("0.37", None)
+        explicit = self.run_pair("0.37", "0.37")
+        self.assertEqual(implicit.returncode, 0, implicit.stderr)
+        self.assertEqual(explicit.returncode, 0, explicit.stderr)
+        self.assertEqual(implicit.stdout, explicit.stdout)
+
+        report = json.loads(implicit.stdout)
+        self.assertEqual(report["schema"], "lc-belief-eval-v2")
+        self.assertEqual(report["sample"]["match_clusters"], 2)
+        self.assertEqual(report["model_fingerprint"],
+                         report["baseline"]["model_fingerprint"])
+        self.assertAlmostEqual(report["baseline"]["alpha"], 0.37, places=6)
+        self.assertEqual(report["exact_k"], report["baseline"]["exact_k"])
+        self.assertEqual(
+            report["match_clustered_se"]["exact_k"],
+            report["match_clustered_se"]["baseline_exact_k"],
+        )
+        for key in METRICS:
+            self.assertEqual(report["candidate_minus_baseline"][key], 0)
+            self.assertEqual(
+                report["match_clustered_se"]
+                      ["candidate_minus_baseline"][key],
+                0,
+            )
+
+    def test_zero_alpha_baseline_matches_uniform_paired_evidence(self) -> None:
+        result = self.run_pair("1.15", "0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(
+            report["baseline"]["exact_k"],
+            report["uniform_card_count_prior"],
+        )
+        for key in METRICS:
+            expected = (report["exact_k"][key]
+                        - report["uniform_card_count_prior"][key])
+            self.assertAlmostEqual(
+                report["candidate_minus_baseline"][key],
+                expected,
+                places=10,
+            )
+            self.assertAlmostEqual(
+                report["match_clustered_se"]
+                      ["candidate_minus_baseline"][key],
+                report["match_clustered_se"]
+                      ["exact_minus_uniform"][key],
+                places=10,
+            )
+
+    def test_swapping_candidate_and_baseline_reverses_paired_delta(self) -> None:
+        learned = self.run_pair("1.15", "0")
+        uniform = self.run_pair("0", "1.15")
+        self.assertEqual(learned.returncode, 0, learned.stderr)
+        self.assertEqual(uniform.returncode, 0, uniform.stderr)
+        forward = json.loads(learned.stdout)
+        reverse = json.loads(uniform.stdout)
+        self.assertEqual(forward["sample"], reverse["sample"])
+        self.assertEqual(forward["actor"], reverse["actor"])
+        self.assertEqual(forward["exact_k"], reverse["baseline"]["exact_k"])
+        self.assertEqual(forward["baseline"]["exact_k"], reverse["exact_k"])
+        for key in METRICS:
+            self.assertAlmostEqual(
+                forward["candidate_minus_baseline"][key],
+                -reverse["candidate_minus_baseline"][key],
+                places=10,
+            )
+            self.assertAlmostEqual(
+                forward["match_clustered_se"]
+                       ["candidate_minus_baseline"][key],
+                reverse["match_clustered_se"]
+                       ["candidate_minus_baseline"][key],
+                places=10,
+            )
 
     def test_rejects_malformed_numeric_options(self) -> None:
         cases = (
@@ -78,6 +185,9 @@ class BeliefEvalToolTest(unittest.TestCase):
             ("--seed", "12x"),
             ("--alpha", ""),
             ("--alpha", " nan"),
+            ("--baseline-alpha", "nan"),
+            ("--baseline-alpha", "-0.1"),
+            ("--baseline-alpha", "5.1"),
             ("--rounds", "4"),
         )
         for option, value in cases:
@@ -91,6 +201,27 @@ class BeliefEvalToolTest(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 2)
                 self.assertIn("usage:", result.stderr)
+
+        orphan_alpha = subprocess.run(
+            [str(TOOL), "--baseline-alpha", "1.15"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(orphan_alpha.returncode, 2)
+        self.assertIn("usage:", orphan_alpha.stderr)
+
+        missing_path = subprocess.run(
+            [str(TOOL), "--baseline-net", "does-not-exist.bin"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(missing_path.returncode, 1)
+        self.assertIn("cannot load baseline does-not-exist.bin",
+                      missing_path.stderr)
 
     def test_candidate_policy_cannot_change_frozen_scoring_games(self) -> None:
         learned_command = [

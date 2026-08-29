@@ -1,0 +1,15 @@
+{
+  "artifact_kind": "locked_belief_history_v1_execution_template",
+  "instructions": [
+    "Do not rename or commit this template as the execution addendum.",
+    "Externally verify that the intentionally push-only .github/workflows/belief-history-v1-definition.yml concluded success on attempt 1 of the push event whose head SHA and tree are the exact inert definition parent; do not substitute a pull-request check. Git history alone cannot attest this Actions result, so do not prepare or commit the execution addendum while that run is pending, failed, skipped, or absent.",
+    "Materialize a clean git archive of the exact definition parent and run tools/belief_history_campaign.py prepare-execution inside that archive.",
+    "Verify every source, plan, exclusion, actor, model, helper, workflow, and test binding before reviewing the canonical JSON.",
+    "Do not generate a sample, label, model, calibration value, SELECT result, TEST result, or exact-17 diagnostic while preparing the addendum.",
+    "Launch only through one non-forced attempt-1 push whose sole changed path is data/experiments/locked_belief_history_v1_execution.json.",
+    "Never manually dispatch, retry, reuse a touched root, inspect partial TEST efficacy, top up a split, or interpret the accuracy artifact as actor promotion."
+  ],
+  "results": null,
+  "schema": "lc-belief-history-v1-execution-template-v1",
+  "status": "inert_template_not_a_launch_binding"
+}

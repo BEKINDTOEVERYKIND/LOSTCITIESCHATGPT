@@ -28,6 +28,7 @@
 #include "../src/match.h"
 #include "../src/search.h"
 #include "../src/spec.h"
+#include "../src/history_belief_exclusion.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -40,6 +41,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <errno.h>
+#include <fcntl.h>
 
 typedef struct {
     State st;
@@ -50,6 +52,11 @@ typedef struct {
     uint8_t persp;
     uint8_t actor;    /* 1 when persp is the player who moved             */
     uint8_t continuation_role; /* conditional dead-discard support applies */
+    /* Belief-only rows are screened exactly once, before the optimizer can
+     * materialize the referee-only opponent-hand label.  These bytes are
+     * ignored by every historical PPO mode. */
+    uint8_t belief_exclusion_checked;
+    uint8_t belief_excluded;
     /* Suit relabelling from st's owner-role coordinates to the other
      * player's independently fixed role.  Used only in continuation mode to
      * reconstruct the exact centralized critic pair during optimization. */
@@ -313,6 +320,103 @@ static int continuation_checkpoint_preflight(
         if (i >= iters) break;
     }
     return 1;
+}
+
+/* Belief campaigns are evidence-producing one-shot jobs.  Unlike historical
+ * PPO, their checkpoint and sidecar names must be fresh so an old candidate
+ * or manifest receipt cannot be silently overwritten. */
+static int belief_checkpoint_preflight(const char *out_path, int iters,
+                                       const char *init_path,
+                                       const char *evidence_path)
+{
+    CheckpointIdentity initial, evidence;
+    if (checkpoint_identity(init_path, &initial) != 0 || !initial.exists) {
+        fprintf(stderr, "cannot resolve belief-only initial checkpoint %s\n",
+                init_path);
+        return 0;
+    }
+    if (checkpoint_identity(evidence_path, &evidence) != 0) {
+        fprintf(stderr, "cannot resolve belief-only evidence path %s\n",
+                evidence_path);
+        return 0;
+    }
+    if (evidence.exists) {
+        fprintf(stderr, "belief-only evidence already exists: %s\n",
+                evidence_path);
+        return 0;
+    }
+    for (int i = 0; i <= iters; i++) {
+        char generated[PATH_MAX];
+        const char *candidate = out_path;
+        if (i > 0) {
+            int written = snprintf(generated, sizeof generated, "%s.it%d",
+                                   out_path, i);
+            if (written < 0 || (size_t)written >= sizeof generated) {
+                fprintf(stderr,
+                        "generated belief-only checkpoint path is too long\n");
+                return 0;
+            }
+            candidate = generated;
+        }
+        CheckpointIdentity output;
+        if (checkpoint_identity(candidate, &output) != 0) {
+            fprintf(stderr, "cannot resolve belief-only output %s\n",
+                    candidate);
+            return 0;
+        }
+        if (output.exists) {
+            fprintf(stderr, "belief-only output already exists: %s\n",
+                    candidate);
+            return 0;
+        }
+        if (checkpoint_same_file(&output, &initial) ||
+            !strcmp(output.canonical, evidence.canonical)) {
+            fprintf(stderr,
+                    "belief-only output %s aliases protected input/evidence\n",
+                    candidate);
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static int write_belief_exclusion_evidence(
+    const char *path, const HistoryBeliefExclusions *exclusions,
+    uint64_t checked, uint64_t excluded, uint64_t seed,
+    int iters, int games, int rounds)
+{
+    if (!path || !exclusions ||
+        exclusions->count != HISTORY_BELIEF_EXCLUSION_COUNT ||
+        strcmp(exclusions->manifest_sha256_hex,
+               HISTORY_BELIEF_EXACT17_CANONICAL_SHA256))
+        return 0;
+    int descriptor = open(path, O_WRONLY | O_CREAT | O_EXCL, 0444);
+    if (descriptor < 0) return 0;
+    FILE *file = fdopen(descriptor, "w");
+    if (!file) {
+        close(descriptor);
+        unlink(path);
+        return 0;
+    }
+    int ok = fprintf(
+        file,
+        "{\"schema\":\"lc-rl-belief-exclusions-v1\","
+        "\"belief_only\":true,\"exclusion_enabled\":true,"
+        "\"exclusion_manifest_count\":%d,"
+        "\"exclusion_manifest_sha256\":\"%s\","
+        "\"checked_state_count\":%llu,"
+        "\"excluded_state_count\":%llu,"
+        "\"seed\":%llu,\"iterations\":%d,"
+        "\"games_per_iteration\":%d,\"rounds\":%d,"
+        "\"playing_actor_changed\":false}\n",
+        exclusions->count, exclusions->manifest_sha256_hex,
+        (unsigned long long)checked, (unsigned long long)excluded,
+        (unsigned long long)seed, iters, games, rounds) > 0;
+    if (ok && fflush(file) != 0) ok = 0;
+    if (ok && fsync(fileno(file)) != 0) ok = 0;
+    if (fclose(file) != 0) ok = 0;
+    if (!ok) unlink(path);
+    return ok;
 }
 
 /* Keep a uniform sample of arbitrarily long games instead of silently
@@ -993,6 +1097,94 @@ static void *gen_continuation_worker(void *arg)
     return NULL;
 }
 
+/* ---------------- belief-only reviewed-ply firewall ------------------- */
+
+typedef struct {
+    RLSample *sample;
+    size_t from, to;
+    const HistoryBeliefExclusions *exclusions;
+    uint64_t checked;
+    uint64_t excluded;
+    int failed;
+} BeliefExclusionJob;
+
+static void *belief_exclusion_worker(void *argument)
+{
+    BeliefExclusionJob *job = argument;
+    for (size_t i = job->from; i < job->to; i++) {
+        RLSample *sample = &job->sample[i];
+        sample->belief_exclusion_checked = 0;
+        sample->belief_excluded = 0;
+        if (sample->persp != sample->st.turn || sample->st.nply == 0)
+            continue;
+
+        /* This is intentionally before feat_extract(), lc_unseen(), and any
+         * access to st.hand[opponent] as a label.  The exclusion module first
+         * constructs and validates the mover's scrubbed information view and
+         * keys only that view's suit orbit. */
+        int result = history_belief_exclusions_check(
+            job->exclusions, &sample->st, sample->persp, NULL);
+        if (result < 0) {
+            job->failed = 1;
+            return NULL;
+        }
+        sample->belief_exclusion_checked = 1;
+        sample->belief_excluded = (uint8_t)(result > 0);
+        job->checked++;
+        job->excluded += result > 0;
+    }
+    return NULL;
+}
+
+static int screen_belief_training_rows(
+    RLSample *sample, size_t n, const HistoryBeliefExclusions *exclusions,
+    int requested_threads, uint64_t *checked_out, uint64_t *excluded_out)
+{
+    if (!sample || !exclusions || requested_threads <= 0 ||
+        !checked_out || !excluded_out)
+        return 0;
+    int threads = requested_threads;
+    if ((size_t)threads > n && n > 0) threads = (int)n;
+    if (threads <= 0) threads = 1;
+    BeliefExclusionJob *job = calloc((size_t)threads, sizeof *job);
+    pthread_t *worker = calloc((size_t)threads, sizeof *worker);
+    if (!job || !worker) {
+        free(job);
+        free(worker);
+        return 0;
+    }
+    size_t chunk = n / (size_t)threads;
+    size_t remainder = n % (size_t)threads;
+    size_t from = 0;
+    int started = 0;
+    for (int i = 0; i < threads; i++) {
+        size_t count = chunk + ((size_t)i < remainder);
+        job[i].sample = sample;
+        job[i].from = from;
+        job[i].to = from + count;
+        job[i].exclusions = exclusions;
+        from += count;
+        if (pthread_create(&worker[i], NULL, belief_exclusion_worker,
+                           &job[i]) != 0)
+            break;
+        started++;
+    }
+    int ok = started == threads;
+    uint64_t checked = 0, excluded = 0;
+    for (int i = 0; i < started; i++) {
+        if (pthread_join(worker[i], NULL) != 0) ok = 0;
+        if (job[i].failed) ok = 0;
+        checked += job[i].checked;
+        excluded += job[i].excluded;
+    }
+    free(job);
+    free(worker);
+    if (!ok) return 0;
+    *checked_out = checked;
+    *excluded_out = excluded;
+    return 1;
+}
+
 /* ---------------- optimisation ---------------------------------------- */
 
 typedef struct {
@@ -1004,6 +1196,7 @@ typedef struct {
     int from, to;
     float clip, vcoef, entcoef, policy_scale, bw, temp, klcoef;
     int belief_only;
+    int failed;
     double ploss, vloss, bloss, klloss, clipped;
     int pn;
     long bn;
@@ -1028,6 +1221,15 @@ static void *opt_worker(void *arg)
 
     for (int i = t->from; i < t->to; i++) {
         const RLSample *s = &t->buf[t->idx[i]];
+        if (t->belief_only) {
+            if (s->persp != s->st.turn || s->st.nply == 0)
+                continue;
+            if (!s->belief_exclusion_checked) {
+                t->failed = 1;
+                return NULL;
+            }
+            if (s->belief_excluded) continue;
+        }
         feat_extract(&s->st, s->persp, &f);
         net_trunk(t->net, &f, &act);
         float dcenter = 0.0f;
@@ -1263,6 +1465,9 @@ int main(int argc, char **argv)
     const char *gen_opponent_spec = NULL;
     const char *anchor_path = NULL;
     const char *continuation_root_path = NULL;
+    const char *belief_exclusions_path = NULL;
+    const char *belief_exclusions_sha256 = NULL;
+    const char *belief_evidence_path = NULL;
     int iters = 30, games = 4000, nthread = 4, batch = 512, epochs = 2;
     int eval_pairs = 400, eval_every = 1;
     float lr = 3e-4f, wd = 1e-7f, lambda = 0.85f, clip = 0.2f;
@@ -1291,6 +1496,12 @@ int main(int argc, char **argv)
         else if (ARG("--anchor")) anchor_path = argv[++i];
         else if (ARG("--continuation-root"))
             continuation_root_path = argv[++i];
+        else if (ARG("--belief-exclusions"))
+            belief_exclusions_path = argv[++i];
+        else if (ARG("--belief-exclusions-sha256"))
+            belief_exclusions_sha256 = argv[++i];
+        else if (ARG("--belief-evidence"))
+            belief_evidence_path = argv[++i];
         else if (ARG("--kl")) klcoef = (float)atof(argv[++i]);
         else if (ARG("--iters")) iters = atoi(argv[++i]);
         else if (ARG("--games")) games = atoi(argv[++i]);
@@ -1500,6 +1711,30 @@ int main(int argc, char **argv)
         fprintf(stderr, "--belief-only cannot optimize an anchor KL\n");
         return 1;
     }
+    int any_belief_exclusion_option = belief_exclusions_path ||
+        belief_exclusions_sha256 || belief_evidence_path;
+    if (!belief_only && any_belief_exclusion_option) {
+        fprintf(stderr,
+                "belief exclusion/evidence options require --belief-only\n");
+        return 1;
+    }
+    if (belief_only &&
+        (!belief_exclusions_path || !*belief_exclusions_path ||
+         !belief_exclusions_sha256 || !*belief_exclusions_sha256 ||
+         !belief_evidence_path || !*belief_evidence_path)) {
+        fprintf(stderr,
+                "--belief-only requires --belief-exclusions PATH, "
+                "--belief-exclusions-sha256 HEX, and --belief-evidence PATH\n");
+        return 1;
+    }
+    if (belief_only &&
+        strcmp(belief_exclusions_sha256,
+               HISTORY_BELIEF_EXACT17_CANONICAL_SHA256)) {
+        fprintf(stderr,
+                "--belief-only requires the canonical exact-17 manifest "
+                "SHA-256\n");
+        return 1;
+    }
     if (rounds < 1 || rounds > MATCH_ROUNDS) {
         fprintf(stderr, "--rounds must be between 1 and %d\n", MATCH_ROUNDS);
         return 1;
@@ -1507,6 +1742,23 @@ int main(int argc, char **argv)
     if (continuation_start > 0 &&
         !continuation_checkpoint_preflight(
             out_path, iters, init_path, continuation_root_path, anchor_path))
+        return 1;
+
+    /* Bind the audit-only exclusion set before allocating or loading any
+     * network and before any trajectory, label, checkpoint, or evidence file
+     * can exist. */
+    HistoryBeliefExclusions belief_exclusions;
+    memset(&belief_exclusions, 0, sizeof belief_exclusions);
+    if (belief_only &&
+        !history_belief_exclusions_load(
+            belief_exclusions_path, belief_exclusions_sha256,
+            &belief_exclusions)) {
+        fprintf(stderr, "belief-only exact-17 exclusion binding failed\n");
+        return 1;
+    }
+    if (belief_only &&
+        !belief_checkpoint_preflight(out_path, iters, init_path,
+                                     belief_evidence_path))
         return 1;
 
     Net *net = (Net *)malloc(sizeof(Net));
@@ -1596,6 +1848,12 @@ int main(int argc, char **argv)
                trajectory_symmetries);
     if (belief_only)
         printf("     optimizer: belief head only (trunk, policy and value frozen)\n");
+    if (belief_only)
+        printf("     exact-17 exclusion: enabled, count %d, manifest %s; "
+               "evidence %s\n",
+               belief_exclusions.count,
+               belief_exclusions.manifest_sha256_hex,
+               belief_evidence_path);
     if (continuation_start > 0)
         printf("     continuation-only state start: immutable champion %s; "
                "plies "
@@ -1615,6 +1873,8 @@ int main(int argc, char **argv)
                (unsigned long long)champion_fingerprint);
     fflush(stdout);
 
+    uint64_t belief_checked_total = 0;
+    uint64_t belief_excluded_total = 0;
     for (int it = 1; it <= iters; it++) {
         struct timespec t0, t1;
         clock_gettime(CLOCK_MONOTONIC, &t0);
@@ -1767,6 +2027,23 @@ int main(int argc, char **argv)
         }
         free(jobs); free(th); free(role_counts);
 
+        if (belief_only) {
+            uint64_t checked = 0, excluded = 0;
+            if (!screen_belief_training_rows(
+                    buf, n, &belief_exclusions, nthread,
+                    &checked, &excluded)) {
+                fprintf(stderr,
+                        "belief-only exact-17 state screening failed\n");
+                return 1;
+            }
+            belief_checked_total += checked;
+            belief_excluded_total += excluded;
+            printf("         belief exclusion checked %llu retained mover "
+                   "states; excluded %llu\n",
+                   (unsigned long long)checked,
+                   (unsigned long long)excluded);
+        }
+
         /* standardise advantages */
         double am = 0, av = 0;
         long an = 0;
@@ -1856,9 +2133,18 @@ int main(int argc, char **argv)
                     tj[i].bw = bw; tj[i].temp = temp;
                     tj[i].klcoef = klcoef;
                     tj[i].belief_only = belief_only;
+                    tj[i].failed = 0;
                 }
                 for (int i = 0; i < nt; i++) pthread_create(&tt[i], NULL, opt_worker, &tj[i]);
                 for (int i = 0; i < nt; i++) pthread_join(tt[i], NULL);
+                for (int i = 0; i < nt; i++) {
+                    if (tj[i].failed) {
+                        fprintf(stderr,
+                                "belief-only optimizer reached an "
+                                "unscreened state\n");
+                        return 1;
+                    }
+                }
                 for (int i = 0; i < nt; i++) {
                     pl += tj[i].ploss; vl += tj[i].vloss;
                     bl += tj[i].bloss; kl += tj[i].klloss;
@@ -1905,13 +2191,20 @@ int main(int argc, char **argv)
         fflush(stdout);
 
         char path[PATH_MAX];
-        net_save(net, out_path);
+        if (net_save(net, out_path) != 0 && belief_only) {
+            fprintf(stderr, "cannot save belief-only checkpoint %s\n",
+                    out_path);
+            return 1;
+        }
         int path_n = snprintf(path, sizeof path, "%s.it%d", out_path, it);
         if (path_n < 0 || (size_t)path_n >= sizeof path) {
             fprintf(stderr, "generated checkpoint path is too long\n");
             return 1;
         }
-        net_save(net, path);
+        if (net_save(net, path) != 0 && belief_only) {
+            fprintf(stderr, "cannot save belief-only checkpoint %s\n", path);
+            return 1;
+        }
 
         if (eval_pairs > 0 && (it % eval_every == 0 || it == iters)) {
             Agent cur;
@@ -1926,6 +2219,24 @@ int main(int argc, char **argv)
                    ref_spec, mr.margin, mr.margin_se, 100 * mr.winrate, mr.plies);
             fflush(stdout);
         }
+    }
+    if (belief_only) {
+        if (!write_belief_exclusion_evidence(
+                belief_evidence_path, &belief_exclusions,
+                belief_checked_total, belief_excluded_total,
+                seed, iters, games, rounds)) {
+            fprintf(stderr,
+                    "cannot create no-clobber belief exclusion evidence %s\n",
+                    belief_evidence_path);
+            return 1;
+        }
+        printf("belief exclusion evidence: %s (checked %llu, excluded %llu, "
+               "manifest %s)\n",
+               belief_evidence_path,
+               (unsigned long long)belief_checked_total,
+               (unsigned long long)belief_excluded_total,
+               belief_exclusions.manifest_sha256_hex);
+        fflush(stdout);
     }
     spec_release(&ref);
     if (gen_opponent_ptr) spec_release(&gen_opponent);

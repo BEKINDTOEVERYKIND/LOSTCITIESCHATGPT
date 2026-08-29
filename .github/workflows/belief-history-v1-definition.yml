@@ -1,0 +1,235 @@
+name: Belief-history v1 definition validation
+
+# Validate only inert source and definition inputs. The future execution
+# addendum is deliberately absent from the push path filter so its unique
+# add-only push can trigger only the locked campaign workflow.
+on:
+  push:
+    branches: [agent/correctness-and-policy-upgrade]
+    paths:
+      - BELIEF_HISTORY_V1.md
+      - README.md
+      - tools/belief_eval.c
+      - tools/rl.c
+      - tests/test_action_core_campaign.py
+      - tests/test_belief_eval.c
+      - tests/test_belief_eval.py
+      - tests/test_rl_population.py
+      - Makefile
+      - data/experiments/locked_belief_history_v1_plan.json
+      - data/experiments/belief_history_v1_exclusions.json
+      - data/experiments/locked_belief_history_v1_execution.template.json
+      - .github/workflows/belief-history-v1.yml
+      - .github/workflows/belief-history-v1-definition.yml
+      - data/champion.bin
+      - data/experiments/belief_accuracy_dev_20260829.json
+      - data/experiments/belief_history_v1_python_requirements.txt
+      - data/experiments/belief_history_v1_definition_python_requirements.txt
+      - src/history_belief_model.c
+      - src/history_belief_exclusion.c
+      - src/lc.c
+      - src/features.c
+      - src/net.c
+      - src/heuristic.c
+      - src/planner.c
+      - src/search.c
+      - src/rollout.c
+      - src/late_resolver.c
+      - src/match_value.c
+      - src/policy_cost.c
+      - src/agent.c
+      - src/match.c
+      - src/spec.c
+      - src/agent.h
+      - src/features.h
+      - src/heuristic.h
+      - src/history_belief_exclusion.h
+      - src/history_belief_model.h
+      - src/late_resolver.h
+      - src/lc.h
+      - src/match.h
+      - src/match_value.h
+      - src/net.h
+      - src/planner.h
+      - src/policy_cost.h
+      - src/policy_cost_v3.h
+      - src/policy_cost_v4.h
+      - src/policy_cost_v5.h
+      - src/policy_cost_v6.h
+      - src/policy_cost_v7.h
+      - src/search.h
+      - src/spec.h
+      - tools/history_belief_train.c
+      - tools/belief_history_campaign.py
+      - tools/belief_history_reduce.py
+      - tests/test_history_belief_model.c
+      - tests/test_history_belief_exclusion.c
+      - tests/test_history_belief_train.py
+      - tests/test_belief_history_campaign.py
+      - tests/test_belief_history_reduce.py
+      - data/experiments/commented_ply_audit_v3.json
+      - data/experiments/commented_ply_audit_v3.md
+      - data/experiments/commented_ply_audit_v3_result.json
+      - data/experiments/commented_ply_audit_v3_evidence.zip
+      - data/experiments/locked_commented_ply_audit_definition_lock_v3.json
+      - data/experiments/policy_cost_v7_exact17_exclusions.json
+      - data/experiments/policy_cost_v7_exact17_exclusions.txt
+      - data/probes/ui_seed2214615196_p3.state
+      - data/probes/ui_seed2214615196_p4.state
+      - data/probes/ui_seed2214615196_p8.state
+      - data/probes/ui_seed2214615196_p10.state
+      - data/probes/ui_seed2214615196_p12.state
+      - data/probes/ui_seed2214615196_p13.state
+      - data/probes/ui_seed2214615196_p16.state
+      - data/probes/ui_seed2214615196_p20.state
+      - data/probes/showcase_5726968372613385_p14.state
+      - data/probes/showcase_5726968372613385_p15.state
+      - data/probes/showcase_5726968372613385_p17.state
+      - data/probes/showcase_5726968372613385_p32.state
+      - data/probes/ui_seed725402798_p21.state
+      - data/probes/ui_seed725402798_p22.state
+      - data/probes/ui_seed725402798_p23.state
+      - data/probes/ui_seed725402798_p25.state
+      - data/probes/ui_seed95647345759839_p44.state
+      - data/experiments/locked_policy_cost_v1_plan.json
+      - data/experiments/locked_policy_cost_v2_plan.json
+      - data/experiments/locked_policy_cost_v3_plan.json
+      - data/experiments/locked_policy_cost_v4_plan.json
+      - data/experiments/locked_policy_cost_v5_plan.json
+      - data/experiments/locked_policy_cost_v6_plan.json
+      - data/experiments/locked_policy_cost_v7_plan.json
+      - src/*.h
+      - data/experiments/locked_policy_cost_v*_plan.json
+permissions:
+  contents: read
+
+env:
+  DEFINITION_REQUIREMENTS: data/experiments/belief_history_v1_definition_python_requirements.txt
+  EXECUTION: data/experiments/locked_belief_history_v1_execution.json
+  CFLAGS_CHECK: -O2 -Wall -Wextra -Werror -std=c11
+  LDFLAGS_CHECK: -lm -pthread
+  MKL_NUM_THREADS: '1'
+  NPY_DISABLE_CPU_FEATURES: AVX512F
+  OMP_NUM_THREADS: '1'
+  OPENBLAS_CORETYPE: Haswell
+  OPENBLAS_NUM_THREADS: '1'
+  PYTHONHASHSEED: '0'
+
+jobs:
+  validate-definition:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: {fetch-depth: 0, path: campaign}
+      - name: Materialize the frozen definition-test Python runtime
+        run: |
+          set -euo pipefail
+          test "$(python3 --version 2>&1)" = "Python 3.12.3"
+          mkdir python-wheel python-runtime
+          python3 -m pip download --disable-pip-version-check --no-deps \
+            --only-binary=:all: --require-hashes --dest python-wheel \
+            -r "campaign/$DEFINITION_REQUIREMENTS"
+          test "$(find python-wheel -maxdepth 1 -type f -name '*.whl' | wc -l)" = 2
+          NUMPY_WHEEL="python-wheel/numpy-2.3.5-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl"
+          PYYAML_WHEEL="python-wheel/pyyaml-6.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl"
+          test "$(sha256sum "$NUMPY_WHEEL" | cut -d' ' -f1)" = \
+            0d8163f43acde9a73c2a33605353a4f1bc4798745a8b1d73183b28e5b435ae28
+          test "$(sha256sum "$PYYAML_WHEEL" | cut -d' ' -f1)" = \
+            ba1cc08a7ccde2d2ec775841541641e4548226580ab850948cbfda66a1befcdc
+          python3 -m pip install --disable-pip-version-check --no-index \
+            --no-deps --target python-runtime "$NUMPY_WHEEL" "$PYYAML_WHEEL"
+          PYTHONNOUSERSITE=1 PYTHONPATH="$PWD/python-runtime" python3 -c \
+            'import numpy,yaml; assert numpy.__version__=="2.3.5"; assert yaml.__version__=="6.0.3"'
+      - name: Validate and test a clean inert source archive
+        run: |
+          set -euo pipefail
+          test "$(gcc -dumpfullversion -dumpversion)" = 13.3.0
+          test ! -e "campaign/$EXECUTION"
+          mkdir source
+          git -C campaign archive HEAD | tar -x -C source
+          test ! -e "source/$EXECUTION"
+          SOURCE_COMMIT="$(git -C campaign rev-parse HEAD)"
+          SOURCE_TREE="$(git -C campaign rev-parse 'HEAD^{tree}')"
+          RUNTIME="$GITHUB_WORKSPACE/python-runtime"
+          export PYTHONNOUSERSITE=1 PYTHONPATH="$RUNTIME"
+          cd source
+          python3 tools/belief_history_campaign.py validate-plan --root .
+          python3 tools/belief_history_campaign.py prepare-execution \
+            --root . --output "$EXECUTION" \
+            --source-parent-commit "$SOURCE_COMMIT" \
+            --source-parent-tree "$SOURCE_TREE"
+          python3 tools/belief_history_campaign.py guard-execution \
+            --root . --execution "$EXECUTION" \
+            --source-parent-commit "$SOURCE_COMMIT" \
+            --source-parent-tree "$SOURCE_TREE"
+          rm "$EXECUTION"
+          test ! -e "$EXECUTION"
+          make -j2 all CC=gcc CFLAGS="$CFLAGS_CHECK" LDFLAGS="$LDFLAGS_CHECK"
+          make test CC=gcc CFLAGS="$CFLAGS_CHECK" LDFLAGS="$LDFLAGS_CHECK"
+          # Match the strongest locked-definition convention: after the
+          # ordinary entry point, also discover every current non-recovery
+          # Python contract so newly added repository tests cannot be missed.
+          mapfile -t TEST_MODULES < <(find tests -maxdepth 1 -type f -name 'test_*.py' \
+            ! -name 'test_policy_cost_v3_recovery.py' \
+            ! -name 'test_policy_cost_v4_recovery.py' \
+            ! -name 'test_policy_cost_v5_recovery.py' \
+            ! -name 'test_policy_cost_v6_recovery.py' \
+            ! -name 'test_policy_cost_v7_recovery.py' -printf '%p\n' | sort | \
+            sed -e 's#/#.#g' -e 's#\.py$##')
+          test "${#TEST_MODULES[@]}" -gt 0
+          python3 -m unittest "${TEST_MODULES[@]}"
+          python3 - <<'PY'
+          import pathlib,re,yaml
+          paths=(
+              pathlib.Path('.github/workflows/belief-history-v1.yml'),
+              pathlib.Path('.github/workflows/belief-history-v1-definition.yml'),
+          )
+          pattern=re.compile(r"(?ms)^( +)python3 - <<'PY'\n(.*?)^\1PY$")
+          for path in paths:
+              text=path.read_text(encoding='utf-8')
+              value=yaml.safe_load(text)
+              assert isinstance(value,dict) and isinstance(value.get('jobs'),dict)
+              for index,match in enumerate(pattern.finditer(text)):
+                  indent=match.group(1)
+                  lines=match.group(2).splitlines()
+                  assert all(not line or line.startswith(indent) for line in lines)
+                  source='\n'.join(line[len(indent):] if line else '' for line in lines)+'\n'
+                  compile(source,f'{path}:heredoc-{index}','exec')
+          PY
+
+  sanitizers:
+    needs: validate-definition
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: {fetch-depth: 0, path: campaign}
+      - name: Materialize the frozen sanitizer Python runtime
+        run: |
+          set -euo pipefail
+          test "$(python3 --version 2>&1)" = "Python 3.12.3"
+          mkdir python-wheel python-runtime
+          python3 -m pip download --disable-pip-version-check --no-deps \
+            --only-binary=:all: --require-hashes --dest python-wheel \
+            -r "campaign/$DEFINITION_REQUIREMENTS"
+          python3 -m pip install --disable-pip-version-check --no-index \
+            --no-deps --target python-runtime python-wheel/*.whl
+          PYTHONNOUSERSITE=1 PYTHONPATH="$PWD/python-runtime" python3 -c \
+            'import numpy,yaml; assert numpy.__version__=="2.3.5"; assert yaml.__version__=="6.0.3"'
+      - name: Clang address and undefined-behavior sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          set -euo pipefail
+          test ! -e "campaign/$EXECUTION"
+          mkdir source
+          git -C campaign archive HEAD | tar -x -C source
+          test ! -e "source/$EXECUTION"
+          export PYTHONNOUSERSITE=1 PYTHONPATH="$GITHUB_WORKSPACE/python-runtime"
+          cd source
+          python3 tools/belief_history_campaign.py validate-plan --root .
+          make test CC=clang \
+            CFLAGS="-O1 -g -Wall -Wextra -std=c11 -fno-omit-frame-pointer -fsanitize=address,undefined" \
+            LDFLAGS="-lm -pthread -fsanitize=address,undefined"

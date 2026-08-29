@@ -916,6 +916,9 @@ default actor.
 # This mode uses the same exact-cardinality hand likelihood as deployment.
 ./bin/rl --init data/champion.bin --belief-only --bw 1 \
          --trajectory-symmetries 20 --games 1000 --rounds 3 \
+         --belief-exclusions data/experiments/policy_cost_v7_exact17_exclusions.txt \
+         --belief-exclusions-sha256 10034cf8b83aadf24fa0775e4dad2712573e1d84cbf364568ce6136682ac254c \
+         --belief-evidence data/belief-head-only.exclusions.json \
          --out data/belief-head-only.bin
 
 # Optional continuation-role PPO.  The immutable champion plays plies 0..13,
@@ -932,9 +935,11 @@ default actor.
 ```
 
 These PPO capabilities are opt-in research tools and are disabled by default.
-`--belief-only` requires positive `--bw`, cannot be combined with `--v6-only`
-or anchor-KL optimization, and applies weight decay only inside the belief
-head. Continuation mode accepts only the maintained handoff at ply 14. It uses
+`--belief-only` requires positive `--bw`, the canonical exact-17 exclusion
+manifest and digest, and a fresh no-clobber `--belief-evidence` receipt. It
+cannot be combined with `--v6-only` or anchor-KL optimization, and applies
+weight decay only inside the belief head. Continuation mode accepts only the
+maintained handoff at ply 14. It uses
 an independently loaded, required `--continuation-root` checkpoint, so resuming
 the learner cannot silently replace the frozen root actor. The root is loaded
 byte-for-byte without an implicit wager projection. Before training, canonical

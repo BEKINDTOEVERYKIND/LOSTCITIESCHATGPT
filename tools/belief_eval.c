@@ -46,6 +46,12 @@ typedef struct {
     double delta_x2[M_COUNT], delta_xw[M_COUNT];
 } ClusterStats;
 
+typedef struct {
+    long n;
+    double sum_w[M_COUNT], sum_w2[M_COUNT];
+    double difference_x2[M_COUNT], difference_xw[M_COUNT];
+} PairedClusterStats;
+
 static uint64_t mix64(uint64_t x)
 {
     x += UINT64_C(0x9E3779B97F4A7C15);
@@ -120,13 +126,15 @@ static void usage(const char *argv0)
             "[--seed N]\n"
             "          [--actor-net PATH]\n"
             "          [--symmetries 1|5|10|20|120] [--alpha 0..5]\n"
+            "          [--baseline-net PATH] [--baseline-alpha 0..5]\n"
             "          [--min-ply N] [--max-ply N] [--json]\n"
             "\n"
             "Defaults: evaluate data/champion.bin under a frozen "
             "data/champion.bin actor,\n"
             "20 three-round matches, seed "
             "%llu,\n"
-            "20-way exact symmetry, alpha 1.15, and post-opening states.\n",
+            "20-way exact symmetry, alpha 1.15, and post-opening states.\n"
+            "When --baseline-net is present, its alpha defaults to --alpha.\n",
             argv0, (unsigned long long)DEFAULT_SEED);
 }
 
@@ -244,6 +252,64 @@ static double cluster_se(const ClusterStats *s, int metric, double estimate,
     return sqrt(correction * residual) / s->sum_w[metric];
 }
 
+/* Accumulate candidate-minus-baseline totals from the same complete match.
+ * Identical frozen states imply identical metric denominators.  Keeping the
+ * within-match covariance through the raw difference is the point of this
+ * paired estimator; two independent standard errors would not describe the
+ * requested comparison. */
+static int paired_cluster_add(PairedClusterStats *s,
+                              const Metrics *candidate,
+                              const Metrics *baseline)
+{
+    double candidate_exact[M_COUNT], candidate_prior[M_COUNT];
+    double baseline_exact[M_COUNT], baseline_prior[M_COUNT];
+    double candidate_denom[M_COUNT], baseline_denom[M_COUNT];
+    int candidate_valid = metric_components(
+        candidate, candidate_exact, candidate_prior, candidate_denom);
+    int baseline_valid = metric_components(
+        baseline, baseline_exact, baseline_prior, baseline_denom);
+    if (!candidate_valid || !baseline_valid)
+        return candidate_valid == baseline_valid;
+    for (int i = 0; i < M_COUNT; i++)
+        if (candidate_denom[i] != baseline_denom[i]) return 0;
+
+    s->n++;
+    for (int i = 0; i < M_COUNT; i++) {
+        double difference = candidate_exact[i] - baseline_exact[i];
+        double w = candidate_denom[i];
+        s->sum_w[i] += w;
+        s->sum_w2[i] += w * w;
+        s->difference_x2[i] += difference * difference;
+        s->difference_xw[i] += difference * w;
+    }
+    return 1;
+}
+
+static double paired_cluster_se(const PairedClusterStats *s, int metric,
+                                double estimate)
+{
+    if (s->n <= 1 || !(s->sum_w[metric] > 0.0)) return 0.0;
+    double residual = s->difference_x2[metric]
+                    - 2.0 * estimate * s->difference_xw[metric]
+                    + estimate * estimate * s->sum_w2[metric];
+    if (residual < 0.0 && residual > -1e-10) residual = 0.0;
+    if (residual < 0.0) return 0.0;
+    double correction = (double)s->n / (double)(s->n - 1);
+    return sqrt(correction * residual) / s->sum_w[metric];
+}
+
+static int metrics_share_sample(const Metrics *a, const Metrics *b)
+{
+    return a->states == b->states && a->cards == b->cards &&
+           a->positives == b->positives &&
+           a->ranking_states == b->ranking_states &&
+           a->ranking_positives == b->ranking_positives &&
+           a->prior_nll == b->prior_nll &&
+           a->prior_brier == b->prior_brier &&
+           a->auc_pairs == b->auc_pairs &&
+           a->prior_top_hits == b->prior_top_hits;
+}
+
 /* Expected hits when exactly K highest scores are selected, splitting a
  * boundary tie uniformly.  This makes the all-equal card-count prior's
  * top-K recall exactly K/N instead of depending on card-id ordering. */
@@ -351,16 +417,19 @@ int main(int argc, char **argv)
 {
     const char *net_path = "data/champion.bin";
     const char *actor_path = "data/champion.bin";
+    const char *baseline_path = NULL;
     long games = 20, rounds = MATCH_ROUNDS;
     long symmetries = 20, min_ply = 1, max_ply = 0;
     uint64_t seed = DEFAULT_SEED;
-    float alpha = 1.15f;
-    int json = 0;
+    float alpha = 1.15f, baseline_alpha = 0.0f;
+    int baseline_alpha_set = 0, json = 0;
 
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--net") && i + 1 < argc) net_path = argv[++i];
         else if (!strcmp(argv[i], "--actor-net") && i + 1 < argc)
             actor_path = argv[++i];
+        else if (!strcmp(argv[i], "--baseline-net") && i + 1 < argc)
+            baseline_path = argv[++i];
         else if (!strcmp(argv[i], "--games") && i + 1 < argc) {
             if (!parse_long(argv[++i], 1, 1000000, &games)) goto bad_option;
         } else if (!strcmp(argv[i], "--rounds") && i + 1 < argc) {
@@ -373,6 +442,9 @@ int main(int argc, char **argv)
                 goto bad_option;
         } else if (!strcmp(argv[i], "--alpha") && i + 1 < argc) {
             if (!parse_alpha(argv[++i], &alpha)) goto bad_option;
+        } else if (!strcmp(argv[i], "--baseline-alpha") && i + 1 < argc) {
+            if (!parse_alpha(argv[++i], &baseline_alpha)) goto bad_option;
+            baseline_alpha_set = 1;
         } else if (!strcmp(argv[i], "--min-ply") && i + 1 < argc) {
             if (!parse_long(argv[++i], 0, LC_MAX_PLIES, &min_ply))
                 goto bad_option;
@@ -384,13 +456,18 @@ int main(int argc, char **argv)
         else goto bad_option;
     }
     if (max_ply > 0 && max_ply < min_ply) goto bad_option;
+    if (baseline_alpha_set && !baseline_path) goto bad_option;
+    if (baseline_path && !baseline_alpha_set) baseline_alpha = alpha;
 
     Net *net = (Net *)malloc(sizeof *net);
     Net *actor_net = (Net *)malloc(sizeof *actor_net);
+    Net *baseline_net = baseline_path ? (Net *)malloc(sizeof *baseline_net)
+                                      : NULL;
     if (!net || net_load(net, net_path) != 0) {
         fprintf(stderr, "belief_eval: cannot load %s\n", net_path);
         free(net);
         free(actor_net);
+        free(baseline_net);
         return 1;
     }
     if (!actor_net || net_load(actor_net, actor_path) != 0) {
@@ -398,16 +475,32 @@ int main(int argc, char **argv)
                 actor_path);
         free(net);
         free(actor_net);
+        free(baseline_net);
+        return 1;
+    }
+    if (baseline_path &&
+        (!baseline_net || net_load(baseline_net, baseline_path) != 0)) {
+        fprintf(stderr, "belief_eval: cannot load baseline %s\n",
+                baseline_path);
+        free(net);
+        free(actor_net);
+        free(baseline_net);
         return 1;
     }
     uint64_t fingerprint = model_fingerprint(net);
     uint64_t actor_fingerprint = model_fingerprint(actor_net);
+    uint64_t baseline_fingerprint = baseline_net
+                                  ? model_fingerprint(baseline_net) : 0;
     Metrics metric = { 0 };
+    Metrics baseline_metric = { 0 };
     ClusterStats clusters = { 0 };
+    ClusterStats baseline_clusters = { 0 };
+    PairedClusterStats paired_clusters = { 0 };
     long completed_rounds = 0;
 
     for (long g = 0; g < games; g++) {
         Metrics match_metric = { 0 };
+        Metrics match_baseline_metric = { 0 };
         int cum[2] = { 0, 0 };
         for (long r = 0; r < rounds; r++) {
             uint64_t deal_seed = mix64(seed
@@ -432,6 +525,21 @@ int main(int argc, char **argv)
                             "round %ld ply %u\n", g, r, st.nply);
                     free(net);
                     free(actor_net);
+                    free(baseline_net);
+                    return 1;
+                }
+                if (baseline_net && st.nply >= min_ply &&
+                    (max_ply == 0 || st.nply <= max_ply) &&
+                    !score_state(baseline_net, &st, (int)symmetries,
+                                 baseline_alpha,
+                                 &match_baseline_metric)) {
+                    fprintf(stderr,
+                            "belief_eval: invalid baseline belief state in "
+                            "match %ld round %ld ply %u\n",
+                            g, r, st.nply);
+                    free(net);
+                    free(actor_net);
+                    free(baseline_net);
                     return 1;
                 }
                 Move chosen;
@@ -442,6 +550,7 @@ int main(int argc, char **argv)
                             "round %ld ply %u\n", g, r, st.nply);
                     free(net);
                     free(actor_net);
+                    free(baseline_net);
                     return 1;
                 }
                 lc_apply(&st, chosen);
@@ -452,6 +561,22 @@ int main(int argc, char **argv)
         }
         metrics_add(&metric, &match_metric);
         cluster_add(&clusters, &match_metric);
+        if (baseline_net) {
+            if (!metrics_share_sample(&match_metric,
+                                      &match_baseline_metric) ||
+                !paired_cluster_add(&paired_clusters, &match_metric,
+                                    &match_baseline_metric)) {
+                fprintf(stderr,
+                        "belief_eval: candidate/baseline sample mismatch in "
+                        "match %ld\n", g);
+                free(net);
+                free(actor_net);
+                free(baseline_net);
+                return 1;
+            }
+            metrics_add(&baseline_metric, &match_baseline_metric);
+            cluster_add(&baseline_clusters, &match_baseline_metric);
+        }
     }
 
     if (metric.states == 0 || metric.cards == 0 ||
@@ -460,19 +585,39 @@ int main(int argc, char **argv)
                         "rankable states\n");
         free(net);
         free(actor_net);
+        free(baseline_net);
         return 1;
     }
 
-    double exact[M_COUNT], prior[M_COUNT];
+    double exact[M_COUNT], prior[M_COUNT], baseline_exact[M_COUNT];
+    double baseline_prior[M_COUNT], difference[M_COUNT];
     if (!metric_values(&metric, exact, prior)) {
         fprintf(stderr, "belief_eval: internal metric aggregation failed\n");
         free(net);
         free(actor_net);
+        free(baseline_net);
         return 1;
+    }
+    if (baseline_net) {
+        if (!metrics_share_sample(&metric, &baseline_metric) ||
+            !metric_values(&baseline_metric, baseline_exact,
+                           baseline_prior) ||
+            baseline_clusters.n != clusters.n ||
+            paired_clusters.n != clusters.n) {
+            fprintf(stderr,
+                    "belief_eval: internal baseline aggregation failed\n");
+            free(net);
+            free(actor_net);
+            free(baseline_net);
+            return 1;
+        }
+        for (int i = 0; i < M_COUNT; i++)
+            difference[i] = exact[i] - baseline_exact[i];
     }
 
     if (json) {
-        printf("{\"schema\":\"lc-belief-eval-v1\",\"model\":");
+        printf("{\"schema\":\"lc-belief-eval-v%d\",\"model\":",
+               baseline_net ? 2 : 1);
         json_string(net_path);
         printf(",\"model_fingerprint\":\"%016llx\","
                "\"seed\":%llu,\"matches\":%ld,\"rounds_per_match\":%ld,"
@@ -504,7 +649,7 @@ int main(int argc, char **argv)
                "\"exact_minus_uniform\":{\"nll_per_state\":%.12g,"
                "\"nll_per_uncertain_card\":%.12g,\"brier\":%.12g,"
                "\"auc_within_state\":%.12g,"
-               "\"auc_pair_weighted\":%.12g,\"top_k_recall\":%.12g}}}\n",
+               "\"auc_pair_weighted\":%.12g,\"top_k_recall\":%.12g}",
                (unsigned long long)actor_fingerprint,
                metric.states, metric.ranking_states, metric.cards,
                metric.positives, clusters.n,
@@ -535,6 +680,97 @@ int main(int argc, char **argv)
                           exact[M_AUC_WEIGHTED] - prior[M_AUC_WEIGHTED], 1),
                cluster_se(&clusters, M_TOP_RECALL,
                           exact[M_TOP_RECALL] - prior[M_TOP_RECALL], 1));
+        if (baseline_net) {
+            printf(",\"baseline_exact_k\":{"
+                   "\"nll_per_state\":%.12g,"
+                   "\"nll_per_uncertain_card\":%.12g,"
+                   "\"brier\":%.12g,\"auc_within_state\":%.12g,"
+                   "\"auc_pair_weighted\":%.12g,"
+                   "\"top_k_recall\":%.12g},"
+                   "\"baseline_minus_uniform\":{"
+                   "\"nll_per_state\":%.12g,"
+                   "\"nll_per_uncertain_card\":%.12g,"
+                   "\"brier\":%.12g,\"auc_within_state\":%.12g,"
+                   "\"auc_pair_weighted\":%.12g,"
+                   "\"top_k_recall\":%.12g},"
+                   "\"candidate_minus_baseline\":{"
+                   "\"nll_per_state\":%.12g,"
+                   "\"nll_per_uncertain_card\":%.12g,"
+                   "\"brier\":%.12g,\"auc_within_state\":%.12g,"
+                   "\"auc_pair_weighted\":%.12g,"
+                   "\"top_k_recall\":%.12g}",
+                   cluster_se(&baseline_clusters, M_NLL_STATE,
+                              baseline_exact[M_NLL_STATE], 0),
+                   cluster_se(&baseline_clusters, M_NLL_CARD,
+                              baseline_exact[M_NLL_CARD], 0),
+                   cluster_se(&baseline_clusters, M_BRIER,
+                              baseline_exact[M_BRIER], 0),
+                   cluster_se(&baseline_clusters, M_AUC_STATE,
+                              baseline_exact[M_AUC_STATE], 0),
+                   cluster_se(&baseline_clusters, M_AUC_WEIGHTED,
+                              baseline_exact[M_AUC_WEIGHTED], 0),
+                   cluster_se(&baseline_clusters, M_TOP_RECALL,
+                              baseline_exact[M_TOP_RECALL], 0),
+                   cluster_se(&baseline_clusters, M_NLL_STATE,
+                              baseline_exact[M_NLL_STATE] -
+                                  baseline_prior[M_NLL_STATE], 1),
+                   cluster_se(&baseline_clusters, M_NLL_CARD,
+                              baseline_exact[M_NLL_CARD] -
+                                  baseline_prior[M_NLL_CARD], 1),
+                   cluster_se(&baseline_clusters, M_BRIER,
+                              baseline_exact[M_BRIER] -
+                                  baseline_prior[M_BRIER], 1),
+                   cluster_se(&baseline_clusters, M_AUC_STATE,
+                              baseline_exact[M_AUC_STATE] -
+                                  baseline_prior[M_AUC_STATE], 1),
+                   cluster_se(&baseline_clusters, M_AUC_WEIGHTED,
+                              baseline_exact[M_AUC_WEIGHTED] -
+                                  baseline_prior[M_AUC_WEIGHTED], 1),
+                   cluster_se(&baseline_clusters, M_TOP_RECALL,
+                              baseline_exact[M_TOP_RECALL] -
+                                  baseline_prior[M_TOP_RECALL], 1),
+                   paired_cluster_se(&paired_clusters, M_NLL_STATE,
+                                     difference[M_NLL_STATE]),
+                   paired_cluster_se(&paired_clusters, M_NLL_CARD,
+                                     difference[M_NLL_CARD]),
+                   paired_cluster_se(&paired_clusters, M_BRIER,
+                                     difference[M_BRIER]),
+                   paired_cluster_se(&paired_clusters, M_AUC_STATE,
+                                     difference[M_AUC_STATE]),
+                   paired_cluster_se(&paired_clusters, M_AUC_WEIGHTED,
+                                     difference[M_AUC_WEIGHTED]),
+                   paired_cluster_se(&paired_clusters, M_TOP_RECALL,
+                                     difference[M_TOP_RECALL]));
+        }
+        putchar('}');
+        if (baseline_net) {
+            printf(",\"baseline\":{\"model\":");
+            json_string(baseline_path);
+            printf(",\"model_fingerprint\":\"%016llx\","
+                   "\"alpha\":%.9g,\"exact_k\":{"
+                   "\"nll_per_state\":%.12g,"
+                   "\"nll_per_uncertain_card\":%.12g,"
+                   "\"brier\":%.12g,\"auc_within_state\":%.12g,"
+                   "\"auc_pair_weighted\":%.12g,"
+                   "\"top_k_recall\":%.12g}},"
+                   "\"candidate_minus_baseline\":{"
+                   "\"nll_per_state\":%.12g,"
+                   "\"nll_per_uncertain_card\":%.12g,"
+                   "\"brier\":%.12g,\"auc_within_state\":%.12g,"
+                   "\"auc_pair_weighted\":%.12g,"
+                   "\"top_k_recall\":%.12g}",
+                   (unsigned long long)baseline_fingerprint,
+                   baseline_alpha,
+                   baseline_exact[M_NLL_STATE],
+                   baseline_exact[M_NLL_CARD],
+                   baseline_exact[M_BRIER], baseline_exact[M_AUC_STATE],
+                   baseline_exact[M_AUC_WEIGHTED],
+                   baseline_exact[M_TOP_RECALL],
+                   difference[M_NLL_STATE], difference[M_NLL_CARD],
+                   difference[M_BRIER], difference[M_AUC_STATE],
+                   difference[M_AUC_WEIGHTED], difference[M_TOP_RECALL]);
+        }
+        printf("}\n");
     } else {
         printf("Exact-K held-out belief evaluation\n");
         printf("  model %s  fingerprint %016llx\n", net_path,
@@ -570,9 +806,41 @@ int main(int argc, char **argv)
                           exact[M_AUC_STATE], 0),
                cluster_se(&clusters, M_TOP_RECALL,
                           exact[M_TOP_RECALL], 0));
+        if (baseline_net) {
+            printf("\n  baseline model %s  fingerprint %016llx\n",
+                   baseline_path,
+                   (unsigned long long)baseline_fingerprint);
+            printf("  baseline alpha %.3f\n", baseline_alpha);
+            printf("\n"
+                   "                         baseline       candidate-baseline\n"
+                   "  joint NLL / state     %10.6f    %+10.6f\n"
+                   "  joint NLL / card      %10.6f    %+10.6f\n"
+                   "  Brier / card          %10.6f    %+10.6f\n"
+                   "  within-state AUC      %10.6f    %+10.6f\n"
+                   "  pair-weighted AUC     %10.6f    %+10.6f\n"
+                   "  tie-correct top-K     %10.6f    %+10.6f\n"
+                   "\n  paired match-clustered SE: NLL/state %.6f, "
+                   "Brier %.6f, AUC %.6f, top-K %.6f\n",
+                   baseline_exact[M_NLL_STATE], difference[M_NLL_STATE],
+                   baseline_exact[M_NLL_CARD], difference[M_NLL_CARD],
+                   baseline_exact[M_BRIER], difference[M_BRIER],
+                   baseline_exact[M_AUC_STATE], difference[M_AUC_STATE],
+                   baseline_exact[M_AUC_WEIGHTED],
+                   difference[M_AUC_WEIGHTED],
+                   baseline_exact[M_TOP_RECALL], difference[M_TOP_RECALL],
+                   paired_cluster_se(&paired_clusters, M_NLL_STATE,
+                                     difference[M_NLL_STATE]),
+                   paired_cluster_se(&paired_clusters, M_BRIER,
+                                     difference[M_BRIER]),
+                   paired_cluster_se(&paired_clusters, M_AUC_STATE,
+                                     difference[M_AUC_STATE]),
+                   paired_cluster_se(&paired_clusters, M_TOP_RECALL,
+                                     difference[M_TOP_RECALL]));
+        }
     }
     free(net);
     free(actor_net);
+    free(baseline_net);
     return 0;
 
 bad_option:

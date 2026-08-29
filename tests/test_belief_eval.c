@@ -104,6 +104,28 @@ int main(void)
     CHECK(fabs(uniform_nll_b - expected) < 1e-10,
           "uniform NLL depends on hidden subset");
 
+    /* A loaded checkpoint at alpha zero is the evaluator's explicit uniform
+     * baseline mode.  It must be exactly the same fixed-cardinality posterior
+     * as passing no belief model, regardless of the checkpoint's logits. */
+    BeliefDist zero_alpha;
+    CHECK(belief_dist_init(net, &view_a, p, 20, 0.0f, &zero_alpha),
+          "zero-alpha exact-K baseline");
+    CHECK(zero_alpha.n == uniform.n && zero_alpha.need == uniform.need,
+          "zero-alpha baseline changed exact-K dimensions");
+    for (int i = 0; i < uniform.n; i++) {
+        CHECK(zero_alpha.card[i] == uniform.card[i],
+              "zero-alpha baseline changed candidate %d", i);
+        CHECK(zero_alpha.marginal[i] == uniform.marginal[i],
+              "zero-alpha marginal differs from uniform at %d", i);
+    }
+    double zero_alpha_nll = 0.0;
+    CHECK(belief_dist_true_nll(&zero_alpha, truth.hand[o],
+                               &zero_alpha_nll),
+          "score truth under zero-alpha baseline");
+    CHECK(fabs(zero_alpha_nll - expected) < 1e-10,
+          "zero-alpha joint NLL %.12f != uniform %.12f",
+          zero_alpha_nll, expected);
+
     free(net);
     if (failures) {
         printf("%d belief evaluation regression(s) failed\n", failures);

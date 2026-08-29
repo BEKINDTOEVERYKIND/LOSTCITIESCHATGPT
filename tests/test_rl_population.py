@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import os
 import shutil
@@ -549,9 +550,17 @@ class PopulationTrainingTest(unittest.TestCase):
 
     def test_belief_only_freezes_every_other_model_byte(self) -> None:
         source = ROOT / "data" / "champion.bin"
+        manifest = (
+            ROOT / "data" / "experiments" /
+            "policy_cost_v7_exact17_exclusions.txt"
+        )
+        manifest_sha256 = (
+            "10034cf8b83aadf24fa0775e4dad2712573e1d84cbf364568ce6136682ac254c"
+        )
         with tempfile.TemporaryDirectory(prefix="lc-rl-belief-only-") as tmp:
             asymmetric = Path(tmp) / "asymmetric.bin"
             candidate = Path(tmp) / "candidate.bin"
+            evidence = Path(tmp) / "candidate.exclusions.json"
             asymmetric_bytes = bytearray(source.read_bytes())
             # Deliberately break a non-belief wager-row symmetry.  Belief-only
             # setup must not silently project this trunk byte before training.
@@ -564,6 +573,9 @@ class PopulationTrainingTest(unittest.TestCase):
                     "--init", str(asymmetric),
                     "--out", str(candidate),
                     "--belief-only",
+                    "--belief-exclusions", str(manifest),
+                    "--belief-exclusions-sha256", manifest_sha256,
+                    "--belief-evidence", str(evidence),
                     "--trajectory-symmetries", "20",
                     "--iters", "1",
                     "--games", "2",
@@ -585,6 +597,17 @@ class PopulationTrainingTest(unittest.TestCase):
                 run.stdout,
                 r"belief-head-only updates .*exact-K nll/card [0-9.]+",
             )
+            receipt = json.loads(evidence.read_text())
+            self.assertEqual(receipt["schema"],
+                             "lc-rl-belief-exclusions-v1")
+            self.assertTrue(receipt["belief_only"])
+            self.assertTrue(receipt["exclusion_enabled"])
+            self.assertEqual(receipt["exclusion_manifest_count"], 17)
+            self.assertEqual(receipt["exclusion_manifest_sha256"],
+                             manifest_sha256)
+            self.assertGreater(receipt["checked_state_count"], 0)
+            self.assertGreaterEqual(receipt["excluded_state_count"], 0)
+            self.assertFalse(receipt["playing_actor_changed"])
 
             before = asymmetric.read_bytes()
             after = candidate.read_bytes()
@@ -601,6 +624,115 @@ class PopulationTrainingTest(unittest.TestCase):
             self.assertNotEqual(before[belief_start:belief_end],
                                 after[belief_start:belief_end])
             self.assertEqual(before[belief_end:], after[belief_end:])
+
+            # The receipt is one-shot.  A different otherwise-fresh model
+            # output cannot reuse or overwrite it.
+            second_candidate = Path(tmp) / "second.bin"
+            repeated = [
+                str(ROOT / "bin" / "rl"),
+                "--init", str(asymmetric),
+                "--out", str(second_candidate),
+                "--belief-only",
+                "--belief-exclusions", str(manifest),
+                "--belief-exclusions-sha256", manifest_sha256,
+                "--belief-evidence", str(evidence),
+                "--iters", "0",
+                "--bw", "1",
+                "--eval", "0",
+            ]
+            no_clobber = subprocess.run(
+                repeated, cwd=ROOT, text=True, capture_output=True
+            )
+            self.assertNotEqual(no_clobber.returncode, 0)
+            self.assertIn("belief-only evidence already exists",
+                          no_clobber.stderr)
+            self.assertFalse(second_candidate.exists())
+
+    def test_belief_only_manifest_fails_closed_before_artifacts(self) -> None:
+        source = ROOT / "data" / "champion.bin"
+        manifest = (
+            ROOT / "data" / "experiments" /
+            "policy_cost_v7_exact17_exclusions.txt"
+        )
+        canonical_sha = (
+            "10034cf8b83aadf24fa0775e4dad2712573e1d84cbf364568ce6136682ac254c"
+        )
+        with tempfile.TemporaryDirectory(prefix="lc-rl-belief-bind-") as tmp:
+            directory = Path(tmp)
+
+            cases = [
+                (
+                    ["--belief-evidence", str(directory / "missing.json")],
+                    "--belief-only requires --belief-exclusions PATH",
+                ),
+                (
+                    [
+                        "--belief-exclusions", str(manifest),
+                        "--belief-exclusions-sha256", "0" * 64,
+                        "--belief-evidence", str(directory / "wrong.json"),
+                    ],
+                    "requires the canonical exact-17 manifest SHA-256",
+                ),
+            ]
+            for index, (extra, error) in enumerate(cases):
+                with self.subTest(error=error):
+                    output = directory / f"candidate-{index}.bin"
+                    run = subprocess.run(
+                        [
+                            str(ROOT / "bin" / "rl"),
+                            "--init", str(source),
+                            "--out", str(output),
+                            "--belief-only", "--bw", "1",
+                            "--iters", "0", "--eval", "0",
+                            *extra,
+                        ],
+                        cwd=ROOT,
+                        text=True,
+                        capture_output=True,
+                    )
+                    self.assertNotEqual(run.returncode, 0)
+                    self.assertIn(error, run.stderr)
+                    self.assertFalse(output.exists())
+
+            altered = directory / "altered.txt"
+            altered.write_bytes(manifest.read_bytes() + b"\n")
+            output = directory / "altered-candidate.bin"
+            evidence = directory / "altered-evidence.json"
+            run = subprocess.run(
+                [
+                    str(ROOT / "bin" / "rl"),
+                    "--init", str(source),
+                    "--out", str(output),
+                    "--belief-only", "--bw", "1",
+                    "--belief-exclusions", str(altered),
+                    "--belief-exclusions-sha256", canonical_sha,
+                    "--belief-evidence", str(evidence),
+                    "--iters", "0", "--eval", "0",
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
+            self.assertNotEqual(run.returncode, 0)
+            self.assertIn("exclusion binding failed", run.stderr)
+            self.assertFalse(output.exists())
+            self.assertFalse(evidence.exists())
+
+            forbidden = subprocess.run(
+                [
+                    str(ROOT / "bin" / "rl"),
+                    "--init", str(source),
+                    "--belief-exclusions", str(manifest),
+                    "--belief-exclusions-sha256", canonical_sha,
+                    "--belief-evidence", str(directory / "forbidden.json"),
+                    "--iters", "0", "--eval", "0",
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
+            self.assertNotEqual(forbidden.returncode, 0)
+            self.assertIn("require --belief-only", forbidden.stderr)
 
     def test_new_mode_validation(self) -> None:
         source = ROOT / "data" / "champion.bin"

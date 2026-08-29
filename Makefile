@@ -26,7 +26,10 @@ all: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_role_coherence \
 	$(BIN)/train_advantage_veto $(BIN)/symmetrize \
 	$(BIN)/net_average \
 	$(BIN)/history_belief $(BIN)/planprobe $(BIN)/planarena \
-	$(BIN)/belief_eval $(BIN)/test_belief_eval $(BIN)/continuation_arena \
+	$(BIN)/belief_eval $(BIN)/test_belief_eval \
+	$(BIN)/history_belief_train $(BIN)/test_history_belief_model \
+	$(BIN)/test_history_belief_exclusion \
+	$(BIN)/continuation_arena \
 	$(BIN)/build_match_value $(BIN)/build_policy_cost \
 	$(DATA)/champion.bin
 
@@ -64,7 +67,8 @@ $(BIN)/test_late_resolver: tests/test_late_resolver.c $(CORE) $(HDRS) \
 
 # White-box continuation-PPO tests include rl.c so they can verify the exact
 # conditional support and per-logit gradients without widening the trainer ABI.
-$(BIN)/test_rl_support: tests/test_rl_support.c tools/rl.c $(CORE) $(HDRS) | $(BIN)
+$(BIN)/test_rl_support: tests/test_rl_support.c tools/rl.c \
+	$(SRC)/history_belief_exclusion.c $(CORE) $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ \
 		$(filter-out tools/rl.c,$(filter %.c,$^)) $(LDFLAGS)
 
@@ -108,6 +112,8 @@ test: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_role_coherence \
 	$(BIN)/test_action_ranker $(BIN)/test_action_advantage \
 	$(BIN)/test_continuation_arena_support $(BIN)/test_match_value \
 	$(BIN)/test_policy_cost $(BIN)/test_belief_eval \
+	$(BIN)/test_history_belief_model $(BIN)/test_history_belief_exclusion \
+	$(BIN)/history_belief_train \
 	$(BIN)/belief_eval $(BIN)/rl $(BIN)/arena $(BIN)/qpair \
 	$(BIN)/commented_ply_eval \
 	$(BIN)/continuation_arena \
@@ -127,8 +133,13 @@ test: $(BIN)/test_engine $(BIN)/test_runtime $(BIN)/test_role_coherence \
 	./$(BIN)/test_match_value
 	./$(BIN)/test_policy_cost
 	./$(BIN)/test_belief_eval
+	./$(BIN)/test_history_belief_model
+	./$(BIN)/test_history_belief_exclusion
 	python3 -m unittest tests/test_rl_population.py
 	python3 -m unittest tests/test_belief_eval.py
+	python3 -m unittest tests.test_history_belief_train \
+		tests.test_belief_history_campaign \
+		tests.test_belief_history_reduce
 	python3 -m unittest tests/test_make_showcase.py
 	python3 -m unittest tests/test_merge_arena.py
 	python3 -m unittest tests/test_actor_panel.py
@@ -181,9 +192,14 @@ action-core-campaign-test:
 	python3 -m unittest tests/test_action_core_campaign.py
 
 belief-eval-test: $(BIN)/belief_eval $(BIN)/test_belief_eval \
+	$(BIN)/test_history_belief_model $(BIN)/test_history_belief_exclusion \
+	$(BIN)/history_belief_train \
 	$(DATA)/champion.bin
 	./$(BIN)/test_belief_eval
-	python3 -m unittest tests/test_belief_eval.py
+	./$(BIN)/test_history_belief_model
+	./$(BIN)/test_history_belief_exclusion
+	python3 -m unittest tests/test_belief_eval.py \
+		tests/test_history_belief_train.py
 
 clean:
 	rm -rf $(BIN)
@@ -196,7 +212,7 @@ clean:
 $(BIN)/probe: tools/probe.c $(CORE) $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
 
-$(BIN)/rl: tools/rl.c $(CORE) $(HDRS) | $(BIN)
+$(BIN)/rl: tools/rl.c $(SRC)/history_belief_exclusion.c $(CORE) $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
 
 $(BIN)/ladder: tools/ladder.c $(CORE) $(HDRS) | $(BIN)
@@ -254,6 +270,23 @@ $(BIN)/belief_eval: tools/belief_eval.c $(CORE) $(HDRS) | $(BIN)
 
 $(BIN)/test_belief_eval: tests/test_belief_eval.c $(CORE) $(HDRS) | $(BIN)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^) $(LDFLAGS)
+
+$(BIN)/history_belief_train: tools/history_belief_train.c \
+	$(SRC)/history_belief_model.c $(SRC)/history_belief_exclusion.c \
+	$(CORE) $(HDRS) | $(BIN)
+	$(CC) $(CFLAGS) -fno-fast-math -ffp-contract=off \
+		-o $@ $(filter %.c,$^) $(LDFLAGS)
+
+$(BIN)/test_history_belief_model: tests/test_history_belief_model.c \
+	$(SRC)/history_belief_model.c $(CORE) $(HDRS) | $(BIN)
+	$(CC) $(CFLAGS) -fno-fast-math -ffp-contract=off \
+		-o $@ $(filter %.c,$^) $(LDFLAGS)
+
+$(BIN)/test_history_belief_exclusion: \
+	tests/test_history_belief_exclusion.c \
+	$(SRC)/history_belief_exclusion.c $(CORE) $(HDRS) | $(BIN)
+	$(CC) $(CFLAGS) -fno-fast-math -ffp-contract=off \
+		-o $@ $(filter %.c,$^) $(LDFLAGS)
 
 $(BIN)/symmetrize: tools/symmetrize.c $(SRC)/net.c $(SRC)/features.c \
 	$(SRC)/lc.c $(HDRS) | $(BIN)
