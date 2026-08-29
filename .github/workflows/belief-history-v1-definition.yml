@@ -141,16 +141,18 @@ jobs:
             --no-deps --target python-runtime "$NUMPY_WHEEL" "$PYYAML_WHEEL"
           PYTHONNOUSERSITE=1 PYTHONPATH="$PWD/python-runtime" python3 -c \
             'import numpy,yaml; assert numpy.__version__=="2.3.5"; assert yaml.__version__=="6.0.3"'
-      - name: Validate and test a clean inert source archive
+      - name: Validate and test a clean inert tracked worktree
         run: |
           set -euo pipefail
           test "$(gcc -dumpfullversion -dumpversion)" = 13.3.0
           test ! -e "campaign/$EXECUTION"
-          mkdir source
-          git -C campaign archive HEAD | tar -x -C source
-          test ! -e "source/$EXECUTION"
           SOURCE_COMMIT="$(git -C campaign rev-parse HEAD)"
           SOURCE_TREE="$(git -C campaign rev-parse 'HEAD^{tree}')"
+          git -C campaign worktree add --detach ../source "$SOURCE_COMMIT"
+          test "$(git -C source rev-parse HEAD)" = "$SOURCE_COMMIT"
+          test "$(git -C source rev-parse 'HEAD^{tree}')" = "$SOURCE_TREE"
+          test -z "$(git -C source status --porcelain)"
+          test ! -e "source/$EXECUTION"
           RUNTIME="$GITHUB_WORKSPACE/python-runtime"
           export PYTHONNOUSERSITE=1 PYTHONPATH="$RUNTIME"
           cd source
@@ -224,8 +226,12 @@ jobs:
         run: |
           set -euo pipefail
           test ! -e "campaign/$EXECUTION"
-          mkdir source
-          git -C campaign archive HEAD | tar -x -C source
+          SOURCE_COMMIT="$(git -C campaign rev-parse HEAD)"
+          SOURCE_TREE="$(git -C campaign rev-parse 'HEAD^{tree}')"
+          git -C campaign worktree add --detach ../source "$SOURCE_COMMIT"
+          test "$(git -C source rev-parse HEAD)" = "$SOURCE_COMMIT"
+          test "$(git -C source rev-parse 'HEAD^{tree}')" = "$SOURCE_TREE"
+          test -z "$(git -C source status --porcelain)"
           test ! -e "source/$EXECUTION"
           export PYTHONNOUSERSITE=1 PYTHONPATH="$GITHUB_WORKSPACE/python-runtime"
           cd source

@@ -423,7 +423,18 @@ class BeliefHistoryCampaignTests(unittest.TestCase):
         paths = re.findall(r"(?m)^      - (.+)$", push)
         self.assertEqual(len(paths), len(set(paths)))
         self.assertEqual(set(paths), expected_paths)
-        self.assertIn("git -C campaign archive HEAD | tar -x -C source", text)
+        self.assertEqual(
+            text.count(
+                "git -C campaign worktree add --detach ../source "
+                '"$SOURCE_COMMIT"'
+            ),
+            2,
+        )
+        self.assertEqual(
+            text.count('test -z "$(git -C source status --porcelain)"'),
+            2,
+        )
+        self.assertNotIn("git -C campaign archive HEAD", text)
         self.assertGreaterEqual(text.count(f'test ! -e "campaign/$EXECUTION"'), 2)
         self.assertIn("belief_history_campaign.py validate-plan", text)
         self.assertIn("belief_history_campaign.py prepare-execution", text)

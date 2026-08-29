@@ -122,10 +122,10 @@ positions; that audit can never train, tune, select, or promote this model.
 
 The definition is inert because
 `data/experiments/locked_belief_history_v1_execution.json` is absent.  The
-separate `belief-history-v1-definition.yml` workflow validates a clean git
-archive of the inert parent with the complete GCC test suite and Clang
+separate `belief-history-v1-definition.yml` workflow validates a clean,
+detached tracked worktree of the inert parent with the complete GCC test suite and Clang
 ASAN/UBSAN before launch preparation. It also exercises `prepare-execution`
-and `guard-execution` against that archive, then removes the temporary binding.
+and `guard-execution` against that worktree, then removes the temporary binding.
 Both workflows are push-only. The definition workflow watches the exact inert
 source/plan inventory only on `agent/correctness-and-policy-upgrade`; it has no
 pull-request trigger because a cumulative PR diff would also match after the
