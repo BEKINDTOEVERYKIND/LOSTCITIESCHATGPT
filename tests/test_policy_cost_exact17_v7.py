@@ -106,6 +106,17 @@ class PolicyCostExact17V4Tests(unittest.TestCase):
             hashlib.sha256(exact17._canonical(digest_payload)).hexdigest(),
         )
 
+    def test_checked_in_pair_is_exactly_regenerated(self) -> None:
+        text, evidence = exact17.build_outputs(ROOT, self.binary)
+        checked_text = (
+            ROOT / "data/experiments/policy_cost_v7_exact17_exclusions.txt"
+        )
+        checked_json = (
+            ROOT / "data/experiments/policy_cost_v7_exact17_exclusions.json"
+        )
+        self.assertEqual(checked_text.read_bytes(), text)
+        self.assertEqual(checked_json.read_bytes(), exact17._canonical(evidence))
+
     def test_publish_is_atomic_pair_and_no_clobber(self) -> None:
         text, evidence = exact17.build_outputs(ROOT, self.binary)
         with tempfile.TemporaryDirectory() as directory:

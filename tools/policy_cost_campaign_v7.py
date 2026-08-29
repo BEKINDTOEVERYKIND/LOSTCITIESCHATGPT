@@ -44,7 +44,7 @@ EXCLUSION_BINDINGS = (
     ("data/experiments/policy_cost_v7_exact17_exclusions.txt",
      "10034cf8b83aadf24fa0775e4dad2712573e1d84cbf364568ce6136682ac254c"),
     ("data/experiments/policy_cost_v7_exact17_exclusions.json",
-     "50a071a05642f437cad23dbc6708aaa57a0fca34f819d47dace9f236ec3cf7b9"),
+     "5e069c18794dc99a2a9827bf4b63d453e7986a8d948d2926aa7ef3296d78b37e"),
 )
 PREDECESSOR_ATTEMPT_BINDINGS = (
     ("data/experiments/locked_policy_cost_v6_execution.json",
@@ -430,7 +430,7 @@ def validate_plan(value: Mapping[str, Any]) -> None:
             "sha256": DATASET_SOURCE_SHA256,
         },
         "exact17_canonical_payload_sha256": (
-            "6be900e1e1cb01bacdfd9268bd6ad2af2c6dcc3c2954d863391e4d85a545177e"
+            "a8df7a19278cde827d1e49bd5b845f741bacbfe546e5071dd7ebeab07e81b991"
         ),
         "exact17_json_schema": "lc-policy-cost-exclusions-evidence-v2",
         "portable_binding": (

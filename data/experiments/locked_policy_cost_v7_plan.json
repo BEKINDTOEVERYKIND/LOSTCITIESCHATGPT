@@ -351,7 +351,7 @@
       },
       {
         "path": "data/experiments/policy_cost_v7_exact17_exclusions.json",
-        "sha256": "50a071a05642f437cad23dbc6708aaa57a0fca34f819d47dace9f236ec3cf7b9"
+        "sha256": "5e069c18794dc99a2a9827bf4b63d453e7986a8d948d2926aa7ef3296d78b37e"
       }
     ],
     "exclusion_key": "information-view suit orbit: public history/features, mover hand, round, within-round nply, cumulative score, and deck count; never opponent hand or hidden deck; physical wager identities collapsed",
@@ -539,7 +539,7 @@
       "sha256": "5e493710de08ecb2841b7fe33595dca35088e2a8434ee81cc5ff183a9e80e59d"
     },
     "contract_repair": "define conditional draw probability as canonical finite zero iff semantic action mass is exact zero; require an exact native zero-mass regression and strict JSONL validation at every TRAIN, SELECT, and TEST producer boundary before artifact upload",
-    "exact17_canonical_payload_sha256": "6be900e1e1cb01bacdfd9268bd6ad2af2c6dcc3c2954d863391e4d85a545177e",
+    "exact17_canonical_payload_sha256": "a8df7a19278cde827d1e49bd5b845f741bacbfe546e5071dd7ebeab07e81b991",
     "exact17_json_schema": "lc-policy-cost-exclusions-evidence-v2",
     "portable_binding": "canonical exact-17 evidence binds the v7 dataset source; the platform-specific runtime ELF is sealed dynamically in build identity and transport manifests",
     "v6_failure": "TRAIN shard 88 allocation 5632 had exact zero binary32 mass for every complete move in one legal semantic action; the producer serialized conditional draw mass 0/0 as -nan and the strict JSON consumer stopped before calibration or later efficacy"
