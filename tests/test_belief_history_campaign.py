@@ -495,11 +495,12 @@ class BeliefHistoryCampaignTests(unittest.TestCase):
         self.assertIn('python3 -m unittest "$module"', text)
         self.assertNotIn(
             'python3 -m unittest "${TEST_MODULES[@]}"', text)
-        for recovery in range(3, 8):
-            self.assertIn(
-                f"! -name 'test_policy_cost_v{recovery}_recovery.py'",
-                text,
-            )
+        self.assertIn(
+            "! -name 'test_policy_cost_v*_recovery.py'", text)
+        self.assertNotIn(
+            "! -name 'test_policy_cost_v8_recovery.py'", text)
+        self.assertNotIn(
+            "! -name 'test_policy_cost_v9_recovery.py'", text)
         self.assertIn("make test CC=clang", text)
         self.assertIn("-fsanitize=address,undefined", text)
         self.assertIn("ASAN_OPTIONS: detect_leaks=1:halt_on_error=1", text)

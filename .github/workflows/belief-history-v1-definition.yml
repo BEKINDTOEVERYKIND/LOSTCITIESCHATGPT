@@ -199,11 +199,7 @@ jobs:
           # the clean compiler profile created above.  Keep each omitted module
           # in its own interpreter for the same isolation as `make test`.
           mapfile -t ALL_TEST_MODULES < <(find tests -maxdepth 1 -type f -name 'test_*.py' \
-            ! -name 'test_policy_cost_v3_recovery.py' \
-            ! -name 'test_policy_cost_v4_recovery.py' \
-            ! -name 'test_policy_cost_v5_recovery.py' \
-            ! -name 'test_policy_cost_v6_recovery.py' \
-            ! -name 'test_policy_cost_v7_recovery.py' -printf '%p\n' | sort | \
+            ! -name 'test_policy_cost_v*_recovery.py' -printf '%p\n' | sort | \
             sed -e 's#/#.#g' -e 's#\.py$##' | sort -u)
           mapfile -t MAKE_TEST_MODULES < <(awk \
             'BEGIN { in_test = 0 } \
