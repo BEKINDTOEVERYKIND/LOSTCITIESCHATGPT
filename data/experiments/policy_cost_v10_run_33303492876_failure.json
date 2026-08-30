@@ -1,0 +1,61 @@
+{
+  "cause": {
+    "classification": "archived_predecessor_lifecycle_test_in_current_preflight",
+    "efficacy_related": false,
+    "mechanism": "The unique v10 launch guard passed and the frozen parent compiled. The complete regression suite then executed the archived v9 recovery test against the current source tree. Its definition-time assertion required the already-launched v9 execution addendum to be absent, so preflight failed before transport freeze, discovery, search, truth labels, or any efficacy stage.",
+    "stage": {
+      "error": "AssertionError: locked_policy_cost_v9_execution.json exists",
+      "job_id": 99235799194,
+      "name": "preflight"
+    }
+  },
+  "execution": {
+    "path": "data/experiments/locked_policy_cost_v10_execution.json",
+    "sha256": "6d8ad33919172c709bfd4c6d168cf4e297131cc2707121e47f66ee434fc5e563"
+  },
+  "fixed_seed_execution": {
+    "all_policy_cost_v10_fixed_roots_abandoned": true,
+    "consumed_fixed_root_count": 0,
+    "retry_forbidden": true
+  },
+  "github_run": {
+    "attempt": 1,
+    "conclusion": "failure",
+    "event": "push",
+    "head_sha": "0cd5f19a65ea4492602510e5677601422d37a9af",
+    "head_tree": "e233d4f22d5d3dfa3abbba667e1834ac4f4a9b08",
+    "id": 33303492876,
+    "url": "https://github.com/BEKINDTOEVERYKIND/LOSTCITIESCHATGPT/actions/runs/33303492876"
+  },
+  "job_disposition": {
+    "failure": 1,
+    "skipped": 19,
+    "success": 0,
+    "total": 20
+  },
+  "locked_validation_relaxed": false,
+  "maintained_actor_disposition": {
+    "changed": false,
+    "objective3_result_path": "data/experiments/match_value_objective3_v2_result.json",
+    "objective3_result_sha256": "05d6ee1b0ce59d5d502ebac27b4a59cc7c816bfc1245eccee4d5b8fbda9c6700"
+  },
+  "promotion_efficacy_data_observed": false,
+  "remediation_constraint": "A successor may correct only archived recovery-test lifecycle isolation, must retain every sample and frozen gate, and must use an all-fresh fixed-root namespace without retrying v10.",
+  "schema": "lc-policy-cost-v10-preflight-lifecycle-failure-v1",
+  "search_and_truth_labels_generated": false,
+  "source_parent": {
+    "commit": "5c5378815c35ffb3b7bc6a338e2e9295d98c0433",
+    "tree": "8bcea1a5e24e7908a75b9a3e6f285372fdd51c4d"
+  },
+  "status": "complete_terminal_non_promotable",
+  "untouched_stages": [
+    "TRAIN_discovery_and_allocation",
+    "TRAIN_search_and_truth",
+    "calibration_fit_and_decision",
+    "SELECT_search_and_truth",
+    "untouched_TEST_search_and_truth",
+    "200_pair_per_orientation_safety",
+    "2500_pair_per_orientation_final",
+    "promotion"
+  ]
+}
