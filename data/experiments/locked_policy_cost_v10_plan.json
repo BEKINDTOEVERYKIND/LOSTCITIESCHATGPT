@@ -1,0 +1,561 @@
+{
+  "artifact_kind": "locked_policy_cost_v10_campaign_plan",
+  "artifact_schemas": {
+    "execution": "lc-policy-cost-v10-execution-v1",
+    "plan": "lc-policy-cost-v10-plan-v1",
+    "pre_efficacy_manifest": "lc-policy-cost-v10-pre-efficacy-manifest-v1",
+    "result": "lc-policy-cost-v10-result-v1"
+  },
+  "calibration": {
+    "anchors": [
+      0,
+      4,
+      8,
+      12,
+      16,
+      24,
+      32,
+      40,
+      48,
+      64
+    ],
+    "coefficient_constraints": "beta_search is strictly positive and alpha_A and alpha_D are nonnegative; all three schedules are continuous piecewise linear, shared across rounds, and clamped at the 64-ply anchor; runtime lambdas are derived only after interpolation as alpha/beta",
+    "cross_validation": {
+      "folds": 5,
+      "group": "source_match_id",
+      "model_adequacy_is_nested": true,
+      "seed": "202709140101",
+      "stratification": "all frozen TRAIN cells",
+      "untouched_outer_folds_for_model_checks": true
+    },
+    "fit": "predict independent truth delta from beta_search(ply)*search_delta + alpha_A(ply)*log policy-core ratio + alpha_D(ply)*log conditional-draw ratio using fixed-precision standardized pairwise Huber regression",
+    "huber_delta": 1.345,
+    "model_lack": {
+      "authoritative_pre_select_gate": true,
+      "deployable_gap_over_beta_only_one_sided_lcb_strictly_above": 0.0,
+      "nonnegative_gap_improvement_required_for_each_pair_type_and_early_mid_late_phase": true,
+      "reject_if_round_specific_or_cell_saturated_oof_loss_improves_by_more_than": 0.05
+    },
+    "negative_evidence_contract": {
+      "authoritative_adequacy_failure": "a completed statistically valid calibration that fails any locked model-adequacy criterion emits canonical full-detail nondeployable evidence instead of raising an execution error",
+      "canonicalization": "sorted-key compact UTF-8 JSON, finite numbers only, one trailing newline, with calibration_sha256 sealing the payload before that digest field is added",
+      "failed_result": {
+        "decision": {
+          "calibration_passed": false,
+          "deployment": {
+            "permitted": false,
+            "reason": "authoritative_predictive_model_adequacy_gate_failed"
+          },
+          "status": "failed_model_adequacy"
+        },
+        "forbidden_top_level_fields": [
+          "schedule",
+          "derived_gap_thresholds"
+        ],
+        "full_detail_requirement": "retain all computed fit, grouped-CV, convergence, campaign-design/input-binding, runtime-dependency, and model-adequacy diagnostics without truncation",
+        "required_top_level_fields": [
+          "schema",
+          "calibration_passed",
+          "status",
+          "deployment",
+          "observation_input_sha256",
+          "model",
+          "fit",
+          "campaign_design",
+          "model_adequacy",
+          "runtime_dependencies",
+          "calibration_sha256"
+        ]
+      },
+      "hard_failure_behavior": "raise without serializing failed_model_adequacy evidence or a false adequacy gate",
+      "hard_failure_classes": [
+        "malformed, non-finite, incomplete, or binding-invalid input/evidence",
+        "rank deficiency in any full, fold, or adequacy-comparator design",
+        "conditioning violation in any full, fold, or adequacy-comparator design",
+        "solver or IRLS nonconvergence or fixed iteration-cap exhaustion"
+      ],
+      "sealed_gate": {
+        "campaign_input_bindings": "exact allocation_binding and evidence_binding objects from campaign_design",
+        "fields": [
+          "schema",
+          "calibration_passed",
+          "status",
+          "reason",
+          "calibration_file_sha256",
+          "calibration_payload_sha256",
+          "observation_input_sha256",
+          "campaign_input_bindings",
+          "model_adequacy_sha256"
+        ],
+        "false_blocks": "LCPC materialization, SELECT evaluation/search/truth labels, TEST evaluation, safety, final, actor construction, promotion, and every other efficacy consumer; the already frozen policy-only discovery reservoirs are not efficacy",
+        "pass_requirement": "every LCPC or SELECT-and-later consumer must verify the sealed gate and require calibration_passed=true, status=passed, and reason=null",
+        "schema": "lc-policy-cost-v2-calibration-gate-v1"
+      }
+    },
+    "one_se_tie_break": "greatest smoothness",
+    "one_se_rule": "greatest smoothness with mean source-match-grouped CV loss no greater than the minimum mean plus the source-match-cluster standard error of the minimum-loss model",
+    "persist": [
+      "beta_search, alpha_A, and alpha_D at every anchor, with beta strictly positive",
+      "derived lambda_A=alpha_A/beta and lambda_D=alpha_D/beta only after interpolating all three raw schedules",
+      "integer-ply interpolation through ply 299",
+      "required search-EV thresholds for 55/45, 95/4, 95/1, and 4/1",
+      "semantic-core and conditional-draw threshold lower bounds for every fixed ratio band",
+      "nested grouped-CV assignments, selected smoothness, full and per-fold 30-column design rank, condition numbers, and authoritative model-adequacy checks",
+      "per-fit solver convergence and IRLS iteration counts"
+    ],
+    "solver": {
+      "fail_closed_on_nonconvergence": true,
+      "max_coordinate_iterations": 20000,
+      "max_irls_iterations": 500,
+      "tolerance": 1e-10
+    },
+    "schedule_seed": "202709140101",
+    "smoothness_grid": [
+      0.0,
+      0.0001,
+      0.001,
+      0.01,
+      0.1,
+      1.0,
+      10.0,
+      100.0
+    ],
+    "standard_error_floor": 0.25
+  },
+  "controller": {
+    "artifact_binding": {
+      "epsilon": "0x1p-150",
+      "source_seed": "202709140101"
+    },
+    "adjusted_score": "interpolate beta_search, alpha_A, and alpha_D independently, then rank by beta_search(nply)*Q(move) + alpha_A(nply)*log(P_A(move)) + alpha_D(nply)*log(P_D(move|A)); equivalently divide by positive beta and apply lambda=alpha/beta",
+    "candidate_zero": "literal complete-move argmax of the normalized suit-symmetrized policy",
+    "candidate_zero_bonus": 0.0,
+    "confidence": {
+      "fresh_z": 2.58,
+      "primary_z": 3.5
+    },
+    "decision": "a nonzero move must be the unique adjusted leader and must clear candidate zero, every higher joint semantic complete-move prior rival, every higher P_A rival, and every same-core higher-P_D rival on raw positive primary and fresh paired deltas; primary and fresh must select the same move",
+    "deployment_controller_tuple": {
+      "action_core_count": 3,
+      "confirm_dets": 800,
+      "dets": 800,
+      "discard_guard": 1,
+      "exact_terminal": 1,
+      "min_cand": 1,
+      "no_belief": 1,
+      "override_k": 3.5,
+      "override_min": 0.0,
+      "playout_prune": 1,
+      "playout_sample": 4,
+      "playout_symmetries": 20,
+      "root_prune": 0,
+      "root_symmetries": 20,
+      "root_width": 5,
+      "ply_lo": 0,
+      "ply_hi": 0
+    },
+    "exact_terminal": "the intrinsic exact one-card solver runs before policy-cost selection and is not a fitted exception",
+    "forbidden_modes": [
+      "planner",
+      "late resolver",
+      "controller veto",
+      "action ranker",
+      "legacy trusted-prefix controller",
+      "semantic candidate injection",
+      "draw planner",
+      "candidate-zero fixed bonus",
+      "nonzero legacy override_min"
+    ],
+    "legacy_actors": "all pre-v5 actor families and parser semantics remain byte-identical",
+    "policy": {
+      "normalization": "fail closed unless the full legal joint policy is finite, strictly nonnegative, and normalized before aggregation",
+      "P_A": "sum normalized joint policy over every legal complete draw source sharing the semantic played-or-discarded card core; physical wager identities are collapsed",
+      "P_D": "joint semantic complete-move mass divided by P_A for its draw source; physical wager identities are collapsed",
+      "suit_symmetries": 20
+    },
+    "runtime_scope": "real roots only; never recursive continuation nodes",
+    "transitivity": true,
+    "versioned_actor_families": [
+      "rolloutu5"
+    ]
+  },
+  "created_utc": "2026-08-28",
+  "evidence": {
+    "canonical_complete_evidence_artifact": "policy-cost-v10-complete-evidence",
+    "independent_verification_required_before_persistence": true,
+    "raw_stage_barrier": "every expected immutable raw artifact, sidecar, hash, count, binding, and zero-cap check for a stage must validate before any result-dependent operation or downstream stage",
+    "retention_days": 30
+  },
+  "execution_protocol": {
+    "compile_once": "preflight builds and tests every native executable exactly once; every later job downloads and SHA-256 verifies the same transport",
+    "execution_addendum": "data/experiments/locked_policy_cost_v10_execution.json",
+    "execution_template": "data/experiments/locked_policy_cost_v10_execution.template.json",
+    "launch": "one non-forced attempt-1 push adding exactly the previously absent execution addendum to agent/correctness-and-policy-upgrade",
+    "manual_dispatch": false,
+    "no_partial_efficacy_inspection": true,
+    "no_repository_writes_from_workflow": true,
+    "no_retry": true,
+    "no_seed_reuse": true,
+    "numeric_runtime_environment": {
+      "MKL_NUM_THREADS": "1",
+      "NPY_DISABLE_CPU_FEATURES": "AVX512F",
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_CORETYPE": "Haswell",
+      "OPENBLAS_NUM_THREADS": "1",
+      "PYTHONHASHSEED": "0"
+    },
+    "python_dependencies": {
+      "install": "preflight and reducers only, from both sealed local wheels with --no-index --no-deps",
+      "packages": {
+        "PyYAML": {
+          "import_name": "yaml",
+          "sha256": "ba1cc08a7ccde2d2ec775841541641e4548226580ab850948cbfda66a1befcdc",
+          "version": "6.0.3",
+          "wheel": "pyyaml-6.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl"
+        },
+        "numpy": {
+          "import_name": "numpy",
+          "sha256": "0d8163f43acde9a73c2a33605353a4f1bc4798745a8b1d73183b28e5b435ae28",
+          "version": "2.3.5",
+          "wheel": "numpy-2.3.5-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl"
+        }
+      },
+      "requirements": "data/experiments/policy_cost_v10_python_requirements.txt"
+    },
+    "optional_stopping": false,
+    "prerequisite_evidence_transport": "retain and terminal-reopen the canonical Objective-3 result plus every SHA-256-listed evidence member",
+    "python_runtime": "Python 3.12.3 on ubuntu-24.04, checked fail-closed in every job",
+    "source_free_after_preflight": true,
+    "workflow": ".github/workflows/policy-cost-v10.yml"
+  },
+  "experiment": "policy-cost-v10",
+  "final": {
+    "critical_z": 1.645,
+    "gate": {
+      "combined_margin_lcb_strictly_above": 0.0,
+      "combined_match_score_lcb_strictly_above": 0.5,
+      "each_orientation_match_score_strictly_above": 0.5,
+      "exact_validity_required": true,
+      "zero_capped_rounds_required": true
+    },
+    "pairs_per_orientation": 2500,
+    "pairs_per_shard": 100,
+    "seeds": {
+      "baseline_first": "202709220102",
+      "candidate_first": "202709220101"
+    },
+    "shard_starts": [
+      0,
+      100,
+      200,
+      300,
+      400,
+      500,
+      600,
+      700,
+      800,
+      900,
+      1000,
+      1100,
+      1200,
+      1300,
+      1400,
+      1500,
+      1600,
+      1700,
+      1800,
+      1900,
+      2000,
+      2100,
+      2200,
+      2300,
+      2400
+    ]
+  },
+  "multiplicity": {
+    "arena_safety_looks": 1,
+    "final_looks": 1,
+    "fitted_schedules": 1,
+    "select_configurations": 2,
+    "test_candidates": 1,
+    "test_looks": 1
+  },
+  "prerequisite": {
+    "objective3_result_path": "data/experiments/match_value_objective3_v2_result.json",
+    "rule": "execution cannot be prepared until objective-3 v2 attempt 32721800280 is terminal, independently verified, and persisted; if it promoted use its objective-3 actor/table and full-match-hybrid TRAIN truth, otherwise retain the verified 800+800 actor and use current-round-margin TRAIN truth"
+  },
+  "predecessor_attempt": {
+    "attempt": 1,
+    "bindings": [
+      {
+        "path": "data/experiments/locked_policy_cost_v9_execution.json",
+        "sha256": "2001d12d12e6db74992779ea9a8fd991f597e1cc9e4b346c79b860105edf423f"
+      },
+      {
+        "path": "data/experiments/policy_cost_v9_run_33278577188_failure.json",
+        "sha256": "49902ca71ea44032b0df7cad2b876f10ef33b9075511f542e1896c6d0d7182ed"
+      },
+      {
+        "path": "data/experiments/policy_cost_v9_infrastructure_retain.json",
+        "sha256": "9332af288ee03bd26140efc7b9e96c1c4e5160c7cbcdbf5e8dadc39032b1554f"
+      }
+    ],
+    "execution_commit": "09d12bac0eec951997c78f7d1df616f9a1decc2c",
+    "fixed_roots_retired": true,
+    "retry_forbidden": true,
+    "run_id": 33278577188,
+    "status": "terminal_native_python_burned_seed_binding_failure_before_calibration"
+  },
+  "probe_firewall": {
+    "canonical_exact17_bindings": [
+      {
+        "path": "data/experiments/commented_ply_audit_v3.json",
+        "sha256": "be63dcae2ae1a179cf43a0c47e9971755290f9b3bfd90cc40fd4b6bd2838bbd7"
+      },
+      {
+        "path": "data/experiments/commented_ply_audit_v3.md",
+        "sha256": "a30eb93e4623e75ec2dae4c2cb73103b801d67954e0b02298e1a5b1082ebcd71"
+      },
+      {
+        "path": "data/experiments/commented_ply_audit_v3_result.json",
+        "sha256": "9897b402116b897942031ecbd46c50127b358c5a2c579e9c854720c667f55a82"
+      },
+      {
+        "path": "data/experiments/commented_ply_audit_v3_evidence.zip",
+        "sha256": "aacec0f3da9bbedd5d6512cf7bf2ef0d993232ed888d64f2e8099f5b15c03994"
+      }
+    ],
+    "cases": [
+      "2214615196:3",
+      "2214615196:4",
+      "2214615196:8",
+      "2214615196:10",
+      "2214615196:12",
+      "2214615196:13",
+      "2214615196:16",
+      "2214615196:20",
+      "5726968372613385:14",
+      "5726968372613385:15",
+      "5726968372613385:17",
+      "5726968372613385:32",
+      "725402798:21",
+      "725402798:22",
+      "725402798:23",
+      "725402798:25",
+      "95647345759839:44"
+    ],
+    "exclusion_bindings": [
+      {
+        "path": "data/experiments/policy_cost_v10_exact17_exclusions.txt",
+        "sha256": "10034cf8b83aadf24fa0775e4dad2712573e1d84cbf364568ce6136682ac254c"
+      },
+      {
+        "path": "data/experiments/policy_cost_v10_exact17_exclusions.json",
+        "sha256": "5890efc99a01daaf2981a1cb06c2fb296490ac98d6cdddf3981ebeb088011eb1"
+      }
+    ],
+    "exclusion_key": "information-view suit orbit: public history/features, mover hand, round, within-round nply, cumulative score, and deck count; never opponent hand or hidden deck; physical wager identities collapsed",
+    "order": "reject an exact-17 orbit before census denominator, policy classification, reservoir priority, allocation, search, or truth labels",
+    "selection_use": "forbidden"
+  },
+  "reservoirs": {
+    "allocation": "hash-only before search or truth labels; sparse cells fail without refill, regeneration, widening, replacement, or top-up",
+    "allocation_output_order": "selection membership is unchanged and outcome blind; TRAIN writes quota-rank-major over a diagonal permutation of all 864 cells, while SELECT/TEST write quota-rank-major over a three-ply-band interleave of all 144 base cells, so fixed evaluator slices span rounds and ply regimes",
+    "pre_efficacy_barrier": "all TRAIN, SELECT, and TEST discovery reservoirs plus their hash-only allocations must be complete, immutable, and SHA-256-bound before any evaluator opens a search panel or requests a truth label",
+    "native_reservoir_origin_proof": "before the pre-efficacy barrier opens, the frozen source-free policy_cost_dataset binary scans every retained row in all three reservoirs; it requires the exact 174-byte native information view, source bounds, view validity, recomputed state and suit-orbit hashes, exact17 exclusion, and recomputed policy masks/cell identity, then emits a sealed proof that terminal verification independently reruns byte-for-byte",
+    "burned_source_seeds": "1..200, maintained-800 seed 1, 202611010101, all policy-cost-v1 fixed seeds in 20261110/11/12/13/14/15/16/21/22, every 20261129 feasibility-smoke seed, all policy-cost-v2 fixed seeds in 20261210/11/12/13/14/15/16/21/22, every 20261229 feasibility-smoke seed, 202612010101, all policy-cost-v3 fixed seeds in 20270110/11/12/13/14/15/16/21/22, every 20270129 feasibility-smoke seed, 202701010101, all policy-cost-v4 fixed seeds in 20270210/11/12/13/14/15/16/21/22, every 20270229 feasibility-smoke seed, 202702010101, all policy-cost-v5 fixed seeds in 20270310/11/12/13/14/15/16/21/22, every 20270329 feasibility-smoke seed, 202703010101, all policy-cost-v6 fixed seeds in 20270410/11/12/13/14/15/16/21/22, every 20270429 feasibility-smoke seed, 202704010101, all policy-cost-v7 fixed seeds in 20270510/11/12/13/14/15/16/21/22, every 20270529 feasibility-smoke seed, 202705010101, all policy-cost-v8 fixed seeds in 20270710/11/12/13/14/15/16/21/22, every 20270729 feasibility-smoke seed, 202707010101, all policy-cost-v9 fixed seeds in 20270810/11/12/13/14/15/16/21/22, every 20270829 feasibility-smoke seed, 202708010101, 202709010101, and every 20270929 feasibility-smoke seed",
+    "candidate_masks": {
+      "floors": [
+        0.01,
+        0.02
+      ],
+      "master": "enumerate once at 1%; candidate zero is always first and every 1%-eligible core among the true top three aggregate semantic action cores is retained; when candidate zero's core is outside that top three it is an additional mandatory comparator, leaving room for at most one (otherwise at most two) safe conditional-draw variants; maximum width five",
+      "candidate_zero_outside_top_three": "candidate zero never displaces a true top-three core and is not counted as shortlist widening",
+      "nestedness": "2% is a no-refill mask of the exact 1% master; prove for every collected state before efficacy",
+      "shortlist_widening": false
+    },
+    "discovery": {
+      "atomic_persistence_before_allocation": "each split uploads its native discovery census, bounded reservoir, generation log, canonical disposition, and complete source-free transport before a separate allocation job may consume those exact bytes",
+      "generator": "exact normalized suit-symmetrized policy-20 self-play",
+      "monolithic_split_jobs": "required unless a separately reviewed global-priority/state-chain shard merger is frozen before execution",
+      "seeds": {
+        "SELECT": "202709100201",
+        "TEST": "202709100301",
+        "TRAIN": "202709100101"
+      },
+      "source_matches": {
+        "SELECT": 32768,
+        "TEST": 32768,
+        "TRAIN": 65536
+      }
+    },
+    "ply_strata": [
+      [0, 2],
+      [2, 4],
+      [4, 6],
+      [6, 8],
+      [8, 10],
+      [10, 12],
+      [12, 14],
+      [14, 16],
+      [16, 18],
+      [18, 20],
+      [20, 22],
+      [22, 24],
+      [24, 26],
+      [26, 28],
+      [28, 30],
+      [30, 32],
+      [32, 34],
+      [34, 36],
+      [36, 38],
+      [38, 40],
+      [40, 42],
+      [42, 44],
+      [44, 48],
+      [48, 64]
+    ],
+    "pooled_nply_ge_64": "census only, minimum occupancy zero, excluded from TRAIN/SELECT/TEST weighting; whole-actor safety/final remain authoritative for natural tails",
+    "ratio_bands": [
+      "[1,1.25)",
+      "[1.25,2)",
+      "[2,4)",
+      "[4,8)",
+      "[8,32)",
+      "[32,inf)"
+    ],
+    "search_and_truth": {
+      "fresh": {
+        "SELECT": "202709120201",
+        "TEST": "202709120301",
+        "TRAIN": "202709120101",
+        "worlds": 800
+      },
+      "maintained_actor_decision": {
+        "SELECT": "202709160201",
+        "TEST": "202709160301",
+        "TRAIN": "202709160101"
+      },
+      "primary": {
+        "SELECT": "202709110201",
+        "TEST": "202709110301",
+        "TRAIN": "202709110101",
+        "worlds": 800
+      },
+      "truth": {
+        "SELECT": {
+          "seed": "202709130201",
+          "worlds": 1024
+        },
+        "TEST": {
+          "seed": "202709130301",
+          "worlds": 1024
+        },
+        "TRAIN": {
+          "seed": "202709130101",
+          "worlds": 512
+        },
+        "controller": "exact policy-20 full-remaining-match continuation on hidden-information-safe fixed worlds"
+      }
+    },
+    "select_and_test": {
+      "allocation": "64 complete max-five vectors per each of 3 rounds x 24 ply strata x frontier absent/present base cells; fixed outcome-blind quotas 22/21/21 for poststrata J=0, J=1, and J>=2 while retaining each vector's exact hashed J slot",
+      "base_cells": 144,
+      "candidate_slot": "SHA-256(split seed,state hash) mod master width",
+      "records_per_split": 9216,
+      "source_matches": "remain source-match clusters even when one generated match contributes more than one selected state"
+    },
+    "train": {
+      "cells": 864,
+      "pair_types": [
+        "different_core",
+        "same_core_draw"
+      ],
+      "records": 13824,
+      "states_per_cell": 16,
+      "weighting": "one equal-weight state/pair per globally distinct source match; primary and fresh rows share one independent truth row"
+    },
+    "union_width_contract": {
+      "consumer_length": 5,
+      "master_max": 5,
+      "producer_length": 5,
+      "required_equality": "union_width_counts equals the 1-percent master mask_width_counts row exactly",
+      "sealed_smokes": "clean definition and launch preflight compile the actual native producer and validate TRAIN, SELECT, and TEST census/reservoir pairs through the Python consumer under burned 20270929 roots; a sixth bin or unequal union histogram is rejected"
+    }
+  },
+  "safety": {
+    "gate": {
+      "combined_margin_strictly_above": 0.0,
+      "combined_match_score_at_least": 0.5,
+      "each_orientation_match_score_at_least": 0.475,
+      "exact_validity_required": true,
+      "zero_capped_rounds_required": true
+    },
+    "pairs_per_orientation": 200,
+    "pairs_per_shard": 20,
+    "seeds": {
+      "baseline_first": "202709210102",
+      "candidate_first": "202709210101"
+    },
+    "shard_starts": [
+      0,
+      20,
+      40,
+      60,
+      80,
+      100,
+      120,
+      140,
+      160,
+      180
+    ]
+  },
+  "schema": "lc-policy-cost-v10-plan-v1",
+  "selection": {
+    "bootstrap": {
+      "replicates": 20000,
+      "seed": "202709150101",
+      "unit": "source-match cluster",
+      "simultaneous_method": "max-t over all predeclared directed configuration contrasts"
+    },
+    "configurations": {
+      "floors": [
+        0.01,
+        0.02
+      ],
+      "ply_lo": [
+        0
+      ],
+      "total": 2
+    },
+    "metric": "discovery-post-stratified full-match hybrid gain over the information-view maintained actor move",
+    "rule": "the maintained Objective-3 actor already searches all plies, so onset is frozen at zero; 1% must have a strictly positive simultaneous incremental LCB over the all-ply 2% parent; on a statistical tie prefer 2%",
+    "truth_support": "exact untruncated fixed master union plus the maintained actor-selected move even when outside new support"
+  },
+  "status": "definition_complete_unlaunched_requires_objective3_disposition_and_unique_execution_addendum",
+  "v10_recovery": {
+    "dataset_source": {
+      "path": "tools/policy_cost_dataset_v10.c",
+      "sha256": "8d42c7418cee02f0b3d5ec402832197a736c817398deb76ab08a8dc625b8c218"
+    },
+    "contract_repair": "preserve every logical evaluation slice, row, budget, and reducer contract while executing four consecutive logical slices per GitHub runner job; require the reducers to recover the unchanged complete 216 TRAIN and 192 SELECT/TEST logical-slice sets",
+    "exact17_canonical_payload_sha256": "1c3216b1e0a94f12e941d3ebca6b2f8bbd4cb7a79b8677b2ffcd6ba6e1634b51",
+    "exact17_json_schema": "lc-policy-cost-exclusions-evidence-v2",
+    "portable_binding": "canonical exact-17 evidence binds the v10 dataset source; the platform-specific runtime ELF is sealed dynamically in build identity and transport manifests",
+    "v8_failure": "215 of 216 immutable TRAIN evaluation slices completed; logical slice 8 never reached checkout because its GitHub runner timed out while resolving pinned action download metadata"
+  },
+  "test": {
+    "critical_z": 1.645,
+    "discovery_post_stratification": true,
+    "gate": {
+      "each_round_hybrid_point_nonnegative": true,
+      "exact_counts_hashes_and_validity_required": true,
+      "frontier_present_hybrid_point_nonnegative": true,
+      "hybrid_gain_lcb_strictly_above": 0.0,
+      "match_score_gain_lcb_strictly_above": 0.0,
+      "zero_caps_required": true
+    },
+    "one_frozen_candidate_only": true,
+    "second_test_or_top_up": false
+  }
+}

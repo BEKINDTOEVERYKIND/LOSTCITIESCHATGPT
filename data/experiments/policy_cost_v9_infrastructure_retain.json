@@ -1,0 +1,22 @@
+{
+  "artifact_count": 66,
+  "artifact_digests_inventoried_from_github_api": true,
+  "complete_retention_job": true,
+  "efficacy_decision_present": false,
+  "final_evidence_present": false,
+  "github_run_id": 33278577188,
+  "head_sha": "09d12bac0eec951997c78f7d1df616f9a1decc2c",
+  "maintained_actor_changed": false,
+  "promotion_gate_passed": false,
+  "raw_stage_artifacts_available": true,
+  "schema": "lc-policy-cost-v9-infrastructure-retain-v1",
+  "status": "complete_terminal_non_promotable",
+  "train_evaluation_artifacts": {
+    "batch_count": 54,
+    "logical_slice_count": 216,
+    "missing_indices": [],
+    "outer_sha256_verified": true,
+    "sidecar_sha256_verified": true,
+    "unique_names": 54
+  }
+}
