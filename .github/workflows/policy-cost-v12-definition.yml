@@ -1,0 +1,217 @@
+name: Policy-cost v12 definition validation
+
+# This workflow validates only the inert recovery definition.  The unique
+# execution addendum is deliberately absent from this path filter so its push
+# can trigger only the separately locked campaign workflow.
+on:
+  push:
+    branches: [agent/correctness-and-policy-upgrade]
+    paths:
+      - POLICY_COST_V12.md
+      - .github/workflows/policy-cost-v12-definition.yml
+      - .github/workflows/policy-cost-v12.yml
+      - data/experiments/locked_policy_cost_v12_plan.json
+      - data/experiments/locked_policy_cost_v12_execution.template.json
+      - data/experiments/locked_policy_cost_v12_pre_efficacy_manifest.template.json
+      - data/experiments/policy_cost_v11_infrastructure_retain.json
+      - data/experiments/policy_cost_v11_run_33313785880_failure.json
+      - data/experiments/policy_cost_v12_exact17_exclusions.txt
+      - data/experiments/policy_cost_v12_exact17_exclusions.json
+      - data/experiments/policy_cost_v12_python_requirements.txt
+      - src/policy_cost_v12.c
+      - src/policy_cost_v12.h
+      - tools/policy_cost_allocate_v12.py
+      - tools/policy_cost_artifact_v12.py
+      - tools/policy_cost_calibration_v12.py
+      - tools/policy_cost_campaign_v12.py
+      - tools/policy_cost_dataset_v12.c
+      - tools/policy_cost_exact17_v12.py
+      - tools/policy_cost_selection_v12.py
+      - tests/test_policy_cost_exact17_v12.py
+      - tests/test_policy_cost_v12.c
+      - tests/test_policy_cost_v12_recovery.py
+  pull_request:
+    paths:
+      - POLICY_COST_V12.md
+      - .github/workflows/policy-cost-v12-definition.yml
+      - .github/workflows/policy-cost-v12.yml
+      - data/experiments/locked_policy_cost_v12_plan.json
+      - data/experiments/locked_policy_cost_v12_execution.template.json
+      - data/experiments/locked_policy_cost_v12_pre_efficacy_manifest.template.json
+      - data/experiments/policy_cost_v11_infrastructure_retain.json
+      - data/experiments/policy_cost_v11_run_33313785880_failure.json
+      - data/experiments/policy_cost_v12_exact17_exclusions.txt
+      - data/experiments/policy_cost_v12_exact17_exclusions.json
+      - data/experiments/policy_cost_v12_python_requirements.txt
+      - src/policy_cost_v12.c
+      - src/policy_cost_v12.h
+      - tools/policy_cost_allocate_v12.py
+      - tools/policy_cost_artifact_v12.py
+      - tools/policy_cost_calibration_v12.py
+      - tools/policy_cost_campaign_v12.py
+      - tools/policy_cost_dataset_v12.c
+      - tools/policy_cost_exact17_v12.py
+      - tools/policy_cost_selection_v12.py
+      - tests/test_policy_cost_exact17_v12.py
+      - tests/test_policy_cost_v12.c
+      - tests/test_policy_cost_v12_recovery.py
+
+permissions:
+  contents: read
+
+env:
+  MKL_NUM_THREADS: '1'
+  NPY_DISABLE_CPU_FEATURES: AVX512F
+  OMP_NUM_THREADS: '1'
+  OPENBLAS_CORETYPE: Haswell
+  OPENBLAS_NUM_THREADS: '1'
+  PYTHONHASHSEED: '0'
+  CFLAGS_LOCKED: -O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11
+  LDFLAGS_LOCKED: -lm -pthread
+  REQUIREMENTS: data/experiments/policy_cost_v12_python_requirements.txt
+
+jobs:
+  validate-definition:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: {fetch-depth: 0, path: campaign}
+      - name: Materialize the exact frozen Python runtime
+        run: |
+          set -euo pipefail
+          test "$(python3 --version 2>&1)" = "Python 3.12.3"
+          mkdir python-wheel python-runtime
+          python3 -m pip download --disable-pip-version-check --no-deps \
+            --only-binary=:all: --require-hashes --dest python-wheel \
+            -r "campaign/$REQUIREMENTS"
+          test "$(find python-wheel -maxdepth 1 -type f -name '*.whl' | wc -l)" = 2
+          NUMPY_WHEEL="python-wheel/numpy-2.3.5-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl"
+          PYYAML_WHEEL="python-wheel/pyyaml-6.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl"
+          test "$(sha256sum "$NUMPY_WHEEL" | cut -d' ' -f1)" = \
+            0d8163f43acde9a73c2a33605353a4f1bc4798745a8b1d73183b28e5b435ae28
+          test "$(sha256sum "$PYYAML_WHEEL" | cut -d' ' -f1)" = \
+            ba1cc08a7ccde2d2ec775841541641e4548226580ab850948cbfda66a1befcdc
+          python3 -m pip install --disable-pip-version-check --no-index \
+            --no-deps --target python-runtime "$NUMPY_WHEEL" "$PYYAML_WHEEL"
+          PYTHONPATH="$PWD/python-runtime" python3 -c \
+            'import numpy, yaml; assert numpy.__version__ == "2.3.5"; assert yaml.__version__ == "6.0.3"'
+      - name: Compile the exact versioned native runtime and reproduce exact17
+        run: |
+          set -euo pipefail
+          test "$(gcc -dumpfullversion -dumpversion)" = 13.3.0
+          test ! -e campaign/data/experiments/locked_policy_cost_v12_execution.json
+          mkdir source
+          git -C campaign archive HEAD | tar -x -C source
+          cd source
+          cp src/policy_cost_v12.c src/policy_cost.c
+          cp src/policy_cost_v12.h src/policy_cost.h
+          make -j2 CC=gcc CFLAGS="$CFLAGS_LOCKED" LDFLAGS="$LDFLAGS_LOCKED" \
+            bin/arena bin/build_policy_cost bin/test_policy_cost
+          gcc $CFLAGS_LOCKED -o bin/policy_cost_dataset \
+            tools/policy_cost_dataset_v12.c src/lc.c src/features.c src/net.c \
+            src/heuristic.c src/planner.c src/search.c src/rollout.c \
+            src/late_resolver.c src/match_value.c src/policy_cost.c \
+            src/agent.c src/match.c src/spec.c $LDFLAGS_LOCKED
+          gcc $CFLAGS_LOCKED -fno-fast-math -ffp-contract=off \
+            -o bin/test_policy_cost_v12 \
+            tests/test_policy_cost_v12.c src/lc.c src/features.c src/net.c \
+            src/heuristic.c src/planner.c src/search.c src/rollout.c \
+            src/late_resolver.c src/match_value.c src/policy_cost.c \
+            src/agent.c src/match.c src/spec.c $LDFLAGS_LOCKED
+          bin/test_policy_cost
+          bin/test_policy_cost_v12
+          bin/policy_cost_dataset self-test
+          # Cross the actual native-producer/Python-consumer boundary for all
+          # three schemas under definition-only burned roots.  Unit fixtures
+          # cannot substitute for this integration contract.
+          for SPEC in TRAIN:202711290101 SELECT:202711290201 TEST:202711290301; do
+            SPLIT="${SPEC%%:*}"; SEED="${SPEC##*:}"; LOWER="$(echo "$SPLIT" | tr '[:upper:]' '[:lower:]')"
+            bin/policy_cost_dataset discover \
+              --out "$LOWER-contract-discovery.jsonl" \
+              --reservoir-out "$LOWER-contract-reservoir.tsv" \
+              --net data/champion.bin --split "$SPLIT" --matches 1 \
+              --match-start 0 --reservoir-per-cell 1 --smoke-seed "$SEED" \
+              --exclusions data/experiments/policy_cost_v12_exact17_exclusions.txt \
+              --exclusions-sha256 "$(sha256sum data/experiments/policy_cost_v12_exact17_exclusions.txt | cut -d' ' -f1)"
+            python3 tools/policy_cost_allocate_v12.py --validate-contract-only \
+              --discovery "$LOWER-contract-discovery.jsonl" \
+              --discovery-sha256 "$(sha256sum "$LOWER-contract-discovery.jsonl" | cut -d' ' -f1)" \
+              --reservoir "$LOWER-contract-reservoir.tsv" \
+              --reservoir-sha256 "$(sha256sum "$LOWER-contract-reservoir.tsv" | cut -d' ' -f1)" \
+              --split "$SPLIT" --smoke-seed "$SEED" --matches 1 \
+              --reservoir-per-cell 1
+          done
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          rows=[json.loads(line) for line in Path('train-contract-discovery.jsonl').read_text(encoding='ascii').splitlines()]
+          six=[dict(row) for row in rows]; six[1]=dict(six[1]); six[1]['union_width_counts']=[*six[1]['union_width_counts'],0]
+          unequal=[dict(row) for row in rows]; unequal[1]=dict(unequal[1]); unequal[1]['union_width_counts']=list(unequal[1]['union_width_counts'])
+          source=next(index for index,count in enumerate(unequal[1]['union_width_counts']) if count); target=(source+1)%len(unequal[1]['union_width_counts'])
+          unequal[1]['union_width_counts'][source]-=1; unequal[1]['union_width_counts'][target]+=1
+          for name,value in (('six-bin-contract-discovery.jsonl',six),('unequal-contract-discovery.jsonl',unequal)):
+              Path(name).write_text(''.join(json.dumps(row,sort_keys=True,separators=(',',':'),ensure_ascii=True,allow_nan=False)+'\n' for row in value),encoding='ascii')
+          PY
+          for BAD in six-bin-contract-discovery.jsonl unequal-contract-discovery.jsonl; do
+            if python3 tools/policy_cost_allocate_v12.py --validate-contract-only \
+              --discovery "$BAD" --discovery-sha256 "$(sha256sum "$BAD" | cut -d' ' -f1)" \
+              --reservoir train-contract-reservoir.tsv \
+              --reservoir-sha256 "$(sha256sum train-contract-reservoir.tsv | cut -d' ' -f1)" \
+              --split TRAIN --smoke-seed 202711290101 --matches 1 \
+              --reservoir-per-cell 1; then
+              echo "negative producer/consumer contract mutation was accepted" >&2; exit 1
+            fi
+          done
+          EXACT17_TMP="$(mktemp -d)"
+          python3 tools/policy_cost_exact17_v12.py export --root . \
+            --hash-probe bin/policy_cost_dataset \
+            --text-out "$EXACT17_TMP/policy_cost_v12_exact17_exclusions.txt" \
+            --json-out "$EXACT17_TMP/policy_cost_v12_exact17_exclusions.json"
+          cmp "$EXACT17_TMP/policy_cost_v12_exact17_exclusions.txt" \
+            data/experiments/policy_cost_v12_exact17_exclusions.txt
+          cmp "$EXACT17_TMP/policy_cost_v12_exact17_exclusions.json" \
+            data/experiments/policy_cost_v12_exact17_exclusions.json
+      - name: Validate the complete definition with the isolated runtime
+        working-directory: campaign
+        run: |
+          set -euo pipefail
+          RUNTIME="$GITHUB_WORKSPACE/python-runtime"
+          PYTHONPATH="$RUNTIME" python3 -c \
+            'import numpy, yaml; assert numpy.__version__ == "2.3.5"; assert yaml.__version__ == "6.0.3"'
+          test ! -e data/experiments/locked_policy_cost_v12_execution.json
+          PYTHONPATH="$RUNTIME" python3 tools/policy_cost_campaign_v12.py validate-plan --root .
+          SOURCE_COMMIT="$(git rev-parse HEAD)"
+          SOURCE_TREE="$(git rev-parse 'HEAD^{tree}')"
+          PYTHONPATH="$RUNTIME" python3 tools/policy_cost_campaign_v12.py prepare-execution \
+            --root . \
+            --execution data/experiments/locked_policy_cost_v12_execution.json \
+            --source-parent-commit "$SOURCE_COMMIT" \
+            --source-parent-tree "$SOURCE_TREE"
+          PYTHONPATH="$RUNTIME" python3 tools/policy_cost_campaign_v12.py guard-execution \
+            --root . \
+            --execution data/experiments/locked_policy_cost_v12_execution.json \
+            --source-parent-commit "$SOURCE_COMMIT" \
+            --source-parent-tree "$SOURCE_TREE"
+          rm data/experiments/locked_policy_cost_v12_execution.json
+          PYTHONPATH="$RUNTIME" make test CC=gcc \
+            CFLAGS="$CFLAGS_LOCKED" LDFLAGS="$LDFLAGS_LOCKED"
+          # Retired definition tests asserted the then-correct absence of
+          # launch addenda. Recovery suites instead verify historical launch
+          # identity and are run only at their own immutable definition.
+          mapfile -t TEST_MODULES < <(find tests -maxdepth 1 -type f -name 'test_*.py' \
+            ! -name 'test_policy_cost_v*_recovery.py' -printf '%p\n' | sort | \
+            sed -e 's#/#.#g' -e 's#\.py$##')
+          test "${#TEST_MODULES[@]}" -gt 0
+          PYTHONPATH="$RUNTIME" python3 -m unittest "${TEST_MODULES[@]}"
+          PYTHONPATH="$RUNTIME" python3 -m unittest \
+            tests.test_policy_cost_v12_recovery
+          PYTHONPATH="$RUNTIME" python3 - <<'PY'
+          import pathlib, yaml
+          for path in (
+              pathlib.Path('.github/workflows/policy-cost-v12.yml'),
+              pathlib.Path('.github/workflows/policy-cost-v12-definition.yml'),
+          ):
+              value = yaml.safe_load(path.read_text(encoding='utf-8'))
+              assert isinstance(value, dict) and isinstance(value.get('jobs'), dict)
+          PY

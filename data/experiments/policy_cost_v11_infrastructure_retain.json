@@ -1,0 +1,34 @@
+{
+  "artifact_count": 66,
+  "artifact_digests_inventoried_from_github_api": true,
+  "complete_retention_job": true,
+  "efficacy_decision_present": false,
+  "final_evidence_present": false,
+  "github_run_id": 33313785880,
+  "head_sha": "a33cf258187a61a517df5fbc8d02bbf6445fbcd7",
+  "invalid_probability_audit": {
+    "allocation_count": 13824,
+    "invalid_row_count": 1,
+    "witness_allocation_id": 1223,
+    "witness_exact_binary32_to_double_sum": 1.0000000298023224
+  },
+  "maintained_actor_changed": false,
+  "promotion_gate_passed": false,
+  "raw_stage_artifacts_available": true,
+  "retention_artifact": {
+    "digest": "sha256:9b121555a443258e181aafebb2350670fb6934ad6a20d2e88a66dbdebccdbdfe",
+    "id": 9738706808,
+    "name": "policy-cost-v11-infrastructure-retain",
+    "size_in_bytes": 766185616
+  },
+  "schema": "lc-policy-cost-v11-infrastructure-retain-v1",
+  "status": "complete_terminal_non_promotable",
+  "train_evaluation_artifacts": {
+    "batch_count": 54,
+    "logical_slice_count": 216,
+    "missing_indices": [],
+    "outer_sha256_verified": true,
+    "sidecar_sha256_verified": true,
+    "unique_names": 54
+  }
+}
