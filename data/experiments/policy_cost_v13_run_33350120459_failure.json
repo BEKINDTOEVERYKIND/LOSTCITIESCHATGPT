@@ -1,0 +1,61 @@
+{
+  "cause": {
+    "classification": "source_free_transport_predecessor_omission",
+    "efficacy_related": false,
+    "mechanism": "The frozen v13 execution correctly bound the v12 terminal execution template and failure record, but the preflight transport-copy list omitted those two required predecessor files. Source-free transport verification rejected the missing bindings before discovery, search, truth labels, or any campaign seed use.",
+    "stage": {
+      "error": "policy-cost campaign: transport lacks required files: bindings/predecessor/locked_policy_cost_v12_execution.template.json, bindings/predecessor/policy_cost_v12_run_33347551289_failure.json",
+      "job_id": 99361682151,
+      "name": "preflight / Freeze a source-free transport before any search or truth label"
+    }
+  },
+  "execution_blob": {
+    "git_blob_sha": "c5fd75a0914916dd39084329845d334e7b69b6c1",
+    "path": "data/experiments/locked_policy_cost_v13_execution.json",
+    "sha256": "67ec83fd4c450f5b678142e19449e59077b30c7b9dc29eca9bdef3d69959b77c",
+    "size": 124432,
+    "utf8_json_valid": true
+  },
+  "fixed_seed_execution": {
+    "all_policy_cost_v13_fixed_roots_retired": true,
+    "retired_fixed_root_count": 21,
+    "retry_forbidden": true,
+    "seeds_touched": false
+  },
+  "github_run": {
+    "attempt": 1,
+    "conclusion": "failure",
+    "event": "push",
+    "head_sha": "4d0fd78190ec375e381b92f27d2bdcce7f9b0290",
+    "head_tree": "9b3382ed2b729307459660b22852af9268b9c9b0",
+    "id": 33350120459,
+    "url": "https://github.com/BEKINDTOEVERYKIND/LOSTCITIESCHATGPT/actions/runs/33350120459"
+  },
+  "job_disposition": {
+    "failure": 1,
+    "skipped": 19,
+    "success": 0,
+    "total": 20
+  },
+  "locked_validation_relaxed": false,
+  "maintained_actor_changed": false,
+  "promotion_efficacy_data_observed": false,
+  "schema": "lc-policy-cost-v13-source-free-transport-predecessor-omission-v1",
+  "search_and_truth_labels_generated": false,
+  "source_parent": {
+    "commit": "857bd1b6ca9e754896bbe26ad36b866f113ccca3",
+    "tree": "75a363fe03e6b96a9545515e2a910ceae81dd9c7"
+  },
+  "status": "complete_terminal_non_promotable",
+  "untouched_stages": [
+    "discovery",
+    "allocation",
+    "TRAIN_search_and_truth",
+    "calibration",
+    "SELECT_search_and_truth",
+    "untouched_TEST_search_and_truth",
+    "reciprocal_safety",
+    "final",
+    "promotion"
+  ]
+}
