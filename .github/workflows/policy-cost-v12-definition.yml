@@ -30,6 +30,7 @@ on:
       - tests/test_policy_cost_exact17_v12.py
       - tests/test_policy_cost_v12.c
       - tests/test_policy_cost_v12_recovery.py
+      - tests/test_action_core_campaign.py
   pull_request:
     paths:
       - POLICY_COST_V12.md
@@ -55,6 +56,7 @@ on:
       - tests/test_policy_cost_exact17_v12.py
       - tests/test_policy_cost_v12.c
       - tests/test_policy_cost_v12_recovery.py
+      - tests/test_action_core_campaign.py
 
 permissions:
   contents: read
