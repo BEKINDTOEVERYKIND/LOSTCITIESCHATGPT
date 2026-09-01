@@ -1,0 +1,80 @@
+{
+  "cause": {
+    "classification": "model_adequacy_irls_iteration_cap_exhaustion",
+    "efficacy_related": false,
+    "mechanism": "One supported two-coefficient cell-saturated outer-training fit had reached machine-precision objective stability but still had a maximum coefficient step above the frozen 1e-10 relative convergence tolerance when the 500-step IRLS cap was exhausted. Calibration therefore failed closed before SELECT. The retained TRAIN reproduction identified outer-fold-2:cell_saturated:cell-1.21.2.same_core_draw (26 rows, 2 columns); the same deterministic fit converged at step 754 when given a diagnostic 5000-step ceiling.",
+    "stage": {
+      "error": "CalibrationError: model-adequacy IRLS did not converge",
+      "job_id": 99730964215,
+      "name": "train_calibrate / Calibrate and seal the pre-SELECT decision"
+    }
+  },
+  "execution_blob": {
+    "git_blob_sha": "8138d2b07abf3646f6e5619c98a6b2ed60d32205",
+    "path": "data/experiments/locked_policy_cost_v15_execution.json",
+    "sha256": "725c3d64c0602993424052152c6710e3e91e3cf9c5c7c9dcdcde37981aa4308a",
+    "size": 124425,
+    "utf8_json_valid": true
+  },
+  "fixed_seed_execution": {
+    "all_policy_cost_v15_fixed_roots_retired": true,
+    "retired_fixed_root_count": 21,
+    "retry_forbidden": true,
+    "seeds_touched": true
+  },
+  "github_run": {
+    "attempt": 1,
+    "conclusion": "failure",
+    "event": "push",
+    "head_sha": "9ea8233827bf0ede7e4bba2a120319da5d6236b5",
+    "head_tree": "1d57a43dacdf6c880e968b7f59e85c30aaf7fa91",
+    "id": 33435987783,
+    "url": "https://github.com/BEKINDTOEVERYKIND/LOSTCITIESCHATGPT/actions/runs/33435987783"
+  },
+  "immutable_retention": {
+    "artifact_digest": "sha256:4d940cd8970707b6a2d108781894100fc39aab51b0a87d073f3d2303bd380c6a",
+    "artifact_id": 9785609722,
+    "artifact_name": "policy-cost-v15-infrastructure-retain",
+    "all_train_evaluation_batches_succeeded": true,
+    "train_evaluation_batch_count": 54,
+    "train_logical_slice_count": 216
+  },
+  "job_disposition": {
+    "failure": 1,
+    "skipped": 9,
+    "success": 63,
+    "total": 73
+  },
+  "locked_validation_relaxed": false,
+  "maintained_actor_changed": false,
+  "partial_efficacy_inspected": false,
+  "promotion_efficacy_data_observed": false,
+  "recovery_diagnostic": {
+    "coefficient_convergence_iteration": 754,
+    "failing_fit": "outer-fold-2:cell_saturated:cell-1.21.2.same_core_draw",
+    "frozen_cap": 500,
+    "full_train_calibration_completed_with_cap": 2000,
+    "retained_train_input_sha256": "9758e850f500c5dd66251eb27f2e6979f6b042cea88082cc225751b9cb02e9f2",
+    "retained_train_input_size": 12941973,
+    "strength_or_gate_result_inspected": false
+  },
+  "schema": "lc-policy-cost-v15-irls-iteration-cap-exhaustion-v1",
+  "search_and_truth_labels_generated": true,
+  "source_parent": {
+    "commit": "cc04e2625e20bd5ffb49cf7bf27543bb5f4b019b",
+    "tree": "5e8488b0e70d642b5e04596d9335568a9845ec14"
+  },
+  "status": "complete_terminal_non_promotable",
+  "terminal_boundary": {
+    "calibration_artifact_serialized": false,
+    "select_efficacy_started": false,
+    "test_efficacy_started": false
+  },
+  "untouched_stages": [
+    "SELECT_search_and_truth",
+    "untouched_TEST_search_and_truth",
+    "reciprocal_safety",
+    "final",
+    "promotion"
+  ]
+}
