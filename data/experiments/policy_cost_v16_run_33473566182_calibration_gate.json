@@ -1,0 +1,33 @@
+{
+  "calibration_file_sha256": "f1f827c0aea099bfeb74ccebd5570657e0b67e5fd295ec88acd63e64613772de",
+  "calibration_passed": false,
+  "calibration_payload_sha256": "09a7983814de4a1ec524286fd7ea9da2dfa1ed9eb3af37b415178ad0e7932561",
+  "campaign_input_bindings": {
+    "allocation_binding": {
+      "allocation_manifest_sha256": "d1a73deaeb34ca743e46086019e765dbf8c95005335133f0ba726627c2578858",
+      "allocation_rule_sha256": "d79bc5aecfe4036c1143fc8fceffc704a1227745665439b1ec64e3ec1b434418",
+      "eligible_pair_commitment_sha256": "80fa7a0cf2bf966a79299cf021538e23c659c4b059597f9b5124e4c2abe31db6",
+      "required": true,
+      "selected_units": 13824,
+      "source_reservoir_sha256": "b178b3dc35f4b753b03e1fc9f90bff5ce5ac87584e3519d098b8a5ddc662c0fb",
+      "validated": true
+    },
+    "evidence_binding": {
+      "allocation_sha256": "8513865239c978927f520dae6ce9b35ae0d429020a96f8e229f7c365321e363a",
+      "evaluation_header_sha256": "64161feade0ff11c3d5a781e8b771766ad72fefeb946b538bdfc3e33fbf9788f",
+      "evaluation_sha256": "bb39aa9f36cc720b9c787a544f6984c1bb6c6504e474361fea09e6472c55c144",
+      "execution_sha256": "d18986bddf0298b44e02900c265c9161460885ebc7344d4126b51b98684e31d3",
+      "raw_verified": true,
+      "required": true,
+      "schema": "lc-policy-cost-v16-train-evidence-binding-v1",
+      "stage": "TRAIN",
+      "train_input_sha256": "f9367dc52117842d3b37740ab9008c18028fe0ca31aa87a477bf79432fcf42f6",
+      "validated": true
+    }
+  },
+  "model_adequacy_sha256": "0b6e67b9f3f77027928d0d7e946dfbc8789333b9380adba70d6e4526d73f6b14",
+  "observation_input_sha256": "8dffa941a873cfa126e8abcb231282eb1fbf163934e5b3b3d4ef7c2c275c12d1",
+  "reason": "authoritative_predictive_model_adequacy_gate_failed",
+  "schema": "lc-policy-cost-v2-calibration-gate-v1",
+  "status": "failed_model_adequacy"
+}

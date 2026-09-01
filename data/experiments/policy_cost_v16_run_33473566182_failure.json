@@ -1,0 +1,105 @@
+{
+  "schema": "lc-policy-cost-v16-terminal-train-model-adequacy-and-retention-failure-v1",
+  "status": "complete_terminal_non_promotable",
+  "authoritative_train_gate": {
+    "calibration_passed": false,
+    "status": "failed_model_adequacy",
+    "reason": "authoritative_predictive_model_adequacy_gate_failed",
+    "exact_gate_path": "data/experiments/policy_cost_v16_run_33473566182_calibration_gate.json",
+    "exact_gate_sha256": "6cbee1084ec7d39d1c39b2f21b2872cb163df9a6bfbf194284daf42de4df7107",
+    "calibration_sha256": "f1f827c0aea099bfeb74ccebd5570657e0b67e5fd295ec88acd63e64613772de",
+    "model_adequacy_sha256": "0b6e67b9f3f77027928d0d7e946dfbc8789333b9380adba70d6e4526d73f6b14",
+    "failed_requirement": {
+      "criterion": "every pair-type and early/mid/late point >= 0 incremental source-cluster loss reduction versus beta-only",
+      "pair_different_core": 0.0002497852670770948,
+      "pair_same_core_draw": 0.003977373164576046,
+      "ply_early_0_15": 0.0011922546571257002,
+      "ply_mid_16_39": -0.00044385871011159766,
+      "ply_late_40_63": 0.011628542111042812
+    },
+    "other_frozen_checks": {
+      "one_sided_lcb_gap_over_beta_only": 0.0013481118490900471,
+      "one_sided_lcb_gap_over_beta_only_passed": true,
+      "richer_model_check_passed": true,
+      "maximum_allowed_relative_richer_improvement": 0.05
+    }
+  },
+  "secondary_infrastructure_defect": {
+    "classification": "terminal_evidence_retention_environment_missing_numpy",
+    "efficacy_related": false,
+    "mechanism": "The infrastructure_retain job verified the sealed transport and retained TRAIN files, then invoked the calibration module without installing the two frozen Python wheels or exporting the Python runtime path. Importing policy_cost_calibration_v16 therefore failed with ModuleNotFoundError: No module named 'numpy'.",
+    "stage": {
+      "job_id": 99863863044,
+      "name": "infrastructure_retain",
+      "failing_step": 18,
+      "error": "ModuleNotFoundError: No module named 'numpy'"
+    },
+    "campaign_result_affected": false,
+    "immutable_artifact_upload_affected": true
+  },
+  "execution_blob": {
+    "path": "data/experiments/locked_policy_cost_v16_execution.json",
+    "git_blob_sha": "d4a37c5885052e5f7f81b9d8a2058b5b70b3866a",
+    "sha256": "d18986bddf0298b44e02900c265c9161460885ebc7344d4126b51b98684e31d3",
+    "size": 124425,
+    "utf8_json_valid": true
+  },
+  "fixed_seed_execution": {
+    "all_policy_cost_v16_fixed_roots_retired": true,
+    "retired_fixed_root_count": 21,
+    "retry_forbidden": true,
+    "seeds_touched": true
+  },
+  "github_run": {
+    "id": 33473566182,
+    "url": "https://github.com/BEKINDTOEVERYKIND/LOSTCITIESCHATGPT/actions/runs/33473566182",
+    "attempt": 1,
+    "event": "push",
+    "conclusion": "failure",
+    "head_sha": "1f87ae4a909c366d91ce1dbd69ece602517f5ec1"
+  },
+  "immutable_calibration_artifact": {
+    "artifact_id": 9801298779,
+    "artifact_name": "policy-cost-v16-calibration",
+    "artifact_digest": "sha256:0389e6b85e9cdaa2841bcff3647b66270dacd6c56e8ab34127b4db9159716f78",
+    "artifact_size_bytes": 381615175,
+    "sha256_manifest_present": true,
+    "exact_gate_and_calibration_hashes_independently_verified": true,
+    "all_train_evaluation_batches_succeeded": true,
+    "train_evaluation_batch_count": 54,
+    "train_logical_slice_count": 216
+  },
+  "job_disposition": {
+    "success": 63,
+    "skipped": 9,
+    "failure": 1,
+    "total": 73
+  },
+  "locked_validation_relaxed": false,
+  "maintained_actor_changed": false,
+  "partial_efficacy_inspected": false,
+  "terminal_train_gate_inspected_after_run_completed": true,
+  "promotion_efficacy_data_observed": false,
+  "search_and_truth_labels_generated": true,
+  "source_parent": {
+    "commit": "9d660af2a12c89b89bb5cf7fea4a8a9e0564152a",
+    "tree": "4932a8e3e7b19d281a7a16305fe9979c248aa376"
+  },
+  "terminal_boundary": {
+    "train_calibration_completed": true,
+    "select_efficacy_started": false,
+    "select_configuration_started": false,
+    "untouched_test_efficacy_started": false,
+    "reciprocal_safety_started": false,
+    "final_started": false,
+    "promotion_started": false
+  },
+  "untouched_stages": [
+    "SELECT_evaluation",
+    "selection",
+    "untouched_TEST_evaluation",
+    "reciprocal_safety",
+    "final",
+    "promotion"
+  ]
+}
