@@ -11,21 +11,32 @@ unchanged.
 
 ## Current status
 
-The maintained playing agent uses the exact 20-way champion policy for the
+The authoritative full three-round champion is the Objective-3 actor recorded
+in [`data/experiments/final_actor_result.json`](data/experiments/final_actor_result.json).
+Its locked final panel covered 10,000 matches and scored 53.46% with a
+one-sided 95% lower bound of 52.745%, plus 3.6689 points per game with a lower
+bound of 2.7093. It combines 800+800 rollout confirmation with the projected
+match-value table in
+[`data/models/match_value_objective3_v2_projected.lcmv`](data/models/match_value_objective3_v2_projected.lcmv).
+That table deliberately fails closed outside its frozen GCC 13.3.0,
+`x86-64-v3`, fast-math build profile, and the actor is defined only for a full
+three-round match.
+
+The portable one-round fallback uses the exact 20-way champion policy for the
 first 14 actions of each round. Beginning at zero-based `round_ply=14` (the
 15th displayed action), it evaluates at most five policy-ranked moves with at
 least 2% prior on 800 shared uniform hidden worlds. In every world, each player
 gets an independently stratified suit mapping that remains fixed for the whole
 trajectory. If that primary panel prefers a move other than the raw policy
 leader, a fresh role-coherent 800-world panel must independently select the
-same leader; disagreement falls back to the policy. This is the exact deployed
+same leader; disagreement falls back to the policy. This is the exact portable
 specification:
 
 ```text
 rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1
 ```
 
-The locked world-count campaign promoted this 800+800 actor over the previously
+An earlier locked world-count campaign promoted this 800+800 actor over the previously
 maintained 512+512 actor. Each mirrored pair is two complete three-round
 matches with seats swapped:
 
@@ -208,6 +219,8 @@ installs the validated JSON and embedded viewer together, which makes stale or
 partially updated match artifacts visible instead of silently presenting them
 as the new match.
 
+Current promoted-actor samples: [Objective-3 self-play showcases](web/showcases/README.md).
+
 Its underlying network, `data/champion.bin`, combines an exactly
 wager-symmetric projection of the strongest inherited checkpoint with
 probability averaging over 20 exact suit relabellings. The policy alone
@@ -337,8 +350,10 @@ The expected checkpoint hash is
 `af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417`.
 `data/champion.bin` is deliberately generated and gitignored; using the
 tracked `data/c8.bin` directly skips the wager projection and is materially
-weaker. Full strength requires the generated checkpoint and the exact
-`LC_CHAMPION_AGENT_SPEC` in `src/spec.h`. Model paths in agent specs are
+weaker. The portable one-round fallback requires the generated checkpoint and
+the exact `LC_CHAMPION_AGENT_SPEC` in `src/spec.h`. Full-match strength uses
+the Objective-3 actor in `data/experiments/final_actor_result.json`, the bound
+match-value table, and its frozen build profile. Model paths in agent specs are
 relative to the process working directory unless the match harness substitutes
 an absolute path.
 

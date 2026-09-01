@@ -1,0 +1,24 @@
+{
+  "schema": "lc-objective3-showcase-plan-v1",
+  "status": "seeds_frozen_before_generation",
+  "selection": "three independent random seeds chosen once; publish every successfully generated game without outcome screening or retry",
+  "promotion_commit": "09aaf8fdf50d364c100295dca1e696472353666e",
+  "actor": "rolloutu2:data/champion.bin:data/champion.bin:800:5:0.02:0:1:0:0:0:3:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1:0:0:0:1:0:data/models/match_value_objective3_v2_projected.lcmv",
+  "evaluator": "rolloutu2:data/champion.bin:data/champion.bin:2048:5:0.01:0:1:0:0:0:3:0:3.5:2:4:20:0:0:20:1:0:2048:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1:0:0:0:1:0:data/models/match_value_objective3_v2_projected.lcmv",
+  "assets": {
+    "data/champion.bin": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+    "data/models/match_value_objective3_v2_projected.lcmv": "e3eac1b6fecf314a3db45ef9fd7563db1f18e02ca09a7e63aac00bc8fd4cb28e"
+  },
+  "runtime": {
+    "source_commit": "1f87ae4a909c366d91ce1dbd69ece602517f5ec1",
+    "source_tree": "95f291ba7c69063fdfcc7c0a26bf7a9cf9cd0e45",
+    "compiler": "cc (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0",
+    "cflags": "-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11",
+    "bin/analyze": "b4b964cffc04517b05d23ca6a1e54eb3853a2e4857584267497d6a30a6851791"
+  },
+  "seeds": [
+    1429981849814461,
+    6384097756503089,
+    8833781422507746
+  ]
+}
