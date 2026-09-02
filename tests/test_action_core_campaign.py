@@ -46,6 +46,7 @@ PLAN = ROOT / PLAN_PATH
 WORKFLOW = ROOT / WORKFLOW_PATH
 EXECUTION = ROOT / EXECUTION_PATH
 TEMPLATE = ROOT / "data/experiments/locked_action_core_shortlist_execution.template.json"
+RESULT = ROOT / "data/experiments/action_core_shortlist_run_33556276593_result.json"
 
 
 def assert_workflow_mapping_keys_are_unique(test: unittest.TestCase,
@@ -229,11 +230,39 @@ class ActionCoreCampaignTests(unittest.TestCase):
         self.assertEqual(len(seeds), 4)
         for path in list((ROOT / "data/experiments").glob("*.json")) + \
                 list((ROOT / ".github/workflows").glob("*.yml")):
-            if path in {PLAN, WORKFLOW, TEMPLATE, EXECUTION}:
+            # The terminal result must name the consumed seeds so their
+            # retirement remains auditable.  Freshness applies to every
+            # other definition, execution, and workflow file.
+            if path in {PLAN, WORKFLOW, TEMPLATE, EXECUTION, RESULT}:
                 continue
             text = path.read_text(encoding="utf-8", errors="replace")
             for seed in seeds:
                 self.assertNotIn(seed, text, f"seed reused in {path}")
+
+    def test_terminal_result_retires_seeds_without_authorizing_promotion(self) -> None:
+        result = strict_json(RESULT)
+        self.assertEqual(
+            result["status"], "complete_terminal_statistical_rejection")
+        self.assertTrue(result["conclusion"]["safety_gate_passed"])
+        self.assertFalse(result["conclusion"]["final_gate_passed"])
+        self.assertFalse(result["conclusion"]["promotion_permitted"])
+        self.assertFalse(result["conclusion"]["maintained_actor_changed"])
+        self.assertEqual(
+            {
+                result["safety_gate"]["seeds"]["candidate_first"],
+                result["safety_gate"]["seeds"]["baseline_first"],
+                result["final_gate"]["seeds"]["candidate_first"],
+                result["final_gate"]["seeds"]["baseline_first"],
+            },
+            {
+                SAFETY_CANDIDATE_SEED, SAFETY_BASELINE_SEED,
+                FINAL_CANDIDATE_SEED, FINAL_BASELINE_SEED,
+            },
+        )
+        self.assertTrue(result["fixed_seed_disposition"]
+                        ["all_four_roots_consumed_and_retired"])
+        self.assertFalse(result["baseline_scope_correction"]
+                         ["locked_baseline_is_authoritative_maintained_actor"])
 
     def test_workflow_is_inert_addendum_only_and_compile_once(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
