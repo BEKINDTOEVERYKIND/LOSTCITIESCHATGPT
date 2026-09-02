@@ -522,6 +522,13 @@ class PolicyCostV17RecoveryTests(unittest.TestCase):
         definition = V17_DEFINITION.read_text(encoding="utf-8")
         self.assertIn("tools/policy_cost_dataset_v17.c", definition)
         self.assertIn("tests/test_policy_cost_v17_recovery.py", definition)
+        versioned_native = definition.split(
+            "- name: Compile the exact versioned native runtime", 1
+        )[1].split(
+            "- name: Validate the complete definition", 1
+        )[0]
+        self.assertIn("bin/test_policy_cost_v17", versioned_native)
+        self.assertNotIn("bin/test_policy_cost\n", versioned_native)
 
 
 if __name__ == "__main__":

@@ -111,7 +111,7 @@ jobs:
           cp src/policy_cost_v17.c src/policy_cost.c
           cp src/policy_cost_v17.h src/policy_cost.h
           make -j2 CC=gcc CFLAGS="$CFLAGS_LOCKED" LDFLAGS="$LDFLAGS_LOCKED" \
-            bin/arena bin/build_policy_cost bin/test_policy_cost
+            bin/arena bin/build_policy_cost
           gcc $CFLAGS_LOCKED -o bin/policy_cost_dataset \
             tools/policy_cost_dataset_v17.c src/lc.c src/features.c src/net.c \
             src/heuristic.c src/planner.c src/search.c src/rollout.c \
@@ -123,7 +123,12 @@ jobs:
             src/heuristic.c src/planner.c src/search.c src/rollout.c \
             src/late_resolver.c src/match_value.c src/policy_cost.c \
             src/agent.c src/match.c src/spec.c $LDFLAGS_LOCKED
-          bin/test_policy_cost
+          # The canonical test_policy_cost suite is compiled against the
+          # repository's maintained runtime and is exercised by `make test`
+          # below.  After this step overlays the versioned v17 runtime, its
+          # exact superset is test_policy_cost_v17; compiling the canonical
+          # fixture against v17 constants would manufacture a hybrid artifact
+          # that no released runtime ever writes.
           bin/test_policy_cost_v17
           bin/policy_cost_dataset self-test
           # Cross the actual native-producer/Python-consumer boundary for all
