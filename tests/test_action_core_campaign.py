@@ -162,6 +162,8 @@ class ActionCoreCampaignTests(unittest.TestCase):
                 "src/policy_cost_v17.h",
                 "src/policy_cost_v18.c",
                 "src/policy_cost_v18.h",
+                "src/policy_cost_v19.c",
+                "src/policy_cost_v19.h",
                 "src/history_belief_exclusion.c",
                 "src/history_belief_exclusion.h",
                 "src/history_belief_model.c",
