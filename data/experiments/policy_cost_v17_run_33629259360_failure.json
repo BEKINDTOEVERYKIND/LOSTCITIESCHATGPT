@@ -1,0 +1,47 @@
+{
+  "cause": {
+    "class": "versioned_runtime_validation_scope_mismatch",
+    "detail": "After the maintained parent runtime passed its complete 452-test suite, preflight overlaid the versioned v17 policy-cost runtime but also compiled and ran the maintained generic policy-cost fixture against the v17 constants. That creates a hybrid artifact identity no released runtime writes. The dedicated versioned v17 suite was not reached.",
+    "failed_job": "preflight",
+    "failed_step": "Materialize and compile the bound parent once",
+    "not_ai_result": true
+  },
+  "execution": {
+    "launch_commit": "41d2585cc0f6632388190d9a142b7809344e3471",
+    "launch_tree": "cb2b649a6dd15ce21e2f04fdef5cc3fc4558bc81",
+    "path": "data/experiments/locked_policy_cost_v17_execution.json",
+    "sha256": "25534bf643630173464eba1f39ab06c8fee7270e2d530b740f1d9e629f29dc3c"
+  },
+  "fixed_seed_execution": {
+    "all_policy_cost_v17_fixed_roots_retired": true,
+    "campaign_seed_or_truth_use_began": false,
+    "declared_fixed_root_count": 21,
+    "discovery_began": false,
+    "retry_forbidden": true
+  },
+  "github_run": {
+    "attempt": 1,
+    "conclusion": "failure",
+    "event": "push",
+    "id": 33629259360,
+    "job_disposition": {
+      "failure": 1,
+      "skipped": 19,
+      "success": 0,
+      "total": 20
+    },
+    "preflight_job_id": 100244352109,
+    "url": "https://github.com/BEKINDTOEVERYKIND/LOSTCITIESCHATGPT/actions/runs/33629259360"
+  },
+  "locked_validation_relaxed": false,
+  "maintained_actor_changed": false,
+  "partial_efficacy_inspected": false,
+  "promotion_efficacy_data_observed": false,
+  "repair_scope": "Remove only the maintained generic policy-cost fixture from the post-overlay versioned-runtime compile/test commands. Continue to run the complete maintained suite before the overlay and the exact versioned suite after it.",
+  "schema": "lc-policy-cost-v17-preflight-versioned-runtime-validation-scope-failure-v1",
+  "status": "complete_terminal_non_promotable_before_discovery",
+  "workflow": {
+    "path": ".github/workflows/policy-cost-v17.yml",
+    "sha256": "e16b32a1dcd9559d01c1097d09b7619f42ce5490630bbf101e03238db49de7f9"
+  }
+}
