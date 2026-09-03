@@ -1,0 +1,53 @@
+{
+  "cause": {
+    "class": "train_truth_pair_second_moment_cancellation_roundoff",
+    "detail": "All 54 TRAIN evaluation batches completed and were hash-verified. Calibration then failed closed before fitting because the independent Python verifier reconstructed sum_products by subtracting nearly equal second-moment terms. For a constant zero-versus-minus-51.6000000000001 witness over 512 worlds, the native sum_products was exactly 0 while binary64 reconstruction produced -3.14321368932724e-09, just beyond the absolute 2e-09 verifier tolerance.",
+    "efficacy_related": false,
+    "failed_job_id": 100654519054,
+    "failed_job_name": "train_calibrate",
+    "failed_step": "Calibrate and seal the pre-SELECT decision",
+    "native_sum_products": 0.0,
+    "python_reconstructed_sum_products": -3.14321368932724e-09,
+    "worlds": 512
+  },
+  "execution": {
+    "launch_commit": "c1d48322ea501fbe98192cfa153e7ac7c4405150",
+    "launch_parent": "01a960b727cea6ff8baf0028239ed6cd9e1ccfb0",
+    "launch_tree": "d6ec145be551c79a0cb1a90dc6fc8cff5825625f",
+    "path": "data/experiments/locked_policy_cost_v20_execution.json",
+    "sha256": "08999f32db6fed8981a687955b4375f40d780316d28a833a757aee45fadd59f3"
+  },
+  "fixed_seed_execution": {
+    "all_policy_cost_v20_fixed_roots_retired": true,
+    "campaign_seed_or_truth_use_began": true,
+    "declared_fixed_root_count": 21,
+    "retry_forbidden": true
+  },
+  "github_run": {
+    "attempt": 1,
+    "conclusion": "failure",
+    "event": "push",
+    "id": 33718162703,
+    "train_evaluate_success": 54,
+    "url": "https://github.com/BEKINDTOEVERYKIND/LOSTCITIESCHATGPT/actions/runs/33718162703"
+  },
+  "immutable_failure_evidence": {
+    "artifact_digest": "sha256:7992126c02eef6112ddfa991f72a8adb94faf92a531a0bdbbeef56e893a6f42d",
+    "artifact_id": 9894048200,
+    "artifact_name": "policy-cost-v20-infrastructure-retain",
+    "artifact_size_bytes": 765378562,
+    "train_evaluation_batch_count": 54,
+    "train_logical_slice_count": 216
+  },
+  "locked_validation_relaxed": false,
+  "maintained_actor_changed": false,
+  "partial_efficacy_inspected": false,
+  "promotion_efficacy_data_observed": false,
+  "repair_scope": "Use the existing relative/absolute algebra tolerance plus a bounded 32-ULP cancellation allowance derived only from the magnitudes of the three second-moment operands. Preserve every actor, learned model, sample, budget, exact-17 exclusion, and promotion gate; launch only with fresh fixed roots.",
+  "schema": "lc-policy-cost-v20-train-pair-cancellation-roundoff-failure-v1",
+  "status": "complete_terminal_non_promotable_before_calibration_fit",
+  "workflow": {
+    "path": ".github/workflows/policy-cost-v20.yml",
+    "sha256": "5a3ec44bb9b788a880dd502cef076cae8c87fc8ad33cbdd204889d5b501b3d26"
+  }
+}
