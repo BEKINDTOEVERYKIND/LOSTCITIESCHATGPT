@@ -1,0 +1,11 @@
+{
+  "artifact_kind": "policy_cost_v20_pre_efficacy_manifest_template",
+  "instructions": [
+    "This inert template is never accepted as evidence.",
+    "The launched preflight must compile exactly once, construct a source-free transport, and run tools/policy_cost_campaign_v20.py pre-efficacy-manifest.",
+    "The generated manifest must bind the execution, compiler and runner identity, dynamically built binaries, v20 dataset source, models and optional match-value table, Python evidence tools, exact-17 hashes, plan, workflow, the terminal v19 SELECT transport failure, and every command/seed/budget before the first search or truth label."
+  ],
+  "results": null,
+  "schema": "lc-policy-cost-v20-pre-efficacy-manifest-template-v1",
+  "status": "inert_template_not_evidence"
+}
