@@ -1,0 +1,51 @@
+# name	moves_file	seed	ply	better	worse	note
+wager_open_w2	game_w2_seed11.moves	11	5	W4 p deck	Y2 d deck	open White with W4+W8 behind it beats the dead-yellow discard (w2-era leak, +2.9)
+wager_open_w3	game_w3_seed11.moves	11	5	W4 p deck	Yx d deck	same leak family in the current champion (+0.6..1.0)
+skip_cost_B8	game_w3_seed11.moves	11	26	B8 p deck	W7 p deck	B8 skips nothing (B7 is on opp expedition); W7 kills unseen W6 under x3 (+0.9)
+skip_cost_B10	game_w3_seed11.moves	11	30	B10 p deck	W7 p deck	policy had 94% on W7; B10 better by +1.36 at 15 sigma
+dead_discard	game_w3_seed11.moves	11	32	Wx d deck	W7 p deck	the provably dead wager discard beats the 99.5%-prior W7 (+1.64)
+gift_discard	game_w3_seed11.moves	11	36	Bx d deck	Y8 d deck	dominated discard: dead Bx in hand, Y8 could open Yellow for opponent
+stall_habit	game_w3_seed11.moves	11	39	G6 p deck	G6 p Y	pointless stall: nothing to deny, W10 22% in deck under x3, plays fit in remaining turns (habit-masked in same-policy playouts)
+suit_order_72	ply72.state	11	72	W4 p deck	B8 p deck	W4-first beats B8-first +1.8 (NOT B9 info-denial: edge same in no-B9 worlds; likely avoids own premature-B10 habit)
+premature_B10	ply74.state	11	74	W4 p deck	B10 p deck	banking B10 kills 27%-B9 equity under x2; policy had 97.5% on it (+2.7 at 10 sigma)
+bank_vs_wait_75	ply75.state	11	75	G10 p deck	B9 p deck	WATCH: search banks G10 (+0.6..1.1) pricing its own endgame execution risk; human+policy prefer waiting for G9 -- should flip if training fixes sequencing
+g424_policy_G5	g424_p10.state	424242	10	G5 p deck	R5 p deck	policy 70-84% on R5; G5 better by +4.8 -- the override's one clean win in game 424242
+g424_skip_B7	g424_p19.state	424242	19	B7 p deck	Y10 p deck	B7 risks only B5-draw (max 10); Y10 kills Y789 potential; policy 99.9% wrong (+0.97)
+g424_stall_38	g424_p38.state	424242	38	R6 p deck	R6 p W	deck beats the pile stall +1.75 even under same-policy playouts; policy split 45/32/2 against deck
+g424_stall_43	g424_p43.state	424242	43	Wx d deck	Wx d Y	6000w flips the in-game 512w Y-draw preference: deck +1.01; also exposes wager-id assignment noise
+g424_Y3_play	g424_p54.state	424242	54	Y3 p deck	Y3 d deck	the play variant was never a candidate; +1.70 over the 97%-prior discard
+g424_det_bias	g424_p93.state	424242	93	W9 p deck	R2 d deck	WATCH determinism artifact: argmax says R2 d +5.0 +- 0.14, sampled collapses it to +0.6 -- the override confirm-gate exists because of this ply
+g424_G10_111	g424_p111.state	424242	111	G10 p deck	Y5 d deck	G10 +1.23 over the 100%-prior discard into opponent Yx
+g424_drawY_112	g424_p112.state	424242	112	R4 p Y	R4 p deck	useful-pile-draw undervalued: +4.99 for taking the yellow; policy 0.01% on it
+g424_G8Y_118	g424_p118.state	424242	118	G8 p Y	Y7 p deck	the never-evaluated combo was +5.03 better; motivated draw-variant expansion
+g424_takeG6_126	g424_p126.state	424242	126	W6 p G	W6 p deck	drawing the just-discarded G6 is +8.61; combo was never a candidate pre-expansion
+ui_W2_3	ui_seed2214615196_p3.state	2214615196	3	Bx p deck	Bx p W	human-reviewed UI probe: low W2 pile draw must not rival the deck
+ui_W2_4	ui_seed2214615196_p4.state	2214615196	4	Bx p deck	Bx p W	human-reviewed UI probe: low W2 pile draw must not rival the deck
+ui_W2_8	ui_seed2214615196_p8.state	2214615196	8	B3 p deck	B3 p W	human-reviewed UI probe: low W2 pile draw must not rival the deck
+ui_W2_10	ui_seed2214615196_p10.state	2214615196	10	Wx p deck	Wx p W	human-reviewed UI probe: W2 is at most inconclusive after opening White
+ui_R2_12	ui_seed2214615196_p12.state	2214615196	12	W4 p deck	W4 p R	human-reviewed UI probe: low R2 pile draw must rank below the deck
+ui_belief_13	ui_seed2214615196_p13.state	2214615196	13	n/a	n/a	human-reviewed UI probe: fixed-K sym20 belief calibration
+ui_Y2_16	ui_seed2214615196_p16.state	2214615196	16	Y2 d deck	W7 p deck	human-reviewed UI probe: Y2 discard beats prematurely playing W7
+ui_W3_20	ui_seed2214615196_p20.state	2214615196	20	W3 d deck	W7 p deck	human-reviewed UI probe: W3 discard is audited and beats W7; Wx remains close
+showcase_belief_4	showcase_5726968372613385_p4.state	5726968372613385	4	n/a	n/a	actor-aware history posterior: high yellows must outrank the old learned Y4 estimate without hidden-card leakage
+showcase_choice_7	showcase_5726968372613385_p7.state	5726968372613385	7	G5 p deck	Y4 p deck	deep review: G5 and W5 are effectively tied; premature Y4 is decisively worse
+showcase_choice_14	showcase_5726968372613385_p14.state	5726968372613385	14	G7 p deck	R4 d deck	human-reviewed UI probe: recorded R4 discard was suspect; clean G7 play and B3 discard must be evaluated honestly rather than force-ranked
+showcase_choice_15	showcase_5726968372613385_p15.state	5726968372613385	15	B5 d deck	W4 d deck	human-reviewed UI probe: preserve the low White card and prefer the Blue-5 discard among the reviewed alternatives
+showcase_take_R4_17	showcase_5726968372613385_p17.state	5726968372613385	17	B5 d R	R8 p R	top-action draw interaction: taking R4 must be considered before held R8/R9
+showcase_take_Bw_25	showcase_5726968372613385_p25.state	5726968372613385	25	W6 p B	W6 p deck	public opponent pickup signal: taking the face-up blue wager must enter the focused shortlist
+showcase_third_Bw_32	showcase_5726968372613385_p32.state	5726968372613385	32	W10 p deck	Bx p deck	exact visible-hand planner rejects a score-losing third-wager commitment
+showcase_schedule_36	showcase_5726968372613385_p36.state	5726968372613385	36	W10 p deck	B6 p deck	commuting-sequence regression: planner preserves lower-card information and rollout must not invent a large ordering gap
+showcase_safe_Bw_59	showcase_5726968372613385_p59.state	5726968372613385	59	Bx d R	Y2 p deck	one-sided wager discard plus useful R-wager pickup; confirmed with 4096+4096 worlds
+showcase_safe_Bw_61	showcase_5726968372613385_p61.state	5726968372613385	61	Bx d R	Y4 p deck	one-sided wager discard; confirmed with 16384+16384 worlds
+showcase_schedule_85	showcase_5726968372613385_p85.state	5726968372613385	85	R10 p deck	W7 p deck	exact six-turn schedule: biased rollout may not undo the information-preserving baseline
+showcase_frontier_91	showcase_5726968372613385_p91.state	5726968372613385	91	W10 p deck	G10 p deck	delay G10 to retain the possible G9 insertion; safe tens beat the recorded green 10
+showcase_last_deck_96	showcase_5726968372613385_p96.state	5726968372613385	96	G9 p deck	G9 p W	with one deck card, ending the round weakly dominates granting the opponent another turn
+ui_R2_22	ui_seed725402798_p22.state	725402798	22	R2 d deck	R7 p deck	human-reviewed UI probe: discard the low red rather than prematurely committing R7
+ui_G5_21	ui_seed725402798_p21.state	725402798	21	Bx d deck	G5 p deck	human-reviewed UI probe: avoid overvaluing the premature G5 commitment; compare against a clean Blue-wager discard
+ui_G5_23	ui_seed725402798_p23.state	725402798	23	Wx d deck	G5 p deck	human-reviewed UI probe: avoid overvaluing G5 when the dead White-wager discard preserves options
+ui_take_Bw_25	ui_seed725402798_p25.state	725402798	25	Y4 p B	Y4 p deck	human-reviewed UI probe: the face-up Blue wager must be evaluated rather than silently excluded by the policy prefix
+ui_terminal_predecessor_43	ui_seed95647345759839_p43.state	95647345759839	43	Y10 p G	B10 p deck	exact objective arithmetic: B10 -21.511; Y10 immediate-progress -1.511; Y10 one-stall -18.933 (+2.58 versus B10)
+ui_replan_horizon_43	ui_seed95647345759839_p43.state	95647345759839	43	B10 p Y	B10 p deck	finite-support H2/H4 consensus accepts playing B10 to the blue expedition plus the Yellow-pile draw over the literal policy baseline by +20.622 in both horizons; all 90 ordered worlds
+ui_replan_frontier_42	ui_seed95647345759839_p42.state	95647345759839	42	G8 p deck	W8 p deck	finite-support H2/H4 candidate is stably G8 plus deck, but its +0.036 H2 gain misses the +1 practical gate; after all 990 ordered worlds the completed panel authoritatively retains the literal policy baseline without invoking the historical recursive root evaluator
+ui_last_deck_44	ui_seed95647345759839_p44.state	95647345759839	44	W10 p deck	W10 p G	human-reviewed deck-one blunder: end the round through the deck instead of taking the Green wager and gifting another turn
+ui_cycle_cap_112	ui_seed209430960825253_p112.state	209430960825253	112	R2 p deck	R2 d deck	fresh-viewer regression: exact propagated continuations select the play while every sampled path ends without accepting the artificial 300-ply cap

@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "excluded_development_runtime_result",
+  "status": "completed_and_excluded_from_efficacy_evidence",
+  "plan": "data/experiments/locked_objective_mode2_plan.json",
+  "source_commit": "ac50f962a013f6faa7a2f2459f59100d4ff4a96e",
+  "compiler": "cc (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0",
+  "model": {
+    "path": "data/champion.bin",
+    "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417"
+  },
+  "design": {
+    "seed": "2026080401",
+    "pairs": 50,
+    "games": 100,
+    "rounds": 3,
+    "threads": 4,
+    "candidate_as_agent_a": true,
+    "purpose": "parser, runtime and operational sanity only",
+    "efficacy_quarantined_before_execution": true
+  },
+  "result_for_candidate": {
+    "elapsed_seconds": 2307.3,
+    "games_per_second_rounded_by_arena": 0.0,
+    "margin_per_game": -2.16,
+    "margin_pair_clustered_se": 4.87,
+    "wins": 50,
+    "losses": 50,
+    "draws": 0,
+    "match_score": 0.5,
+    "match_score_pair_clustered_se": 0.04,
+    "points_per_game_candidate": 117.9,
+    "points_per_game_baseline": 120.0,
+    "plies_per_game": 140.3
+  },
+  "interpretation": [
+    "This result was explicitly excluded from efficacy evidence before execution and must not be used to promote or reject objective mode 2.",
+    "At the observed throughput, the two precommitted 1000-pair reciprocal blocks would take approximately 12.8 hours wall time if run concurrently on two four-thread groups.",
+    "The locked plan remains unexecuted and objective mode 2 remains opt-in."
+  ],
+  "command": "./bin/arena -a 'rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:2:0:3.5:2:2:20:0:0:20:1:0:512:1:0:0:0:0:0:0:2:1:0:0:0:0:0:0:1:0:0:0:1' -b 'rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:2:20:0:0:20:1:0:512:1:0:0:0:0:0:0:2:1:0:0:0:0:0:0:1:0:0:0:1' -n 50 -t 4 -s 2026080401 -r 3"
+}

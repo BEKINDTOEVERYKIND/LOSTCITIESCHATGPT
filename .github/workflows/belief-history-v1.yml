@@ -1,0 +1,786 @@
+name: Locked belief-history v1 accuracy campaign
+
+# Inert until one future direct-child push adds only the bound execution file.
+# This workflow measures opponent-hand posterior accuracy; it cannot replace or
+# promote the maintained playing actor.
+on:
+  push:
+    branches: [agent/correctness-and-policy-upgrade]
+    paths: [data/experiments/locked_belief_history_v1_execution.json]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: locked-belief-history-v1-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PLAN: data/experiments/locked_belief_history_v1_plan.json
+  EXECUTION: data/experiments/locked_belief_history_v1_execution.json
+  WORKFLOW: .github/workflows/belief-history-v1.yml
+  HELPER: tools/belief_history_campaign.py
+  REDUCER: tools/belief_history_reduce.py
+  EXCLUSIONS: data/experiments/policy_cost_v7_exact17_exclusions.txt
+  EXCLUSIONS_SHA256: 10034cf8b83aadf24fa0775e4dad2712573e1d84cbf364568ce6136682ac254c
+  REQUIREMENTS: data/experiments/belief_history_v1_python_requirements.txt
+  CFLAGS_LOCKED: -O3 -march=x86-64-v3 -funroll-loops -Wall -Wextra -std=c11 -fno-fast-math -ffp-contract=off
+  LDFLAGS_LOCKED: -lm -pthread
+  MKL_NUM_THREADS: '1'
+  NPY_DISABLE_CPU_FEATURES: AVX512F
+  OMP_NUM_THREADS: '1'
+  OPENBLAS_CORETYPE: Haswell
+  OPENBLAS_NUM_THREADS: '1'
+  PYTHONHASHSEED: '0'
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    outputs:
+      execution_sha256: ${{ steps.guard.outputs.execution_sha256 }}
+      source_commit: ${{ steps.guard.outputs.source_commit }}
+      source_tree: ${{ steps.guard.outputs.source_tree }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: {fetch-depth: 0, path: campaign}
+      - id: guard
+        name: Enforce the unique direct-child execution addendum
+        working-directory: campaign
+        env:
+          AFTER: ${{ github.event.after }}
+          BEFORE: ${{ github.event.before }}
+          FORCED: ${{ github.event.forced }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = push
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$GITHUB_REF" = refs/heads/agent/correctness-and-policy-upgrade
+          test "$FORCED" = false
+          test "$AFTER" = "$GITHUB_SHA"
+          test "$(git rev-list --parents -n1 HEAD | wc -w)" = 2
+          SOURCE_COMMIT="$(git rev-parse HEAD^)"
+          SOURCE_TREE="$(git rev-parse 'HEAD^^{tree}')"
+          test "$BEFORE" = "$SOURCE_COMMIT"
+          test "$(git diff-tree --no-commit-id --name-status -r HEAD)" = "$(printf 'A\t%s' "$EXECUTION")"
+          test "$(git rev-list --all --count -- "$EXECUTION")" = 1
+          ! git cat-file -e "HEAD^:$EXECUTION" 2>/dev/null
+          SNAPSHOT="$(mktemp -d)"
+          git archive "$SOURCE_COMMIT" | tar -x -C "$SNAPSHOT"
+          mkdir -p "$SNAPSHOT/$(dirname "$EXECUTION")"
+          cp "$EXECUTION" "$SNAPSHOT/$EXECUTION"
+          python3 "$SNAPSHOT/$HELPER" guard-execution --root "$SNAPSHOT" \
+            --execution "$SNAPSHOT/$EXECUTION" \
+            --source-parent-commit "$SOURCE_COMMIT" \
+            --source-parent-tree "$SOURCE_TREE"
+          echo "source_commit=$SOURCE_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "source_tree=$SOURCE_TREE" >> "$GITHUB_OUTPUT"
+          echo "execution_sha256=$(sha256sum "$EXECUTION" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Build and test the exact bound parent
+        run: |
+          set -euo pipefail
+          python3 -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+          test "$(gcc -dumpversion | cut -d. -f1)" = 13
+          mkdir source python-wheel
+          git -C campaign archive "${{ steps.guard.outputs.source_commit }}" | tar -x -C source
+          test ! -e "source/$EXECUTION"
+          python3 -m pip download --disable-pip-version-check --no-deps \
+            --only-binary=:all: --require-hashes --dest python-wheel \
+            -r "source/$REQUIREMENTS"
+          test "$(find python-wheel -maxdepth 1 -type f -name '*.whl' | wc -l)" = 1
+          NUMPY_WHEEL=python-wheel/numpy-2.3.5-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+          test "$(sha256sum "$NUMPY_WHEEL" | cut -d' ' -f1)" = 0d8163f43acde9a73c2a33605353a4f1bc4798745a8b1d73183b28e5b435ae28
+          test ! -e python-runtime; mkdir python-runtime
+          python3 -m pip install --disable-pip-version-check --no-index \
+            --no-deps --target python-runtime "$NUMPY_WHEEL"
+          PY_RUNTIME="$PWD/python-runtime"
+          export PYTHONNOUSERSITE=1 PYTHONPATH="$PY_RUNTIME"
+          python3 - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          import numpy
+          expected=Path('python-runtime').resolve()
+          actual=Path(numpy.__file__).resolve()
+          assert numpy.__version__ == '2.3.5'
+          assert actual.is_relative_to(expected), (actual,expected)
+          wheel=Path('python-wheel/numpy-2.3.5-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl')
+          value={
+            'schema':'lc-belief-history-python-dependency-proof-v1',
+            'isolation':'PYTHONNOUSERSITE=1 plus isolated PYTHONPATH target',
+            'numpy_version':numpy.__version__,
+            'numpy_module_relative_path':actual.relative_to(expected).as_posix(),
+            'numpy_module_sha256':hashlib.sha256(actual.read_bytes()).hexdigest(),
+            'numpy_wheel_sha256':hashlib.sha256(wheel.read_bytes()).hexdigest(),
+          }
+          Path('python-dependency-proof.json').write_text(
+            json.dumps(value,sort_keys=True,separators=(',',':'),ensure_ascii=True,allow_nan=False)+'\n',encoding='ascii')
+          PY
+          cd source
+          {
+            make -j2 CC=gcc CFLAGS="$CFLAGS_LOCKED" LDFLAGS="$LDFLAGS_LOCKED" \
+              bin/history_belief_train bin/test_history_belief_model \
+              bin/test_history_belief_exclusion
+            ./bin/test_history_belief_model
+            ./bin/test_history_belief_exclusion
+            python3 -m unittest tests.test_history_belief_train \
+              tests.test_belief_history_reduce tests.test_belief_history_campaign
+            python3 "$HELPER" validate-plan --root .
+          } 2>&1 | tee ../native-structural-tests.log
+      - name: Seal the source-free runtime and exercise it before production
+        run: |
+          set -euo pipefail
+          mkdir -p runtime/{bin,tools,data,bindings/exact17,bindings/python}
+          cp source/bin/history_belief_train runtime/bin/
+          cp source/tools/belief_history_{campaign,reduce}.py runtime/tools/
+          cp source/data/champion.bin runtime/data/
+          cp "source/$PLAN" runtime/bindings/plan.json
+          cp "source/$WORKFLOW" runtime/bindings/workflow.yml
+          cp "source/$EXCLUSIONS" runtime/bindings/exact17/exclusions.txt
+          cp "source/$REQUIREMENTS" runtime/bindings/python/requirements.txt
+          cp python-wheel/*.whl runtime/bindings/python/
+          cp campaign/$EXECUTION runtime/bindings/execution.json
+          cp native-structural-tests.log runtime/bindings/
+          cp python-dependency-proof.json runtime/bindings/
+          python3 - <<'PY'
+          import hashlib, json, subprocess
+          from pathlib import Path
+          root=Path('runtime')
+          value={
+            'schema':'lc-belief-history-build-identity-v1',
+            'runner':'ubuntu-24.04','architecture':'x86_64',
+            'compiler':'gcc','compiler_version':subprocess.check_output(
+              ['gcc','-dumpfullversion','-dumpversion'],text=True).strip(),
+            'python_version':subprocess.check_output(
+              ['python3','--version'],text=True,stderr=subprocess.STDOUT).strip(),
+            'python_dependency_contract':{
+              'isolation':'PYTHONNOUSERSITE=1 plus isolated PYTHONPATH target',
+              'numpy_version':'2.3.5',
+              'numpy_wheel_sha256':'0d8163f43acde9a73c2a33605353a4f1bc4798745a8b1d73183b28e5b435ae28',
+            },
+            'cflags':'-O3 -march=x86-64-v3 -funroll-loops -Wall -Wextra -std=c11 -fno-fast-math -ffp-contract=off',
+            'ldflags':'-lm -pthread',
+            'binary_sha256':hashlib.sha256((root/'bin/history_belief_train').read_bytes()).hexdigest(),
+            'native_structural_test_sha256':hashlib.sha256((root/'bindings/native-structural-tests.log').read_bytes()).hexdigest(),
+            'python_dependency_proof_sha256':hashlib.sha256((root/'bindings/python-dependency-proof.json').read_bytes()).hexdigest(),
+            'exact17_exclusions_sha256':hashlib.sha256((root/'bindings/exact17/exclusions.txt').read_bytes()).hexdigest(),
+            'execution_sha256':hashlib.sha256((root/'bindings/execution.json').read_bytes()).hexdigest(),
+            'numeric_environment':{
+              'MKL_NUM_THREADS':'1','NPY_DISABLE_CPU_FEATURES':'AVX512F',
+              'OMP_NUM_THREADS':'1','OPENBLAS_CORETYPE':'Haswell',
+              'OPENBLAS_NUM_THREADS':'1','PYTHONHASHSEED':'0'},
+          }
+          (root/'bindings/build-identity.json').write_text(
+            json.dumps(value,sort_keys=True,separators=(',',':'),ensure_ascii=True,allow_nan=False)+'\n',encoding='ascii')
+          PY
+          (cd runtime && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS && sha256sum -c SHA256SUMS)
+          cp -a runtime smoke-runtime
+          cd smoke-runtime
+          chmod 0755 bin/history_belief_train
+          EX=bindings/exact17/exclusions.txt
+          /usr/bin/time -f '%e' -o ../history-seconds \
+            ./bin/history_belief_train train --out ../smoke-history.bin \
+              --actor-net data/champion.bin --base-net data/champion.bin \
+              --matches 100 --rounds 3 --seed 202706290101 --match-start 0 \
+              --max-ply 300 --symmetries 20 --temperature 0.03 \
+              --base-alpha 1.0 --epochs 1 --lr 0.01 --l2 0.0000001 \
+              --exclusions "$EX" --exclusions-sha256 "$EXCLUSIONS_SHA256" \
+              > ../smoke-history-summary.json
+          /usr/bin/time -f '%e' -o ../control-seconds \
+            ./bin/history_belief_train train-control \
+              --out ../smoke-control.bin --control-state-out ../smoke-control.state \
+              --actor-net data/champion.bin --base-net data/champion.bin \
+              --matches 100 --rounds 3 --seed 202706290101 --match-start 0 \
+              --max-ply 300 --symmetries 20 --temperature 0.03 \
+              --base-alpha 1.0 --epochs 1 --lr 0.00015 --l2 0.0000001 \
+              --control-batch-states 256 \
+              --exclusions "$EX" --exclusions-sha256 "$EXCLUSIONS_SHA256" \
+              > ../smoke-control-summary.json
+          python3 - <<'PY'
+          import json,struct
+          def f32(value): return struct.unpack('<f',struct.pack('<f',value))[0]
+          h=json.load(open('../smoke-history-summary.json'))
+          c=json.load(open('../smoke-control-summary.json'))
+          assert h['source_manifest_sha256'] == c['source_manifest_sha256']
+          assert h['base_alpha'] == c['base_alpha'] == 1.0
+          assert f32(h['training_learning_rate']) == f32(0.01)
+          assert f32(c['lr']) == f32(0.00015)
+          assert f32(h['training_l2']) == f32(c['l2']) == f32(0.0000001)
+          assert c['control_finalized'] is False and c['pending_batch_states'] > 0
+          # This throughput-only control tail is deliberately unused; only
+          # production base chunk 4 and the matched branch finalize a tail.
+          hs=float(open('../history-seconds').read()); cs=float(open('../control-seconds').read())
+          assert hs > 0 and cs > 0 and 100/hs >= 3.5 and 100/cs >= 3.5
+          PY
+          ./bin/history_belief_train eval --model ../smoke-history.bin \
+            --actor-net data/champion.bin --incumbent-alpha 1.15 \
+            --base-net data/champion.bin \
+            --base-alpha 1.0 --matched-base-net ../smoke-control.bin \
+            --matched-base-alpha 1.0 --matches 2 --rounds 3 \
+            --seed 202706290102 --match-start 0 --max-ply 300 \
+            --symmetries 20 --temperature 0.03 --match-jsonl ../smoke-eval.jsonl \
+            --exclusions "$EX" --exclusions-sha256 "$EXCLUSIONS_SHA256" \
+            > ../smoke-eval-summary.json
+          test "$(wc -l < ../smoke-eval.jsonl)" = 2
+          if ./bin/history_belief_train eval --model ../smoke-history.bin \
+            --actor-net data/champion.bin --incumbent-alpha 1.15 \
+            --base-net data/champion.bin \
+            --base-alpha 1.0 --matched-base-net ../smoke-control.bin \
+            --matched-base-alpha 1.0 --matches 2 --rounds 3 \
+            --seed 202706290102 --match-start 0 --max-ply 300 \
+            --symmetries 20 --temperature 0.03 --match-jsonl ../smoke-eval.jsonl \
+            --exclusions "$EX" --exclusions-sha256 "$EXCLUSIONS_SHA256"; then
+            echo 'native evaluator clobbered existing evidence' >&2; exit 1
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: belief-history-v1-runtime
+          path: runtime
+          if-no-files-found: error
+          retention-days: 30
+
+  base_control_1:
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: belief-history-v1-runtime, path: runtime}
+      - name: Fit exclusion-safe base head, range 0..65535
+        run: |
+          set -euo pipefail; test "$GITHUB_RUN_ATTEMPT" = 1
+          (cd runtime && sha256sum -c SHA256SUMS); chmod 0755 runtime/bin/history_belief_train
+          mkdir out
+          runtime/bin/history_belief_train train-control \
+            --out out/control.bin --control-state-out out/control.state \
+            --actor-net runtime/data/champion.bin --base-net runtime/data/champion.bin \
+            --matches 65536 --rounds 3 --seed 202706110102 --match-start 0 \
+            --max-ply 300 --symmetries 20 --temperature 0.03 --base-alpha 1.0 \
+            --epochs 1 --lr 0.0001 --l2 0.0000001 \
+            --control-batch-states 256 \
+            --exclusions runtime/bindings/exact17/exclusions.txt \
+            --exclusions-sha256 "$EXCLUSIONS_SHA256" > out/summary.json
+          python3 runtime/tools/belief_history_campaign.py verify-head-control \
+            --champion runtime/data/champion.bin --control out/control.bin \
+            --proof out/byte-proof.json
+          (cd out && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS && sha256sum -c SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with: {name: belief-history-v1-base-control-1, path: out, if-no-files-found: error, retention-days: 30}
+
+  base_control_2:
+    needs: base_control_1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: belief-history-v1-runtime, path: runtime}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: belief-history-v1-base-control-1, path: previous}
+      - run: |
+          set -euo pipefail; test "$GITHUB_RUN_ATTEMPT" = 1
+          (cd runtime && sha256sum -c SHA256SUMS); (cd previous && sha256sum -c SHA256SUMS)
+          chmod 0755 runtime/bin/history_belief_train; mkdir out
+          runtime/bin/history_belief_train train-control --out out/control.bin \
+            --control-state-out out/control.state --control-state-in previous/control.state \
+            --actor-net runtime/data/champion.bin --base-net previous/control.bin \
+            --matches 65536 --rounds 3 --seed 202706110102 --match-start 65536 \
+            --max-ply 300 --symmetries 20 --temperature 0.03 --base-alpha 1.0 \
+            --epochs 1 --lr 0.0001 --l2 0.0000001 \
+            --control-batch-states 256 \
+            --exclusions runtime/bindings/exact17/exclusions.txt \
+            --exclusions-sha256 "$EXCLUSIONS_SHA256" > out/summary.json
+          python3 runtime/tools/belief_history_campaign.py verify-head-control --champion runtime/data/champion.bin --control out/control.bin --proof out/byte-proof.json
+          (cd out && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS && sha256sum -c SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with: {name: belief-history-v1-base-control-2, path: out, if-no-files-found: error, retention-days: 30}
+
+  base_control_3:
+    needs: base_control_2
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: belief-history-v1-runtime, path: runtime}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: belief-history-v1-base-control-2, path: previous}
+      - run: |
+          set -euo pipefail; test "$GITHUB_RUN_ATTEMPT" = 1
+          (cd runtime && sha256sum -c SHA256SUMS); (cd previous && sha256sum -c SHA256SUMS)
+          chmod 0755 runtime/bin/history_belief_train; mkdir out
+          runtime/bin/history_belief_train train-control --out out/control.bin \
+            --control-state-out out/control.state --control-state-in previous/control.state \
+            --actor-net runtime/data/champion.bin --base-net previous/control.bin \
+            --matches 65536 --rounds 3 --seed 202706110102 --match-start 131072 \
+            --max-ply 300 --symmetries 20 --temperature 0.03 --base-alpha 1.0 \
+            --epochs 1 --lr 0.0001 --l2 0.0000001 \
+            --control-batch-states 256 \
+            --exclusions runtime/bindings/exact17/exclusions.txt \
+            --exclusions-sha256 "$EXCLUSIONS_SHA256" > out/summary.json
+          python3 runtime/tools/belief_history_campaign.py verify-head-control --champion runtime/data/champion.bin --control out/control.bin --proof out/byte-proof.json
+          (cd out && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS && sha256sum -c SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with: {name: belief-history-v1-base-control-3, path: out, if-no-files-found: error, retention-days: 30}
+
+  base_control_4:
+    needs: base_control_3
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: belief-history-v1-runtime, path: runtime}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: belief-history-v1-base-control-3, path: previous}
+      - run: |
+          set -euo pipefail; test "$GITHUB_RUN_ATTEMPT" = 1
+          (cd runtime && sha256sum -c SHA256SUMS); (cd previous && sha256sum -c SHA256SUMS)
+          chmod 0755 runtime/bin/history_belief_train; mkdir out
+          runtime/bin/history_belief_train train-control --out out/control.bin \
+            --control-state-out out/control.state --control-state-in previous/control.state \
+            --actor-net runtime/data/champion.bin --base-net previous/control.bin \
+            --matches 65536 --rounds 3 --seed 202706110102 --match-start 196608 \
+            --max-ply 300 --symmetries 20 --temperature 0.03 --base-alpha 1.0 \
+            --epochs 1 --lr 0.0001 --l2 0.0000001 \
+            --control-batch-states 256 --control-finalize \
+            --exclusions runtime/bindings/exact17/exclusions.txt \
+            --exclusions-sha256 "$EXCLUSIONS_SHA256" > out/summary.json
+          python3 runtime/tools/belief_history_campaign.py verify-head-control --champion runtime/data/champion.bin --control out/control.bin --proof out/byte-proof.json
+          (cd out && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS && sha256sum -c SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with: {name: belief-history-v1-base-control-4, path: out, if-no-files-found: error, retention-days: 30}
+
+  history_train:
+    needs: base_control_4
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: belief-history-v1-runtime, path: runtime}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: belief-history-v1-base-control-4, path: base}
+      - run: |
+          set -euo pipefail; test "$GITHUB_RUN_ATTEMPT" = 1
+          (cd runtime && sha256sum -c SHA256SUMS); (cd base && sha256sum -c SHA256SUMS)
+          chmod 0755 runtime/bin/history_belief_train; mkdir out
+          runtime/bin/history_belief_train train --out out/history-model.bin \
+            --actor-net runtime/data/champion.bin --base-net base/control.bin \
+            --matches 65536 --rounds 3 --seed 202706100101 --match-start 0 \
+            --max-ply 300 --symmetries 20 --temperature 0.03 --base-alpha 1.0 \
+            --epochs 1 --lr 0.01 --l2 0.0000001 \
+            --exclusions runtime/bindings/exact17/exclusions.txt \
+            --exclusions-sha256 "$EXCLUSIONS_SHA256" > out/summary.json
+          (cd out && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS && sha256sum -c SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with: {name: belief-history-v1-history-model, path: out, if-no-files-found: error, retention-days: 30}
+
+  matched_control_train:
+    needs: base_control_4
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: belief-history-v1-runtime, path: runtime}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: belief-history-v1-base-control-4, path: base}
+      - run: |
+          set -euo pipefail; test "$GITHUB_RUN_ATTEMPT" = 1
+          (cd runtime && sha256sum -c SHA256SUMS); (cd base && sha256sum -c SHA256SUMS)
+          chmod 0755 runtime/bin/history_belief_train; mkdir out
+          runtime/bin/history_belief_train train-control --out out/matched-control.bin \
+            --control-state-out out/matched-control.state \
+            --actor-net runtime/data/champion.bin --base-net base/control.bin \
+            --matches 65536 --rounds 3 --seed 202706100101 --match-start 0 \
+            --max-ply 300 --symmetries 20 --temperature 0.03 --base-alpha 1.0 \
+            --epochs 1 --lr 0.00015 --l2 0.0000001 \
+            --control-batch-states 256 --control-finalize \
+            --exclusions runtime/bindings/exact17/exclusions.txt \
+            --exclusions-sha256 "$EXCLUSIONS_SHA256" > out/summary.json
+          python3 runtime/tools/belief_history_campaign.py verify-head-control --champion runtime/data/champion.bin --control out/matched-control.bin --proof out/byte-proof.json
+          (cd out && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS && sha256sum -c SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with: {name: belief-history-v1-matched-control, path: out, if-no-files-found: error, retention-days: 30}
+
+  training_freeze:
+    needs: [history_train, matched_control_train]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: belief-history-v1-runtime, path: runtime}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: belief-history-v1-base-control-1, path: base1}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: belief-history-v1-base-control-2, path: base2}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: belief-history-v1-base-control-3, path: base3}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: belief-history-v1-base-control-4, path: base}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: belief-history-v1-history-model, path: history}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: belief-history-v1-matched-control, path: matched}
+      - name: Prove equal training sources and seal the untouched-TEST identity
+        run: |
+          set -euo pipefail
+          for d in runtime base1 base2 base3 base history matched; do (cd "$d" && sha256sum -c SHA256SUMS); done
+          mkdir -p freeze/base-chain freeze/training-artifacts
+          for source in base1 base2 base3; do
+            stage="${source#base}"
+            mkdir "freeze/training-artifacts/base-control-${stage}"
+            cp -a "${source}/." "freeze/training-artifacts/base-control-${stage}/"
+          done
+          mkdir freeze/training-artifacts/base-control-4
+          cp -a base/. freeze/training-artifacts/base-control-4/
+          mkdir freeze/training-artifacts/history
+          cp -a history/. freeze/training-artifacts/history/
+          mkdir freeze/training-artifacts/matched-control
+          cp -a matched/. freeze/training-artifacts/matched-control/
+          for stage in 1 2 3; do
+            cp "base${stage}/control.bin" "freeze/base-chain/${stage}-control.bin"
+            cp "base${stage}/summary.json" "freeze/base-chain/${stage}-summary.json"
+            cp "base${stage}/control.state" "freeze/base-chain/${stage}-control.state"
+            cp "base${stage}/byte-proof.json" "freeze/base-chain/${stage}-byte-proof.json"
+            cp "base${stage}/SHA256SUMS" "freeze/base-chain/${stage}-SHA256SUMS"
+          done
+          cp base/control.bin freeze/base-chain/4-control.bin
+          cp base/summary.json freeze/base-chain/4-summary.json
+          cp base/control.state freeze/base-chain/4-control.state
+          cp base/byte-proof.json freeze/base-chain/4-byte-proof.json
+          cp base/SHA256SUMS freeze/base-chain/4-SHA256SUMS
+          cp base/control.bin freeze/base-control-262144.bin
+          cp history/history-model.bin freeze/history-model.bin
+          cp matched/matched-control.bin freeze/matched-control-327680.bin
+          cp base/summary.json freeze/base-summary.json
+          cp history/summary.json freeze/history-summary.json
+          cp matched/summary.json freeze/matched-summary.json
+          cp history/SHA256SUMS freeze/history-artifact-SHA256SUMS
+          cp matched/SHA256SUMS freeze/matched-artifact-SHA256SUMS
+          cp matched/matched-control.state freeze/matched-control-327680.state
+          cp base/byte-proof.json freeze/base-byte-proof.json
+          cp matched/byte-proof.json freeze/matched-byte-proof.json
+          test ! -e python-runtime; mkdir python-runtime
+          WHEEL=runtime/bindings/python/numpy-2.3.5-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+          python3 -m pip install --disable-pip-version-check --no-index --no-deps --target python-runtime "$WHEEL"
+          export PYTHONNOUSERSITE=1 PYTHONPATH="$PWD/python-runtime"
+          python3 -c 'import numpy; assert numpy.__version__ == "2.3.5"'
+          python3 - <<'PY'
+          import hashlib,json,struct,sys
+          from pathlib import Path
+          sys.path.insert(0,'python-runtime')
+          sys.path.insert(0,'runtime/tools')
+          import belief_history_reduce as reducer
+          def sha(path): return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+          def f32(value): return struct.unpack('<f',struct.pack('<f',value))[0]
+          h=json.load(open('history/summary.json')); m=json.load(open('matched/summary.json'))
+          b=json.load(open('base/summary.json')); build=json.load(open('runtime/bindings/build-identity.json'))
+          exclusion_sha=sha('runtime/bindings/exact17/exclusions.txt')
+          expected_starts=(0,65536,131072,196608)
+          base_chain=[]
+          previous_output=None
+          previous_output_sha256=None
+          previous_trained=previous_steps=previous_pending=0
+          for index,start in enumerate(expected_starts,1):
+              directory=Path('base' if index == 4 else f'base{index}')
+              summary=json.loads((directory/'summary.json').read_text(encoding='ascii'))
+              assert summary['schema'] == 'lc-history-belief-control-run-v1'
+              assert summary['mode'] == 'train-control'
+              assert summary['seed'] == 202706110102
+              assert summary['matches'] == 65536
+              assert summary['match_start'] == start
+              assert summary['next_match_start'] == start + 65536
+              assert summary['rounds'] == 3 and summary['max_scored_ply'] == 300
+              assert summary['symmetries'] == 20 and f32(summary['temperature']) == f32(0.03)
+              assert summary['base_alpha'] == 1.0
+              assert f32(summary['lr']) == f32(0.0001)
+              assert f32(summary['l2']) == f32(0.0000001)
+              assert summary['control_batch_states'] == 256
+              assert summary['control_finalized'] is (index == 4)
+              if index == 4: assert summary['pending_batch_states'] == 0
+              assert summary['source_state_count'] > 0
+              assert summary['trained_state_count'] - previous_trained == summary['source_state_count']
+              available=previous_pending + summary['source_state_count']
+              expected_step_delta=available // 256
+              expected_pending=available % 256
+              if index == 4 and expected_pending:
+                  expected_step_delta += 1
+                  expected_pending = 0
+              assert summary['optimizer_steps'] - previous_steps == expected_step_delta
+              assert summary['pending_batch_states'] == expected_pending
+              assert summary['control_state_source_manifest_scope'] == 'current_invocation'
+              assert summary['exclusion_manifest_count'] == 17
+              assert summary['exclusion_manifest_sha256'] == exclusion_sha
+              assert summary['playing_actor_changed'] is False
+              assert summary['control_changed_only_belief_head'] is True
+              assert summary['output_sha256'] == sha(directory/'control.bin')
+              assert summary['control_state_sha256'] == sha(directory/'control.state')
+              assert summary['control_state_checkpoint_sha256'] == summary['output_sha256']
+              assert summary['actor_fingerprint'] == h['actor_fingerprint']
+              if previous_output is None:
+                  assert summary['input_net_fingerprint'] == summary['actor_fingerprint']
+                  assert summary['input_checkpoint_sha256'] == sha('runtime/data/champion.bin')
+              else:
+                  assert summary['input_net_fingerprint'] == previous_output
+                  assert summary['input_checkpoint_sha256'] == previous_output_sha256
+              previous_output=summary['output_net_fingerprint']
+              previous_output_sha256=summary['output_sha256']
+              previous_trained=summary['trained_state_count']
+              previous_steps=summary['optimizer_steps']
+              previous_pending=summary['pending_batch_states']
+              base_chain.append({
+                  'stage':index,'match_start':start,
+                  'summary_sha256':sha(directory/'summary.json'),
+                  'input_checkpoint_sha256':summary['input_checkpoint_sha256'],
+                  'checkpoint_sha256':sha(directory/'control.bin'),
+                  'control_state_sha256':sha(directory/'control.state'),
+                  'control_state_checkpoint_sha256':summary['control_state_checkpoint_sha256'],
+                  'proof_sha256':sha(directory/'byte-proof.json'),
+                  'source_manifest_sha256':summary['source_manifest_sha256'],
+                  'input_net_fingerprint':summary['input_net_fingerprint'],
+                  'output_net_fingerprint':summary['output_net_fingerprint'],
+                  'control_finalized':summary['control_finalized'],
+                  'pending_batch_states':summary['pending_batch_states'],
+                  'source_state_count':summary['source_state_count'],
+                  'trained_state_count':summary['trained_state_count'],
+                  'optimizer_steps':summary['optimizer_steps'],
+              })
+          assert previous_output == b['output_net_fingerprint']
+          shared=h['source_manifest_sha256']
+          assert h['schema'] == 'lc-history-belief-run-v1' and h['mode'] == 'train'
+          assert h['seed'] == 202706100101 and h['match_start'] == 0
+          assert h['matches'] == 65536 and h['rounds'] == 3
+          assert h['max_scored_ply'] == 300 and h['epochs'] == 1
+          assert h['symmetries'] == 20 and f32(h['temperature']) == f32(0.03)
+          assert h['base_alpha'] == 1.0
+          assert f32(h['training_learning_rate']) == f32(0.01)
+          assert f32(h['training_l2']) == f32(0.0000001)
+          assert h['model_train_states'] == h['source_state_count'] > 0
+          assert h['states'] >= h['source_state_count']
+          assert h['output_sha256'] == sha('history/history-model.bin')
+          assert len(h['model_fingerprint']) == 16
+          int(h['model_fingerprint'],16)
+          assert h['match_jsonl_sha256'] is None
+          assert h['matched_base_net_fingerprint'] is None
+          assert h['matched_base_alpha'] is None
+          assert h['incumbent_alpha'] is None
+          assert h['incumbent_net_fingerprint'] is None
+          assert h['playing_actor_changed'] is False
+          assert h['structural_contract'] == {
+              'action_history_public_only':True,
+              'current_view_truth_scrubbed':True,
+              'opening_history_uniform':True,
+              'playing_actor_changed':False,
+              'public_transcript_complete':True,
+              'residual_features_opponent_action_anchored':True,
+              'reviewed_ply_orbit_exclusion_enabled':True,
+              'reviewed_ply_inputs_used':False,
+              'suit_equivariant_features':True,
+              'truth_read_after_prediction':True,
+              'wager_identity_collapsed':True,
+          }
+          assert shared == m['source_manifest_sha256']
+          assert m['schema'] == 'lc-history-belief-control-run-v1'
+          assert m['mode'] == 'train-control'
+          assert h['seed'] == m['seed'] == 202706100101
+          assert h['match_start'] == m['match_start'] == 0
+          assert h['matches'] == m['matches'] == 65536
+          assert m['next_match_start'] == 65536
+          assert h['rounds'] == m['rounds'] == 3
+          assert h['max_scored_ply'] == m['max_scored_ply'] == 300
+          assert h['symmetries'] == m['symmetries'] == 20
+          assert f32(h['temperature']) == f32(m['temperature']) == f32(0.03)
+          assert h['base_alpha'] == m['base_alpha'] == 1.0
+          assert f32(m['lr']) == f32(0.00015)
+          assert f32(m['l2']) == f32(0.0000001)
+          assert h['base_net_fingerprint'] == m['input_net_fingerprint'] == previous_output
+          assert h['actor_fingerprint'] == m['actor_fingerprint'] == b['actor_fingerprint']
+          assert h['source_state_count'] == m['source_state_count'] > 0
+          assert h['excluded_state_count'] == m['excluded_state_count']
+          assert h['exclusion_manifest_count'] == m['exclusion_manifest_count'] == 17
+          assert h['exclusion_manifest_sha256'] == m['exclusion_manifest_sha256'] == exclusion_sha
+          assert m['control_state_source_manifest_scope'] == 'current_invocation'
+          assert m['playing_actor_changed'] is False
+          assert m['control_changed_only_belief_head'] is True
+          assert m['training_augmentation'] == 'one deterministic scheduled member per state from the declared suit group'
+          assert m['control_finalized'] is True and m['pending_batch_states'] == 0
+          assert m['control_batch_states'] == 256
+          assert m['trained_state_count'] == m['source_state_count']
+          assert m['optimizer_steps'] == (m['source_state_count'] + 255) // 256
+          assert m['output_sha256'] == sha('matched/matched-control.bin')
+          assert m['control_state_sha256'] == sha('matched/matched-control.state')
+          assert m['input_checkpoint_sha256'] == sha('base/control.bin')
+          assert m['control_state_checkpoint_sha256'] == m['output_sha256']
+          chain_record={
+              'schema':'lc-belief-history-control-chain-v1',
+              'root':202706110102,'total_source_matches':262144,
+              'stages':base_chain,'final_output_net_fingerprint':previous_output,
+              'final_checkpoint_sha256':sha('base/control.bin'),
+              'exact17_exclusions_sha256':exclusion_sha,
+              'matched_branch':{
+                  'root':202706100101,'source_matches':65536,
+                  'summary_sha256':sha('matched/summary.json'),
+                  'input_checkpoint_sha256':m['input_checkpoint_sha256'],
+                  'checkpoint_sha256':sha('matched/matched-control.bin'),
+                  'control_state_sha256':sha('matched/matched-control.state'),
+                  'control_state_checkpoint_sha256':m['control_state_checkpoint_sha256'],
+                  'source_manifest_sha256':shared,
+                  'input_net_fingerprint':m['input_net_fingerprint'],
+                  'output_net_fingerprint':m['output_net_fingerprint'],
+                  'control_finalized':True,
+                  'source_state_count':m['source_state_count'],
+                  'trained_state_count':m['trained_state_count'],
+                  'optimizer_steps':m['optimizer_steps'],
+                  'learning_rate':m['lr'],'l2':m['l2'],
+              },
+              'history_branch':{
+                  'root':202706100101,'source_matches':65536,
+                  'summary_sha256':sha('history/summary.json'),
+                  'model_sha256':sha('history/history-model.bin'),
+                  'source_manifest_sha256':shared,
+                  'base_net_fingerprint':h['base_net_fingerprint'],
+                  'model_fingerprint':h['model_fingerprint'],
+              },
+          }
+          Path('freeze/control-chain-manifest.json').write_bytes(
+              reducer.canonical_bytes(chain_record))
+          bindings={
+            'actor_sha256':sha('runtime/data/champion.bin'),
+            'base_262k_head_sha256':sha('freeze/base-control-262144.bin'),
+            'exact17_exclusions_sha256':sha('runtime/bindings/exact17/exclusions.txt'),
+            'execution_sha256':sha('runtime/bindings/execution.json'),
+            'history_model_sha256':sha('freeze/history-model.bin'),
+            'matched_head_control_sha256':sha('freeze/matched-control-327680.bin'),
+            'native_structural_test_sha256':build['native_structural_test_sha256'],
+            'shared_train_source_manifest_sha256':shared,
+            'test_generator_manifest_sha256':'0'*64,
+            'transport_sha256':sha('runtime/SHA256SUMS'),
+          }
+          row_contract={
+              'actor_fingerprint':h['actor_fingerprint'],
+              'base_alpha':1.0,'base_net_fingerprint':h['base_net_fingerprint'],
+              'history_model_fingerprint':h['model_fingerprint'],
+              'incumbent_alpha':1.15,
+              'incumbent_net_fingerprint':h['actor_fingerprint'],
+              'matched_base_alpha':1.0,
+              'matched_base_net_fingerprint':m['output_net_fingerprint'],
+              'max_scored_ply':300,'seed_root':202706100403,
+              'source_match_count':65536,'source_match_start':0,
+              'symmetries':20,'temperature':0.03,
+          }
+          manifest=reducer.frozen_test_generator_manifest(
+              {'bindings':bindings,'row_contract':row_contract})
+          Path('freeze/test-generator-manifest.json').write_bytes(
+              reducer.canonical_bytes(manifest))
+          bindings['test_generator_manifest_sha256']=reducer.canonical_sha256(manifest)
+          payload={'schema':reducer.IDENTITY_SCHEMA,
+                   'campaign_id':'belief-history-v1','stage':'TEST',
+                   'bindings':bindings,'row_contract':row_contract}
+          Path('freeze/evaluation-identity.json').write_bytes(
+              reducer.canonical_bytes(reducer.seal(payload)))
+          record={'schema':'lc-belief-history-training-freeze-v1','bindings':bindings,
+                  'base_summary_sha256':sha('base/summary.json'),
+                  'history_summary_sha256':sha('history/summary.json'),
+                  'matched_summary_sha256':sha('matched/summary.json'),
+                  'playing_actor_changed':False,'actor_promotion_authorized':False}
+          Path('freeze/training-freeze.json').write_bytes(reducer.canonical_bytes(record))
+          PY
+          (cd freeze && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS && sha256sum -c SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with: {name: belief-history-v1-training-freeze, path: freeze, if-no-files-found: error, retention-days: 30}
+
+  test_evaluate:
+    needs: training_freeze
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 16
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: belief-history-v1-runtime, path: runtime}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: belief-history-v1-training-freeze, path: freeze}
+      - name: Generate one immutable untouched-TEST source range
+        run: |
+          set -euo pipefail; test "$GITHUB_RUN_ATTEMPT" = 1
+          (cd runtime && sha256sum -c SHA256SUMS); (cd freeze && sha256sum -c SHA256SUMS)
+          chmod 0755 runtime/bin/history_belief_train; mkdir out
+          START=$(( ${{ matrix.shard }} * 4096 ))
+          runtime/bin/history_belief_train eval --model freeze/history-model.bin \
+            --actor-net runtime/data/champion.bin --incumbent-alpha 1.15 \
+            --base-net freeze/base-control-262144.bin \
+            --base-alpha 1.0 --matched-base-net freeze/matched-control-327680.bin \
+            --matched-base-alpha 1.0 --matches 4096 --rounds 3 \
+            --seed 202706100403 --match-start "$START" --max-ply 300 \
+            --symmetries 20 --temperature 0.03 \
+            --match-jsonl "out/test-${{ matrix.shard }}.jsonl" \
+            --exclusions runtime/bindings/exact17/exclusions.txt \
+            --exclusions-sha256 "$EXCLUSIONS_SHA256" \
+            > "out/test-${{ matrix.shard }}-summary.json"
+          test "$(wc -l < "out/test-${{ matrix.shard }}.jsonl")" = 4096
+          (cd out && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS && sha256sum -c SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: belief-history-v1-test-${{ matrix.shard }}
+          path: out
+          if-no-files-found: error
+          retention-days: 30
+
+  test_reduce:
+    needs: test_evaluate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: belief-history-v1-runtime, path: runtime}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: belief-history-v1-training-freeze, path: freeze}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {pattern: belief-history-v1-test-*, path: shards}
+      - name: Independently reduce the complete terminal TEST evidence
+        run: |
+          set -euo pipefail; test "$GITHUB_RUN_ATTEMPT" = 1
+          (cd runtime && sha256sum -c SHA256SUMS); (cd freeze && sha256sum -c SHA256SUMS)
+          test ! -e python-runtime; mkdir -p python-runtime complete/raw
+          WHEEL=runtime/bindings/python/numpy-2.3.5-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+          python3 -m pip install --disable-pip-version-check --no-index --no-deps --target python-runtime "$WHEEL"
+          export PYTHONNOUSERSITE=1 PYTHONPATH="$PWD/python-runtime"
+          python3 -c 'import numpy; assert numpy.__version__ == "2.3.5"'
+          mapfile -t ROWS < <(find shards -type f -name 'test-*.jsonl' -print | sort -V)
+          test "${#ROWS[@]}" = 16
+          ARGS=()
+          for row in "${ROWS[@]}"; do
+            side="$(dirname "$row")/SHA256SUMS"; test -f "$side"
+            (cd "$(dirname "$row")" && sha256sum -c SHA256SUMS)
+            ARGS+=(--input "$row"); cp "$row" complete/raw/
+          done
+          python3 runtime/tools/belief_history_reduce.py \
+            --plan runtime/bindings/plan.json --identity freeze/evaluation-identity.json \
+            --stage TEST "${ARGS[@]}" --output complete/verdict.json
+          cp -a freeze/. complete/
+          cp -a runtime complete/runtime
+          cp -a shards complete/test-shards
+          python3 - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          files=[]
+          for path in sorted(Path('complete').rglob('*')):
+            if path.is_file() and path.name != 'complete-evidence.json':
+              data=path.read_bytes(); files.append({'path':path.relative_to('complete').as_posix(),'sha256':hashlib.sha256(data).hexdigest(),'size':len(data)})
+          value={'schema':'lc-belief-history-complete-evidence-v1','files':files,
+                 'actor_promotion_authorized':False,'playing_strength_claimed':False}
+          Path('complete/complete-evidence.json').write_text(json.dumps(value,sort_keys=True,separators=(',',':'),ensure_ascii=True,allow_nan=False)+'\n',encoding='ascii')
+          PY
+          (cd complete && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS && sha256sum -c SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: belief-history-v1-complete-evidence
+          path: complete
+          if-no-files-found: error
+          retention-days: 30

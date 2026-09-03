@@ -1,0 +1,93 @@
+{
+  "actor_assets": {
+    "challenger": [
+      {
+        "kind": "checkpoint",
+        "path": "data/champion.bin",
+        "role": 0,
+        "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+        "size": 2823748
+      },
+      {
+        "kind": "checkpoint",
+        "path": "data/champion.bin",
+        "role": 1,
+        "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+        "size": 2823748
+      },
+      {
+        "kind": "match_value_table",
+        "path": "data/models/match_value_objective3_v2_projected.lcmv",
+        "role": "controller",
+        "sha256": "e3eac1b6fecf314a3db45ef9fd7563db1f18e02ca09a7e63aac00bc8fd4cb28e",
+        "size": 113448
+      }
+    ],
+    "reference": [
+      {
+        "kind": "checkpoint",
+        "path": "data/champion.bin",
+        "role": 0,
+        "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+        "size": 2823748
+      }
+    ],
+    "winner": [
+      {
+        "kind": "checkpoint",
+        "path": "data/champion.bin",
+        "role": 0,
+        "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+        "size": 2823748
+      },
+      {
+        "kind": "checkpoint",
+        "path": "data/champion.bin",
+        "role": 1,
+        "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+        "size": 2823748
+      },
+      {
+        "kind": "match_value_table",
+        "path": "data/models/match_value_objective3_v2_projected.lcmv",
+        "role": "controller",
+        "sha256": "e3eac1b6fecf314a3db45ef9fd7563db1f18e02ca09a7e63aac00bc8fd4cb28e",
+        "size": 113448
+      }
+    ]
+  },
+  "authoritative_results": [
+    {
+      "path": "data/experiments/match_value_objective3_v2_result.json",
+      "role": "objective3_result",
+      "sha256": "05d6ee1b0ce59d5d502ebac27b4a59cc7c816bfc1245eccee4d5b8fbda9c6700"
+    },
+    {
+      "path": "pre-efficacy-manifest.json",
+      "role": "match_value_source_binding",
+      "sha256": "fcd12297707986c3eabc5d5551dac2b30ee8f12bebcb662f2c76bb8cf5d3a0b5"
+    },
+    {
+      "path": "final/merged/final-decision.json",
+      "role": "final_decision",
+      "sha256": "e343e3e77062e96935dccd4187a1baabf4c59f404ce9b40ff85df4210d465f97"
+    },
+    {
+      "path": "final/merged/reciprocal.json",
+      "role": "final_reciprocal",
+      "sha256": "b70e9a4471918e8a746a28575ab25831182f2c197675658a655996a8597c4042"
+    }
+  ],
+  "challenger_actor": "rolloutu2:data/champion.bin:data/champion.bin:800:5:0.02:0:1:0:0:0:3:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1:0:0:0:1:0:data/models/match_value_objective3_v2_projected.lcmv",
+  "decisive_result": {
+    "path": "final/merged/final-decision.json",
+    "sha256": "e343e3e77062e96935dccd4187a1baabf4c59f404ce9b40ff85df4210d465f97"
+  },
+  "reference_actor": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+  "schema": "lc-authoritative-final-actor-result-v2",
+  "selection_mode": "component_final",
+  "source_commit": "0eb2a90a66f1297d2191547da8e41fcc80b64d61",
+  "source_tree": "3b134d1f43ac39a088d50e6cff5e27f4678f453a",
+  "status": "complete",
+  "winner_actor": "rolloutu2:data/champion.bin:data/champion.bin:800:5:0.02:0:1:0:0:0:3:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1:0:0:0:1:0:data/models/match_value_objective3_v2_projected.lcmv"
+}

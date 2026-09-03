@@ -1,0 +1,79 @@
+{
+  "artifact_count": 9,
+  "cause": {
+    "classification": "sparse_random_slot_poststratification_contract",
+    "efficacy_related": false,
+    "mechanism": "The outcome-blind hash slot j was treated as five mandatory poststrata. Rare j3/j4 cells had positive census but fewer rows than the data-dependent 12-16 row quota.",
+    "select": {
+      "allocation_exit_code": 2,
+      "discovery_sha256": "4c891c2915919b01f51a73f3eaa6c70419cc32709a7f20921064825ca3cf81ba",
+      "error": "sparse positive-q slot r0:p00:f1:j3",
+      "origin_proof_exit_code": 125,
+      "reservoir_sha256": "445cb0599d064c79131597f4137533130afd4227c91460a6b4e27d9acb5abbaa"
+    },
+    "test": {
+      "allocation_exit_code": 2,
+      "discovery_sha256": "804e6cd5eae2960bede8824b9f4f804e6d07c2b586bf20b7a7a6de1336da0fe3",
+      "error": "sparse positive-q slot r0:p00:f0:j4",
+      "origin_proof_exit_code": 125,
+      "reservoir_sha256": "e6636b51d6b86d5b6e4de2151923795af67c4e91796e6d8bceb0bd44c9f2791c"
+    }
+  },
+  "efficacy_data_observed": false,
+  "execution": {
+    "path": "data/experiments/locked_policy_cost_v4_execution.json",
+    "sha256": "7d0d2ab09ab8a723b47d9f0d6f61245a3caad508c61ae1b3612b3dbe2b0e4f9a"
+  },
+  "fixed_seed_execution": {
+    "all_policy_cost_v4_fixed_roots_retired": true,
+    "physically_executed_fixed_root_count": 3,
+    "retired_fixed_root_count": 21,
+    "retry_forbidden": true
+  },
+  "github_run": {
+    "attempt": 1,
+    "conclusion": "failure",
+    "event": "push",
+    "head_sha": "6306dd8fba165c60529b7b2e7363cbbf3cc2a8f3",
+    "head_tree": "7c82ba399e24ae6941a6cd81b833d681fffaaaf5",
+    "id": 33158323330,
+    "url": "https://github.com/BEKINDTOEVERYKIND/LOSTCITIESCHATGPT/actions/runs/33158323330"
+  },
+  "job_disposition": [
+    {"conclusion": "success", "id": 98806384803, "name": "preflight"},
+    {"conclusion": "success", "id": 98808787386, "name": "select_discover"},
+    {"conclusion": "success", "id": 98808787423, "name": "test_discover"},
+    {"conclusion": "success", "id": 98808787438, "name": "train_discover"},
+    {"conclusion": "failure", "id": 98816989843, "name": "select_allocate"},
+    {"conclusion": "failure", "id": 98817182766, "name": "test_allocate"},
+    {"conclusion": "success", "id": 98822180394, "name": "train_allocate"},
+    {"conclusion": "skipped", "id": 98823996025, "name": "reservoir_barrier"},
+    {"conclusion": "skipped", "id": 98823997290, "name": "train_evaluate"},
+    {"conclusion": "skipped", "id": 98823997487, "name": "train_calibrate"},
+    {"conclusion": "skipped", "id": 98823997991, "name": "select_evaluate"},
+    {"conclusion": "skipped", "id": 98823998458, "name": "select_configuration"},
+    {"conclusion": "skipped", "id": 98823998945, "name": "test_evaluate"},
+    {"conclusion": "skipped", "id": 98823999611, "name": "test_once"},
+    {"conclusion": "skipped", "id": 98824000097, "name": "safety_shards"},
+    {"conclusion": "skipped", "id": 98824000604, "name": "safety_merge"},
+    {"conclusion": "skipped", "id": 98824000997, "name": "final_shards"},
+    {"conclusion": "success", "id": 98824001140, "name": "infrastructure_retain"},
+    {"conclusion": "skipped", "id": 98824001143, "name": "final_merge"},
+    {"conclusion": "skipped", "id": 98824001541, "name": "terminal_recommendation"}
+  ],
+  "locked_validation_relaxed": false,
+  "maintained_actor_disposition": {
+    "changed": false,
+    "objective3_result_path": "data/experiments/match_value_objective3_v2_result.json",
+    "objective3_result_sha256": "05d6ee1b0ce59d5d502ebac27b4a59cc7c816bfc1245eccee4d5b8fbda9c6700"
+  },
+  "raw_discovery_or_reservoir_artifact_count": 3,
+  "remediation_constraint": "A successor may change only the proven vector poststratification defect, must use all-fresh roots, and must preserve every efficacy budget and gate.",
+  "schema": "lc-policy-cost-v4-allocation-contract-failure-v1",
+  "search_or_truth_label_jobs_started": false,
+  "source_parent": {
+    "commit": "7b6317fabdc55b62841c7ef78c4cdb93c103876b",
+    "tree": "cd9068172153d5be294d2e2facd3fcd188b51ba3"
+  },
+  "status": "complete_terminal_non_promotable"
+}

@@ -1,0 +1,143 @@
+{
+  "schema": "lc-action-core-shortlist-run-33556276593-terminal-result-v1",
+  "status": "complete_terminal_statistical_rejection",
+  "conclusion": {
+    "safety_gate_passed": true,
+    "final_gate_passed": false,
+    "promotion_permitted": false,
+    "maintained_actor_changed": false,
+    "self_play_samples_generated": false,
+    "reason": "The sole candidate failed every frozen statistical efficacy requirement in the complete reserved final panel."
+  },
+  "github_run": {
+    "id": 33556276593,
+    "url": "https://github.com/BEKINDTOEVERYKIND/LOSTCITIESCHATGPT/actions/runs/33556276593",
+    "attempt": 1,
+    "event": "push",
+    "status": "completed",
+    "conclusion": "success",
+    "head_sha": "126a06026810193a7b9b0adcd8dbcb734b1c7fe9",
+    "started_at": "2026-09-01T20:36:09Z",
+    "completed_at": "2026-09-02T03:43:19Z",
+    "workflow_success_meaning": "The locked workflow completed and retained its terminal statistical rejection; success does not mean that the candidate passed."
+  },
+  "locked_actors": {
+    "baseline": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+    "candidate": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:3:1",
+    "sole_changed_field": "action_core_count",
+    "baseline_action_core_count": 0,
+    "candidate_action_core_count": 3
+  },
+  "safety_gate": {
+    "pairs_per_orientation": 200,
+    "total_pairs": 400,
+    "total_matches": 800,
+    "passed": true,
+    "match_score": 0.51125,
+    "match_score_gate_lower_bound": 0.4892558567305834,
+    "margin_per_game": 0.55625,
+    "margin_gate_lower_bound": -2.2473854499432253,
+    "orientation_match_scores": [0.47625, 0.54625],
+    "capped_rounds": 0,
+    "requirements": {
+      "combined_match_score_at_least_half": true,
+      "combined_margin_strictly_positive": true,
+      "candidate_first_match_score_at_least_0_475": true,
+      "baseline_first_inverted_match_score_at_least_0_475": true,
+      "raw_inputs_validated": true,
+      "zero_capped_rounds": true
+    },
+    "seeds": {
+      "candidate_first": "202609040101",
+      "baseline_first": "202609040102"
+    },
+    "artifact": {
+      "id": 9820990249,
+      "name": "action-core-shortlist-safety-evidence",
+      "digest": "sha256:79ab14be0f03e1e7b6364f70e9b8af6a5e650b4b078b79cd1a4278e74d0997dc",
+      "size_bytes": 63722,
+      "decision_sha256": "9acf470df707664b1c247285542165a7844cf7618b85011cdcf4160348b26859",
+      "reciprocal_sha256": "afd7d5aa0fc3871bbeb87dbd3a1ff992ed1a343717fbb05015806b5309f89e0b",
+      "structural_validation_sha256": "9cf2af40b4f0edcfe746a49856cd38a929e4e3bdf446c326a7ae66f448f08036",
+      "sha256_manifest_sha256": "8d65d2277c78b69b00b99d54e696b8278a187b83b9a728d47c30b515c83d141b"
+    }
+  },
+  "final_gate": {
+    "pairs_per_orientation": 2500,
+    "total_pairs": 5000,
+    "total_matches": 10000,
+    "passed": false,
+    "critical_z": 1.645,
+    "match_score": 0.4988,
+    "match_score_pair_clustered_se": 0.0038743004635201765,
+    "match_score_gate_lower_bound": 0.4924267757375093,
+    "margin_per_game": 0.0555,
+    "margin_pair_clustered_se": 0.47725629600963076,
+    "margin_gate_lower_bound": -0.7295866069358427,
+    "orientation_match_scores": [0.4972, 0.5004],
+    "capped_rounds": 0,
+    "requirements": {
+      "match_score_one_sided_lower_bound_above_half": false,
+      "margin_one_sided_lower_bound_strictly_positive": false,
+      "each_orientation_match_score_strictly_above_half": false,
+      "raw_inputs_validated": true,
+      "zero_capped_rounds": true
+    },
+    "seeds": {
+      "candidate_first": "202609040201",
+      "baseline_first": "202609040202"
+    },
+    "artifact": {
+      "id": 9830777589,
+      "name": "action-core-shortlist-final-evidence",
+      "digest": "sha256:8732558758e38df8dec8b833a2cdc92d87d4806f8af30ee7ce61f1ec80793869",
+      "size_bytes": 178999,
+      "decision_sha256": "39f9095b4dfd296394fc84fc07b79264edd87fb2e0671a800eb15d0d744262da",
+      "reciprocal_sha256": "dc184d88beec9edb33a319d4c827a7cdaa7dd2db63df4acd0d8cf0bed3d42569",
+      "candidate_block_sha256": "1493e2a959da632b67f1b1edfd8ec02c08cfe2f4006bbce57664d081590bca4d",
+      "baseline_block_sha256": "5ace92c01c3387db9f82d0c5b7597710ad422448c9a77433c8934c15e9b70c86",
+      "structural_validation_sha256": "ef8e21b9170e3cea1ccc4e94f1fda7a3952f91d1e6adc6e8686717edf686d363",
+      "sha256_manifest_sha256": "ffa67126f389a3f3c9688791b24f0e80f7e776ec5cb0554c917e22cb59b3f208"
+    }
+  },
+  "independent_verification": {
+    "artifact_zip_digests_matched_github": true,
+    "all_artifact_manifest_entries_verified": true,
+    "bound_tool_hashes_matched_clean_source": true,
+    "safety_raw_shards_verified": 20,
+    "final_raw_shards_verified": 50,
+    "safety_reducer_outputs_replayed_byte_identically": true,
+    "final_reducer_outputs_replayed_byte_identically": true,
+    "verification_scope": "All 5400 reciprocal pairs, 10800 three-round matches, every raw row, actor, seed, schedule, provenance string, sidecar, and SHA-256 binding were validated without rerunning arena efficacy."
+  },
+  "source_binding": {
+    "plan_sha256": "cfb1308516b859077fcb1b463aecf89df91987b400f4f2c28c45f1c3180a805f",
+    "execution_sha256": "c47728de3767e5948a017909c0c6f4d2ece78c42de682a72eb954c536200768c",
+    "source_parent_commit": "22b3897a1524af5713cac3b6d0ea3a830ea753f3",
+    "source_parent_tree": "99435be4cce231a4af387ff6ef55ec5ec5488140",
+    "arena_sha256": "469bba28f0e640222efd401e1d8c6457ef248f73cb38ab789a1e62ab9dbfcfa5",
+    "model_sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417"
+  },
+  "baseline_scope_correction": {
+    "locked_baseline_role": "archived portable world800 actor",
+    "locked_baseline_is_authoritative_maintained_actor": false,
+    "authoritative_actor_result_path": "data/experiments/final_actor_result.json",
+    "authoritative_actor_result_sha256_at_launch": "0301bbb68f4303f7c28fa4c67c9b370281f7569620c8ebf2daefd6b31d71dc2a",
+    "authoritative_maintained_actor": "rolloutu2:data/champion.bin:data/champion.bin:800:5:0.02:0:1:0:0:0:3:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1:0:0:0:1:0:data/models/match_value_objective3_v2_projected.lcmv",
+    "difference": "The locked baseline is the older ply-14 objective-0 rolloutu actor and lacks the authoritative all-ply Objective-3 rolloutu2 controller and match-value table.",
+    "promotion_claim_impact": "Even a pass would not alone establish improvement over the maintained Objective-3 actor. Because the candidate failed its own locked final comparison, the terminal rejection and unchanged maintained actor are unambiguous.",
+    "successor_requirement": "Any future confirmatory playing-strength campaign must bind the exact authoritative winner_actor and assets from final_actor_result.json, then alter only its preregistered candidate field."
+  },
+  "fixed_seed_disposition": {
+    "all_four_roots_consumed_and_retired": true,
+    "retry_forbidden": true,
+    "reuse_forbidden": true
+  },
+  "firewalls": {
+    "partial_efficacy_inspected_before_terminal": false,
+    "validation_or_promotion_gate_relaxed": false,
+    "opponent_hand_training_performed": false,
+    "user_commented_plies_used_for_training_or_selection": false,
+    "campaign_training_performed": false
+  }
+}

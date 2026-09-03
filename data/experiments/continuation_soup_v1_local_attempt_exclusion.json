@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "excluded_operational_actor_panel_attempt",
+  "status": "terminated_before_raw_publication_or_efficacy_inspection",
+  "campaign": "continuation_soup_v1",
+  "reason": "A completed benchmark showed that the two monolithic 200-pair local processes would require roughly 3.4 hours. They were replaced by an inference-equivalent, precommitted distributed shard layout.",
+  "locked_identity": {
+    "candidate_first_seed": "202608240301",
+    "baseline_first_seed": "202608240302",
+    "pair_domain_per_orientation": "0..199",
+    "candidate_sha256": "e88c97912165165f200e7e1ebe9705971916c93083fa0049d63aa6eeba1adb8d",
+    "root_sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+    "arena_sha256": "a65f73871e04ed0e21f2bc9920a235cbb5d29950b35bb91df37ae9dcc8801efa"
+  },
+  "attempts": [
+    {
+      "orientation": "candidate_first",
+      "requested_pairs": 200,
+      "threads": 4,
+      "exit_code": 130,
+      "termination": "manual SIGINT for execution-layout migration",
+      "raw_file_published": false
+    },
+    {
+      "orientation": "baseline_first",
+      "requested_pairs": 200,
+      "threads": 4,
+      "exit_code": 130,
+      "termination": "manual SIGINT for execution-layout migration",
+      "raw_file_published": false
+    }
+  ],
+  "inference_safety": {
+    "efficacy_observed": false,
+    "stdout_result_emitted": false,
+    "complete_footer_emitted": false,
+    "raw_or_partial_file_retained": false,
+    "rows_included_in_any_estimate": 0,
+    "local_and_distributed_rows_may_be_mixed": false,
+    "seed_reuse_rule": "The distributed run replaces the whole unobserved operational attempt on the same fixed pair domain; arena RNG is addressed by seed, absolute pair, and stream."
+  },
+  "replacement": {
+    "shards_per_orientation": 10,
+    "pairs_per_shard": 20,
+    "pair_starts": [0,20,40,60,80,100,120,140,160,180],
+    "threads_per_shard": 4,
+    "scientific_change": "none",
+    "requires_separate_prelaunch_addendum": true
+  }
+}

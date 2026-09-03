@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "continuation_soup_v1_distributed_launch_failure",
+  "status": "failed_before_actor_efficacy",
+  "launch_commit": "a73b7d010c7ee106c7c8f4a34eb60a3a0fe55475",
+  "workflow": {
+    "name": "Locked continuation-soup-v1 actor panels",
+    "run_id": 32578677717,
+    "run_attempt": 1,
+    "url": "https://github.com/BEKINDTOEVERYKIND/LOSTCITIESCHATGPT/actions/runs/32578677717",
+    "conclusion": "failure",
+    "build_job_id": 97044690398,
+    "guard_step": "success",
+    "failing_step": "Build and bind one immutable evaluator artifact"
+  },
+  "observed_execution": {
+    "evaluator_compile_reached": true,
+    "evaluator_artifact_uploaded": false,
+    "workflow_artifact_count": 0,
+    "safety_evaluate": "skipped",
+    "safety_merge": "skipped",
+    "final_evaluate": "skipped",
+    "final_merge": "skipped",
+    "actor_shards_started": 0,
+    "raw_pair_files_produced": 0,
+    "efficacy_observed": false
+  },
+  "failure_classification": {
+    "stage": "post-build pre-distribution hash guard",
+    "detail": "The exact launch guard and source checkout passed, compilation completed, and the first post-build assertion rejected the rebuilt arena because its SHA-256 did not equal the predeclared a65f7387 digest. The locked binary used binutils 2.42-4ubuntu2.5; the floating runner image used 2.42-4ubuntu2.10.",
+    "repair": "Transport the already locked arena, root model, and candidate model as exact repository objects; verify their sizes and SHA-256 digests before artifact assembly and before every shard; and compile nothing on the evaluation runner."
+  },
+  "statistical_disposition": {
+    "locked_safety_seeds_consumed": false,
+    "locked_final_seeds_consumed": false,
+    "same_seed_panel_may_be_retried": true,
+    "reason": "No actor job started and no efficacy-bearing output or artifact existed."
+  },
+  "results": null
+}

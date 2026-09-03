@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "controller_veto_v3_locked_actor_result",
+  "status": "rejected_at_predeclared_safety_gate",
+  "workflow": {
+    "run_id": 32589655623,
+    "url": "https://github.com/BEKINDTOEVERYKIND/LOSTCITIESCHATGPT/actions/runs/32589655623",
+    "run_attempt": 1,
+    "launch_commit": "0f172d1df8444164970dfa551fc9c07f8dae957d",
+    "launch_tree": "75c7b517dd261975b82e12bb74f600c4d8798909",
+    "created_utc": "2026-08-22T18:04:38Z",
+    "completed_utc": "2026-08-22T18:36:15Z",
+    "conclusion": "success"
+  },
+  "source_binding": {
+    "locked_actor_source_commit": "cda70a217d776bdfb2c1457bfe8c0f5f0dbfed22",
+    "locked_actor_source_tree": "d006e7b0c1030f30ac135cdc489e2ea64e934ac0",
+    "launch_parent_commit": "b970e5f8e602d1090d3078701eb70931008ac6b6",
+    "plan_sha256": "4d534886202b331d00ce7e35ac8326e9cc13a67fe2d28e36ec5fa5f9194ccd20",
+    "launch_execution_sha256": "23ac993deabc8d36d91387f79a0944ee5d9f5bd34af967f4609f20d84e896499",
+    "workflow_sha256": "9a9f5756991173d55f42eb225e43689030d7b74ea4c0d07ae5f53188b32c84ec",
+    "arena_sha256": "2612e14a3e3b5c4e32333b8949261061797153b26e7501a37ad306f73889c768",
+    "root_model_sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+    "veto_model_sha256": "2d06a78eb9f088d36787fa559c529e5f6c6c674c45a8d067063deb8e06b15f3a"
+  },
+  "evidence": {
+    "artifact_id": 9480365159,
+    "artifact_name": "controller-veto-v3-safety-final-evidence",
+    "artifact_size_bytes": 68781,
+    "github_artifact_digest": "sha256:cb9fcaa8f766a9a718432a05168951d8b37230d2130096ea729f055251d7508b",
+    "downloaded_zip_sha256": "cb9fcaa8f766a9a718432a05168951d8b37230d2130096ea729f055251d7508b",
+    "checksum_manifest_sha256": "a848754254ab431cbd39f583201b99c6302ec21803184b24f3e34aa21c805e93",
+    "checksum_manifest_entries": 71,
+    "structural_validation_sha256": "e8872ea46a43412cccda596d3b2d8bd053d3befe07b3b39b9531d3e831041514",
+    "candidate_first_merge_sha256": "4cfd00a0c79388049591d753e2b836e8bd83c29b866c0ee40c5ab1fa640fde5f",
+    "baseline_first_merge_sha256": "402792137f17dd0401787ddd2fd5a45a295e02f3b5f4b789036e83730711e9e8",
+    "reciprocal_sha256": "a85afc8a349d8dc0869bbe343f3ab5dd280d871960c3cf53f564b040afa31266",
+    "safety_decision_sha256": "6416825884b4d197531669afcef4197b5f1e475e34144949615577e58c32eaaa"
+  },
+  "panel": {
+    "pairs_per_orientation": 200,
+    "matches_total": 800,
+    "candidate_first_seed": "202608280301",
+    "baseline_first_seed": "202608280302",
+    "shards_per_orientation": 10,
+    "pairs_per_shard": 20,
+    "all_shards_structurally_valid": true,
+    "capped_rounds": 0
+  },
+  "candidate_result": {
+    "wins": 386,
+    "losses": 409,
+    "draws": 5,
+    "match_score": 0.485625,
+    "match_score_pair_clustered_se": 0.014371722370491032,
+    "match_score_one_sided_95_lower_bound": 0.4619835167005422,
+    "margin_per_match": -1.07875,
+    "margin_pair_clustered_se": 1.6474288131538637,
+    "margin_one_sided_95_lower_bound": -3.788770397638106,
+    "orientation_match_scores": [0.50125, 0.47]
+  },
+  "orientation_results": {
+    "candidate_first": {
+      "matches": 400,
+      "wins": 200,
+      "losses": 199,
+      "draws": 1,
+      "match_score": 0.50125,
+      "margin_per_match": 0.6275
+    },
+    "baseline_first_inverted_to_candidate": {
+      "matches": 400,
+      "wins": 186,
+      "losses": 210,
+      "draws": 4,
+      "match_score": 0.47,
+      "margin_per_match": -2.785
+    }
+  },
+  "locked_safety_gate": {
+    "combined_match_score_at_least_half": false,
+    "combined_margin_strictly_positive": false,
+    "candidate_first_match_score_at_least_0_475": true,
+    "baseline_first_inverted_match_score_at_least_0_475": false,
+    "raw_inputs_validated": true,
+    "zero_capped_rounds": true,
+    "passed": false
+  },
+  "independent_verification": {
+    "github_digest_matches_downloaded_zip": true,
+    "all_71_internal_sha256_entries_verified": true,
+    "raw_shards_independently_remerged": true,
+    "substantive_statistics_and_gate_reproduced_exactly": true,
+    "difference_boundary": "Only serialized local path prefixes and hashes transitively dependent on those path strings differed from the workflow merge."
+  },
+  "disposition": {
+    "locked_final_executed": false,
+    "reserved_final_seeds": ["202608280401", "202608280402"],
+    "final_seeds_consumed": [],
+    "candidate_promoted": false,
+    "maintained_actor_unchanged": true,
+    "reason": "The complete valid safety panel failed match score, point margin, and the baseline-first orientation floor, so the workflow stopped before either reserved final seed was used."
+  }
+}

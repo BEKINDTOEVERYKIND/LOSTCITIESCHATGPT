@@ -1,0 +1,196 @@
+{
+  "artifact_kind": "merged_arena_pair_evidence",
+  "canonical_pair_rows_sha256": "c93f040308796613c6554ca714745e45d230463e9f2b581189d7cd28fac92400",
+  "inputs": [
+    {
+      "pair_count": 100,
+      "pair_start": 0,
+      "path": "downloads/baseline-first-0.jsonl",
+      "sha256": "5a19c11cd3cfb6700ea47142fc25d4673b27d8dd232991fd5c6ead532b2cae81"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 100,
+      "path": "downloads/baseline-first-100.jsonl",
+      "sha256": "df80828ff0105fabba42d9b46e8a033d8de1e0225856c95d5bae24b6acd0ac9a"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 200,
+      "path": "downloads/baseline-first-200.jsonl",
+      "sha256": "15f39ad18c2e0a69a810021e27c6f8c5e8a0c9206b9152a3531840484f58fa63"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 300,
+      "path": "downloads/baseline-first-300.jsonl",
+      "sha256": "d603ac60a0bfecae155a25a2d85d88f20bc3059f6c3aad7b0b91ddce02ea14a0"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 400,
+      "path": "downloads/baseline-first-400.jsonl",
+      "sha256": "67b04ccf72bb4fa7c7834b96832c83b08a319c09583aad718c90748b4e855f9a"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 500,
+      "path": "downloads/baseline-first-500.jsonl",
+      "sha256": "46b3d177038e25388b6ac9f2d81f09738869556ce5bc5ba3cfd4ba65683d0991"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 600,
+      "path": "downloads/baseline-first-600.jsonl",
+      "sha256": "3438e24d19f913be97255aa66ac743dfb553ba8a7e3dec0904876d9fc9244dc9"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 700,
+      "path": "downloads/baseline-first-700.jsonl",
+      "sha256": "3356134598921d7d371027bbd7d223c13223750d23b459d38e996cf413d09150"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 800,
+      "path": "downloads/baseline-first-800.jsonl",
+      "sha256": "e3e1ddcdad8f74533e703b063ce88a8d78dc7e823b379937ec170a8a0d6c6250"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 900,
+      "path": "downloads/baseline-first-900.jsonl",
+      "sha256": "b6d8441a42fc12a99e0c93a080112bcf15e95560fb44f7118c20a6026195499d"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 1000,
+      "path": "downloads/baseline-first-1000.jsonl",
+      "sha256": "9f07b6e8c51b282ae213b5b35f1b480280713e3f87f8e6f4ddd6ece76a5cdf8b"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 1100,
+      "path": "downloads/baseline-first-1100.jsonl",
+      "sha256": "41a479fc5a53b3db3384186365d53d13bd624492c7838bfddd0b550c07241cee"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 1200,
+      "path": "downloads/baseline-first-1200.jsonl",
+      "sha256": "95431d38404c54c50fa4f1fd7d4d89f124a6e73f253a2f9153df892db6989461"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 1300,
+      "path": "downloads/baseline-first-1300.jsonl",
+      "sha256": "0d37aa2f560862a9ec8d16696e0293f24dcfeb7c68d4a4fd39caf10b365c2e6d"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 1400,
+      "path": "downloads/baseline-first-1400.jsonl",
+      "sha256": "9d4f2192c1804c95407759326c792eff1e1911cbe17ad50cd99c626f03ec0087"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 1500,
+      "path": "downloads/baseline-first-1500.jsonl",
+      "sha256": "03e3db8c67c417126eebe094cb34d0077a6f3d45d37530298dffc25642fe994e"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 1600,
+      "path": "downloads/baseline-first-1600.jsonl",
+      "sha256": "dfa2bd5caefca40c05accc39ab753c96898b63c600f94d3ecaaa40b148d39816"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 1700,
+      "path": "downloads/baseline-first-1700.jsonl",
+      "sha256": "f07bb187f106ae025fb1288a30dc85ca106794be6eaab95186afcb3890f92c47"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 1800,
+      "path": "downloads/baseline-first-1800.jsonl",
+      "sha256": "fb9bb48e2b5bc0658f2794a8690ac9db2e33163a39b5dde7c6f2d94fdd7c304b"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 1900,
+      "path": "downloads/baseline-first-1900.jsonl",
+      "sha256": "0393a69f6b7efce64fa6ef522c3e388010cf0092fb998a75e545451b33dc95b0"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 2000,
+      "path": "downloads/baseline-first-2000.jsonl",
+      "sha256": "31c365c14a77ccb88c5d1c3b270b4f14f81026750ab4f0cf4069dfcf6ad013ef"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 2100,
+      "path": "downloads/baseline-first-2100.jsonl",
+      "sha256": "d43f66bb0ab753d28f09183f38fb086bfc1ca82604498e58f629b6bb93b14dc9"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 2200,
+      "path": "downloads/baseline-first-2200.jsonl",
+      "sha256": "5f2bcdfe76cc19b66005fe463daebb0efaf6d6af8a010d3f72467d1eb7303432"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 2300,
+      "path": "downloads/baseline-first-2300.jsonl",
+      "sha256": "abad14d29b89f5f21ca1c0d5f8c4f49691834c749da2860a4bee7aaa0c027efe"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 2400,
+      "path": "downloads/baseline-first-2400.jsonl",
+      "sha256": "459d6385fe389c354453a18a247c2524454e997fa088614a948414b76c2b47d8"
+    }
+  ],
+  "metadata": {
+    "agent_a": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+    "agent_b": "rolloutu2:data/champion.bin:data/champion.bin:800:5:0.02:0:1:0:0:0:3:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1:0:0:0:1:0:data/models/match_value_objective3_v2_projected.lcmv",
+    "provenance": "stage=match_value_objective3_v2_final;variant=PROJECTED_ALL_PLY;development=9c34c3b73ab5d08c6223c7bd0f55b89649074e89e68e6310a2f99ca6c8bba42b;safety=7571cfa9708a8eb7bd5eab3363462898211e6bdaa0b8846435aa716c289a2d91;plan=72587805f9a22bd981b537572e9c847cc5765123aa502caedea6a6894a722f24;lock=6f40e7579e3ba5157c2750c6540d8688af630298f2338d1ad4617a87532fffbd;execution=7fa8b2de912466c9affd0ff8188cc8403dd1b085f02de6acf10d8df0284db75a;post_build=fcd12297707986c3eabc5d5551dac2b30ee8f12bebcb662f2c76bb8cf5d3a0b5;source=0eb2a90a66f1297d2191547da8e41fcc80b64d61;arena=b54eefb0bb17e75361ebee6faa004eb0062cae17a2543d9fe5a62f213a94201e;model=af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417;table=e3eac1b6fecf314a3db45ef9fd7563db1f18e02ca09a7e63aac00bc8fd4cb28e;worlds=800;threads=4",
+    "rounds": 3,
+    "schema": 1,
+    "seed": "202610220102"
+  },
+  "pair_count": 2500,
+  "pair_start": "0",
+  "result": {
+    "capped_rounds": 0,
+    "draws": 41,
+    "games": 5000,
+    "losses": 2648,
+    "margin_pair_clustered_se": 0.8241673661793398,
+    "margin_per_game": -3.6354,
+    "match_score": 0.4663,
+    "match_score_pair_clustered_se": 0.006106606279768037,
+    "pairs": 2500,
+    "plies_per_game": 140.7942,
+    "points_per_game_a": 121.456,
+    "points_per_game_b": 125.0914,
+    "wins": 2311
+  },
+  "schema_version": 1,
+  "sufficient_statistics": {
+    "capped_rounds": 0,
+    "draws": 41,
+    "losses": 2648,
+    "margin_sum": -18177,
+    "margin_sumsq": 17106665,
+    "pairs": 2500,
+    "plies_sum": 703971,
+    "points_a_sum": 607280,
+    "points_b_sum": 625457,
+    "score_quarters_sum": 4663,
+    "score_quarters_sumsq": 12425,
+    "wins": 2311
+  }
+}

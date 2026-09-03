@@ -1,0 +1,227 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "locked_continuation_v2_factorial_campaign",
+  "status": "precommitted_before_candidate_generation_or_efficacy_inspection",
+  "created_utc": "2026-08-22",
+  "hypothesis": "Continuation-only PPO will transfer more reliably to the deployed rollout controller when its target matches the deployed three-round decision utility, its two players receive independent fixed suit roles, or both. A locked 2x2 factorial separates those effects instead of selecting them post hoc.",
+  "claim_boundary": "This campaign selects a continuation checkpoint for later full-actor testing. No continuation screen is promotion evidence, and neither a family winner nor a parameter soup becomes the maintained champion without a separately locked reciprocal full-match actor panel.",
+  "base_decision": {
+    "checkpoint": "data/champion.bin",
+    "reason": "The continuation-soup-v1 full actor safety panel completed validly and failed its efficacy gate, so the mechanically required base is the unchanged maintained champion rather than the rejected soup.",
+    "result_path": "data/experiments/continuation_soup_v1_actor_result.json",
+    "result_sha256": "6c122813969f22bd38976d955699bbf14e4470328c44a4a92b54da33c681cd3a",
+    "soup_disposition": "rejected; never used as init, anchor, baseline, or candidate in continuation-v2"
+  },
+  "development_seed_exclusions": {
+    "rule": "Any seed touched by development, runtime measurement, validator smoke, or debugging is burned before this plan and cannot contribute campaign efficacy.",
+    "namespace_rule": "The entire 20260825 seed namespace is burned, including values not individually listed below. No 20260825 seed is eligible for training, selection, safety, or promotion evidence.",
+    "excluded": [
+      {"seed":"202608250101","use":"development warm-training runtime smoke"},
+      {"seed":"202608250201","use":"development Screen-A/runtime/validator smoke"},
+      {"seed":"202608250202","use":"development Screen-B/validator smoke"},
+      {"seed":"202608259901","use":"exact-transport zero-epoch smoke"}
+    ],
+    "fresh_namespace": "All locked continuation-v2 campaign and reserved actor seeds use the untouched 20260826 namespace."
+  },
+  "source": {
+    "repository": "BEKINDTOEVERYKIND/LOSTCITIESCHATGPT",
+    "branch": "agent/correctness-and-policy-upgrade",
+    "build_source_remote_commit": "65c510234d5995a8d60b8a5cbecd84709e79b272",
+    "build_source_tree": "8f9d8d6d3b6683fb6691fc208e671f459d08d957",
+    "compiler": "gcc (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0",
+    "cflags": "-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11",
+    "net_average_target_cflags": "-fno-fast-math -ffp-contract=off",
+    "ldflags": "-lm -pthread",
+    "fixed_training_threads": 4,
+    "thread_rule": "Every training and screen command uses exactly four threads. A thread-count change is a different campaign and is ineligible.",
+    "source_files": [
+      {"path":"tools/rl.c","sha256":"b0bad51ba6858e71b4def7cb990153c12511433604b5f845cd34541269222e17"},
+      {"path":"tools/continuation_arena.c","sha256":"107d81465efc0c0c85b189cee0642688572499c5856f95fe74b2962f0ce376d8"},
+      {"path":"tools/net_average.c","sha256":"04752af40e4e240da96dea05a4df45c97ef0776f989aaa5aacbfb7313086094c"},
+      {"path":"src/net.c","sha256":"f932f3b679b238238ab409bf1f4eac1315cc5beff0efeff24f2fe7204175a551"},
+      {"path":"src/net.h","sha256":"d29623943ba6411496da270285d26451f402e1b709056718527f49916a0f2a49"},
+      {"path":"src/lc.c","sha256":"7ed33651a77651e73b70eba7d90f6e7a8de2d4d491c1c176aadf48889c889de3"},
+      {"path":"src/lc.h","sha256":"1d5227abf42a1c2f2a883b35015e69836f7467b60791ce32d9ca21cb7bfb09a7"},
+      {"path":"Makefile","sha256":"1f648f3d9067f6b263ad8602a948dea4040922e836412e5a485bf90fad67bbee"}
+    ]
+  },
+  "transport": {
+    "binding": "The workflow compiles nothing. It transports and verifies the exact prebuilt x86-64-v3 executables and champion before every command.",
+    "artifacts": [
+      {"name":"rl","path":"data/evaluators/continuation-v2/rl","sha256":"7467211579df59b4796815420011a45f2b2158a484e7cba9efbeefa0ed1b3661","size_bytes":428504,"mode":"0755"},
+      {"name":"continuation_arena","path":"data/evaluators/continuation-v2/continuation_arena","sha256":"16c39d9d0f81853885c78c35442c70114538fe8545025b9fa33995dddf4884e0","size_bytes":379072,"mode":"0755"},
+      {"name":"net_average","path":"data/evaluators/continuation-v2/net_average","sha256":"56172ab722aca829d06e2b97e10c101f5ba39d517d5954bcf619a32528fcfacd","size_bytes":72944,"mode":"0755"},
+      {"name":"champion","path":"data/champion.bin","sha256":"af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417","size_bytes":2823748,"mode":"0644"}
+    ],
+    "native_checkpoint_warning": "Model serialization is a native C struct and the executables use fast-math. Binary, compiler, source-tree, and platform provenance are material."
+  },
+  "factorial_cells": [
+    {"id":"o0-shared","continuation_objective":0,"continuation_role_mappings":"shared"},
+    {"id":"o0-independent","continuation_objective":0,"continuation_role_mappings":"independent"},
+    {"id":"o2-shared","continuation_objective":2,"continuation_role_mappings":"shared"},
+    {"id":"o2-independent","continuation_objective":2,"continuation_role_mappings":"independent"}
+  ],
+  "replicates": [
+    {"replicate":1,"warm_seed":"202608260101","full_seed":"202608261101"},
+    {"replicate":2,"warm_seed":"202608260102","full_seed":"202608261102"},
+    {"replicate":3,"warm_seed":"202608260103","full_seed":"202608261103"}
+  ],
+  "training": {
+    "runs": 12,
+    "shared": {
+      "init": "data/champion.bin",
+      "anchor": "data/champion.bin",
+      "continuation_root": "data/champion.bin",
+      "continuation_start_ply": 14,
+      "matches_per_iteration": 1366,
+      "rounds_per_match": 3,
+      "continuation_tails_per_iteration": 4098,
+      "threads": 4,
+      "batch": 512,
+      "epochs": 1,
+      "ppo_clip": 0.1,
+      "lambda": 1.0,
+      "temperature": 0.7,
+      "entropy_coefficient": 0.001,
+      "value_coefficient": 1.0,
+      "weight_decay": 1e-7,
+      "trajectory_suit_group": 20,
+      "belief_weight": 0,
+      "standalone_evaluation_pairs": 0
+    },
+    "warmup": {
+      "iterations": 2,
+      "learning_rate": 0.0001,
+      "anchor_kl": 0.5,
+      "v6_only": true,
+      "command_template": "./bin/rl --init data/champion.bin --continuation-start 14 --continuation-root data/champion.bin --continuation-objective OBJECTIVE --continuation-role-mappings ROLE --anchor data/champion.bin --kl 0.50 --lambda 1 --bw 0 --eval 0 --rounds 3 --games 1366 --threads 4 --iters 2 --batch 512 --epochs 1 --lr 1e-4 --clip 0.1 --vcoef 1 --ent 0.001 --temp 0.7 --wd 1e-7 --trajectory-symmetries 20 --v6-only --seed WARM_SEED --out RUN_DIRECTORY/warm.bin"
+    },
+    "full": {
+      "iterations": 10,
+      "learning_rate": 0.00005,
+      "anchor_kl": 0.25,
+      "v6_only": false,
+      "command_template": "./bin/rl --init RUN_DIRECTORY/warm.bin --continuation-start 14 --continuation-root data/champion.bin --continuation-objective OBJECTIVE --continuation-role-mappings ROLE --anchor data/champion.bin --kl 0.25 --lambda 1 --bw 0 --eval 0 --rounds 3 --games 1366 --threads 4 --iters 10 --batch 512 --epochs 1 --lr 5e-5 --clip 0.1 --vcoef 1 --ent 0.001 --temp 0.7 --wd 1e-7 --trajectory-symmetries 20 --seed FULL_SEED --out RUN_DIRECTORY/full.bin"
+    },
+    "optimizer_boundary": "Adam state intentionally resets between warm-up and full training because optimizer state is not serialized.",
+    "generated_continuation_tails_per_replicate": 49176,
+    "generated_continuation_tails_per_cell": 147528,
+    "generated_continuation_tails_total": 590112,
+    "required_diagnostics": [
+      "each iteration reports exactly 4098 continuation roots and exact deck-one moves",
+      "baseline roots plus challenger roots equals 4098",
+      "first learned actor row is round ply 15 and root actor rows are zero",
+      "every independent-role iteration reports 4098 tails, ordered-product cell counts differing by at most one, and both role marginals differing by at most one",
+      "all losses and gradients are finite and at least one optimizer update occurs",
+      "the immutable champion fingerprint and SHA-256 remain unchanged",
+      "no unfinished trajectory, model write failure, or silent truncation"
+    ]
+  },
+  "eligible_screen_a_checkpoints": [
+    {"id":"base","path_template":"data/champion.bin","order":0,"origin":"immutable no-update control"},
+    {"id":"warm2","path_template":"RUN_DIRECTORY/warm.bin.it2","order":1},
+    {"id":"full2","path_template":"RUN_DIRECTORY/full.bin.it2","order":2},
+    {"id":"full4","path_template":"RUN_DIRECTORY/full.bin.it4","order":3},
+    {"id":"full6","path_template":"RUN_DIRECTORY/full.bin.it6","order":4},
+    {"id":"full8","path_template":"RUN_DIRECTORY/full.bin.it8","order":5},
+    {"id":"full10","path_template":"RUN_DIRECTORY/full.bin.it10","order":6}
+  ],
+  "selection": {
+    "evidence_tool": {
+      "path": "tools/select_continuation_v2.py",
+      "sha256": "b7f8a7b30eccec6b81f3d76e77b3276b78aa73a828c2640e25ff0c2adba3ac56",
+      "test_path": "tests/test_select_continuation_v2.py",
+      "test_sha256": "d46c7f1cf7b73279b1d4a8ec4772f90a49db9bdcc93db8dcfbe7018495c043c8",
+      "makefile_sha256": "1ecf0974c393b59215bc6289d4bb7ef3dd4c886816a7e72d2f1e6278d5bf280e",
+      "authority": "This is the sole validator and selector for both screens. Workflow code may construct strict manifests and materialize its selected model, but may not independently parse, rank, gate, or select efficacy."
+    },
+    "inspection_rule": "No efficacy row may be exposed or parsed until every expected raw file in that screen exists, its sidecar hash validates, and its metadata, exact pair indices, summary, complete footer, model hash, objective, role mode, and zero-cap condition validate. Mechanical selectors then make exactly the locked choices; raw artifacts are retained.",
+    "screen_a": {
+      "purpose": "Within-replicate checkpoint selection only; never promotion evidence",
+      "seed": "202608260201",
+      "pair_start": 0,
+      "pairs_per_checkpoint": 1500,
+      "candidates": 84,
+      "execution_atomicity": "One evaluator job runs all 84 candidates, constructs the complete strict manifest, invokes the locked selector to schema-validate every raw file and sidecar and make all 12 selections, and only then uploads one final Screen-A artifact. No raw panel, per-candidate, per-replicate, or prevalidation efficacy artifact exists.",
+      "round_assignment": "absolute pair index modulo 3",
+      "evaluation_constants": {"continuation_objective":2,"continuation_role_mappings":"independent"},
+      "factor_isolation": "Objective and role mapping are training factors only. Every cell is screened under the same deployed independent continuation roles and mode-2 reporting semantics, so early margin, round-2 match score, and round-2 hybrid target are directly comparable. Mode 2 does not change the deck-one exact argmax because its terminal transform is monotone.",
+      "command_template": "./bin/continuation_arena -a CHECKPOINT -r data/champion.bin -b data/champion.bin -n 1500 -t 4 -s 202608260201 --pair-start 0 --continuation-objective 2 --continuation-role-mappings independent --raw-pairs RAW.jsonl --provenance LOCKED_HASH_BUNDLE --raw-only",
+      "validity": "Every one of the seven fixed candidates is ranked if and only if it is structurally complete, hash-bound, finite, and has zero capped tails. There is no efficacy eligibility filter in Screen A.",
+      "statistics": {
+        "early_margin": "pair-clustered per-leg candidate round margin pooled over round 0 and round 1 pairs",
+        "round2_score": "pair-clustered final three-round match score in round-2 contexts",
+        "round2_hybrid": "pair-clustered configured objective target in round-2 contexts"
+      },
+      "ranking": "For each cell/replicate maximize min(early_margin/SE, (round2_score-0.5)/SE, round2_hybrid/SE), with a zero standard error mapped to signed infinity or zero as appropriate. Break exact ties by round-2 match-score lower bound, then early-margin lower bound, then the earlier locked checkpoint order. Select exactly one winner per replicate.",
+      "selected_winners": 12
+    },
+    "soups": {
+      "count": 4,
+      "construction": "Within each factorial cell, make one deterministic equal-weight arithmetic mean of that cell's three Screen-A replicate winners. A base winner is included with its full one-third weight; duplicate byte-identical inputs remain separate weights.",
+      "command_template": "./bin/net_average CELL/soup.bin CELL/rep1/winner.bin CELL/rep2/winner.bin CELL/rep3/winner.bin",
+      "forbidden": [
+        "cross-cell averaging",
+        "fitted or unequal weights",
+        "subsets, checkpoint substitutions, or post-Screen-A reselection",
+        "layer-only, head-only, or delta-normalized averaging"
+      ]
+    },
+    "screen_b": {
+      "purpose": "Fresh factorial robustness and candidate selection only; never promotion evidence",
+      "seed": "202608260202",
+      "pair_start": 0,
+      "pairs_per_candidate": 6000,
+      "candidates": "the 12 fixed Screen-A winners plus the four deterministic cell soups",
+      "execution_atomicity": "One evaluator job runs all 16 candidates, constructs the complete strict manifest, invokes the locked selector to schema-validate every raw file and sidecar and make the sole locked cell-soup selection, and only then uploads one final Screen-B artifact. No raw panel, per-candidate, or prevalidation efficacy artifact exists.",
+      "round_assignment": "absolute pair index modulo 3",
+      "evaluation_constants": {"continuation_objective":2,"continuation_role_mappings":"independent"},
+      "command_template": "./bin/continuation_arena -a CANDIDATE -r data/champion.bin -b data/champion.bin -n 6000 -t 4 -s 202608260202 --pair-start 0 --continuation-objective 2 --continuation-role-mappings independent --raw-pairs RAW.jsonl --provenance LOCKED_HASH_BUNDLE --raw-only",
+      "candidate_statistics": "The same early-margin, round-2 match-score, and round-2 hybrid statistics and one-sided z=1.645 bounds used by the locked selector, plus separate round-0 and round-1 margin bounds.",
+      "cell_eligibility": [
+        "the cell soup has early-margin lower bound > 0",
+        "the cell soup has round-2 match-score lower bound > 0.5",
+        "the cell soup has round-2 hybrid-target lower bound > 0",
+        "neither the soup's round-0 margin nor its round-1 margin is conclusively harmful: each one-sided upper bound is >= 0",
+        "at least two of the three independent seed winners have positive point estimates on early margin, round-2 match score above 0.5, and positive round-2 hybrid target",
+        "every remaining seed winner has a one-sided upper bound at or above parity on each of those three primary statistics",
+        "all four cell candidates are structurally valid, hash-bound, complete, finite, and have zero caps"
+      ],
+      "cell_ranking": "Among eligible cells maximize the soup's min(early_margin/SE, (round2_score-0.5)/SE, round2_hybrid/SE); break ties by the soup's round-2 match-score lower bound, then early-margin lower bound, then fixed cell order o0-shared, o0-independent, o2-shared, o2-independent.",
+      "candidate_choice": "The full-actor candidate is exactly the selected cell's predeclared three-winner equal-weight soup. Individual winners are robustness evidence only and cannot be selected post hoc.",
+      "stop_rule": "If no cell passes, stop and retain the complete negative result. Do not spend actor seeds or substitute another checkpoint."
+    }
+  },
+  "later_actor_boundary": {
+    "status": "Not executed by this workflow. A later addendum or workflow must bind the selected model hash and the unchanged deployed role-coherent 512-world actor tail before consuming actor seeds.",
+    "safety_seeds": ["202608260301","202608260302"],
+    "final_seeds": ["202608260401","202608260402"],
+    "promotion_primary_endpoint": "reciprocal full-match match score",
+    "required_final_gate": [
+      "combined candidate match score - 1.645 * orientation-stratified pair SE > 0.5",
+      "candidate match-score point estimate > 0.5 in each reciprocal orientation after inversion",
+      "zero caps, malformed rows, gaps, overlaps, provenance mismatches, or operational failures"
+    ],
+    "margin_rule": "Point margin is reported as a secondary diagnostic but is not a promotion gate because objective mode 2 intentionally may trade points for match wins.",
+    "seed_firewall": "No actor seed may be consumed if Screen B is invalid or has no passing cell. Safety and final seeds are never used for checkpoint, cell, soup, or actor-parameter selection."
+  },
+  "workflow": {
+    "path": ".github/workflows/continuation-v2.yml",
+    "launch_path": "data/experiments/locked_continuation_v2_execution.json",
+    "launch_rule": "The plan/workflow/transport commit does not trigger. One later addendum-only commit must bind the exact workflow, plan, build-source commit/tree, all transport hashes, and results=null. The workflow fails closed unless that is the only changed path.",
+    "compile_on_runner": false,
+    "artifact_retention_days": 30
+  },
+  "multiplicity": {
+    "factorial_cells": 4,
+    "training_replicates_per_cell": 3,
+    "training_runs": 12,
+    "screen_a_candidates_per_replicate": 7,
+    "screen_a_looks": 84,
+    "soups": 4,
+    "screen_b_looks": 16,
+    "hyperparameter_variants_per_cell": 1,
+    "no_optional_stopping_or_unplanned_retry": true
+  },
+  "results": null
+}

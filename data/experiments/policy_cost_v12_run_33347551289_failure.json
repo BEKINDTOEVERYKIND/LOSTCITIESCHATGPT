@@ -1,0 +1,63 @@
+{
+  "cause": {
+    "classification": "execution_blob_encoding_corruption",
+    "efficacy_related": false,
+    "mechanism": "The unique direct-addendum push stored the intended canonical UTF-8 JSON bytes through an incorrectly declared base64 blob encoding. GitHub therefore decoded the JSON characters as base64 and committed 90060 non-UTF-8 bytes. The launch guard rejected byte 1 before compilation, discovery, search, truth labels, or any seed use.",
+    "stage": {
+      "error": "invalid JSON: 'utf-8' codec can't decode byte 0xaa in position 1",
+      "job_id": 99354475339,
+      "name": "preflight / Reject every launch except the unique direct addendum push"
+    }
+  },
+  "execution_blob": {
+    "git_blob_sha": "b4dac1e705c2f0dd531f9428835213ae6df3ce8a",
+    "intended_sha256": "59903c8151b92f1671ba88c8988bd1ff87db07786589e9253e9f4a9a27b76245",
+    "intended_size": 124628,
+    "path": "data/experiments/locked_policy_cost_v12_execution.json",
+    "stored_sha256": "5f29f95a792aea41deccba1ccd7d9454f3f780b39a793755aa3aab007720d475",
+    "stored_size": 90060
+  },
+  "fixed_seed_execution": {
+    "all_policy_cost_v12_fixed_roots_retired": true,
+    "retired_fixed_root_count": 21,
+    "retry_forbidden": true,
+    "seeds_touched": false
+  },
+  "github_run": {
+    "attempt": 1,
+    "conclusion": "failure",
+    "event": "push",
+    "head_sha": "a083c75b8cc63ae18547d86dbd89de2b30307ba1",
+    "head_tree": "18c2cf0a4a9441aeb14b667daee160c35207a0d2",
+    "id": 33347551289,
+    "url": "https://github.com/BEKINDTOEVERYKIND/LOSTCITIESCHATGPT/actions/runs/33347551289"
+  },
+  "job_disposition": {
+    "failure": 1,
+    "skipped": 19,
+    "success": 0,
+    "total": 20
+  },
+  "locked_validation_relaxed": false,
+  "maintained_actor_changed": false,
+  "promotion_efficacy_data_observed": false,
+  "schema": "lc-policy-cost-v12-execution-blob-encoding-failure-v1",
+  "search_and_truth_labels_generated": false,
+  "source_parent": {
+    "commit": "15206ec4b47a09b1d2ec2dc15cf5a139794a32a4",
+    "tree": "77d6e197b74912f585b31a64faa282757563c5a5"
+  },
+  "status": "complete_terminal_non_promotable",
+  "untouched_stages": [
+    "compile",
+    "discovery",
+    "allocation",
+    "TRAIN_search_and_truth",
+    "calibration",
+    "SELECT_search_and_truth",
+    "untouched_TEST_search_and_truth",
+    "reciprocal_safety",
+    "final",
+    "promotion"
+  ]
+}

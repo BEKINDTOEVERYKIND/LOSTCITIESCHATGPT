@@ -1,0 +1,107 @@
+{
+  "artifact_kind": "belief_history_v1_probe_and_seed_exclusions",
+  "burned_seed_contract": {
+    "ad_hoc_roots": [
+      "101",
+      "202",
+      "71001",
+      "72002",
+      "880001",
+      "880002"
+    ],
+    "belief_accuracy_development": {
+      "burned_roots": [
+        "202608290101",
+        "202608290102",
+        "202608290202",
+        "202608290203",
+        "202608290507",
+        "202608290508",
+        "202608290509",
+        "202608290510",
+        "202608290511"
+      ],
+      "path": "data/experiments/belief_accuracy_dev_20260829.json",
+      "sha256": "bbfef92a972cca3d51df74d633a8f201409a358b4feb55aedcaec9460e477e20"
+    },
+    "forbidden": [
+      "all integer roots 1 through 200",
+      "the entire 20260829* development namespace, including unrecorded reserves",
+      "maintained-800 seed 1",
+      "all fixed and smoke roots used by policy-cost v1 through v7 (202611, 202612, 202701, 202702, 202703, 202704, and 202705 namespaces)",
+      "all exact-17 source and audit seeds",
+      "all roots recorded by any earlier failed belief-history attempt"
+    ],
+    "known_belief_development_roots": [
+      "202608290101",
+      "202608290102",
+      "202608290109",
+      "202608290111",
+      "202608290112",
+      "202608290202",
+      "202608290203",
+      "202608290501",
+      "202608290502",
+      "202608290503",
+      "202608290504",
+      "202608290505",
+      "202608290506",
+      "202608290507",
+      "202608290508",
+      "202608290509",
+      "202608290510",
+      "202608290511"
+    ],
+    "reserved_namespace_prefixes": [
+      "20260829"
+    ],
+    "retired_prelaunch_roots": {
+      "202706100401": "burned when a local compiled-row structural test accidentally evaluated match 0 before definition freeze; no campaign or accuracy gate ran"
+    },
+    "policy_cost_v7_plan": {
+      "path": "data/experiments/locked_policy_cost_v7_plan.json",
+      "sha256": "5ddcf42017c70c106a800b7e4c10c400ad9ee829132b8d581c2f678624ee46d9"
+    },
+    "rule": "Every production and smoke root is unique, is in the fresh 202706 namespace, and has empty intersection with this ledger. Any root touched by an attempted execution is permanently retired."
+  },
+  "exact17": {
+    "case_count": 17,
+    "canonical_bindings": [
+      {
+        "path": "data/experiments/commented_ply_audit_v3.json",
+        "sha256": "be63dcae2ae1a179cf43a0c47e9971755290f9b3bfd90cc40fd4b6bd2838bbd7"
+      },
+      {
+        "path": "data/experiments/commented_ply_audit_v3.md",
+        "sha256": "a30eb93e4623e75ec2dae4c2cb73103b801d67954e0b02298e1a5b1082ebcd71"
+      },
+      {
+        "path": "data/experiments/commented_ply_audit_v3_result.json",
+        "sha256": "9897b402116b897942031ecbd46c50127b358c5a2c579e9c854720c667f55a82"
+      },
+      {
+        "path": "data/experiments/commented_ply_audit_v3_evidence.zip",
+        "sha256": "aacec0f3da9bbedd5d6512cf7bf2ef0d993232ed888d64f2e8099f5b15c03994"
+      },
+      {
+        "path": "data/experiments/locked_commented_ply_audit_definition_lock_v3.json",
+        "sha256": "131813ab280e46d6826edb3353265323858a126793526a7b0d98099432c6446d"
+      },
+      {
+        "path": "data/experiments/policy_cost_v7_exact17_exclusions.json",
+        "sha256": "5e069c18794dc99a2a9827bf4b63d453e7986a8d948d2926aa7ef3296d78b37e"
+      },
+      {
+        "path": "data/experiments/policy_cost_v7_exact17_exclusions.txt",
+        "sha256": "10034cf8b83aadf24fa0775e4dad2712573e1d84cbf364568ce6136682ac254c"
+      }
+    ],
+    "exclusion_key": "SHA-256 of the lexicographically least 120-way suit relabelling of the semantic current-mover information view: public current state, mover hand, round, nply, cumulative score, and deck count; physical wager identities collapse; chronological HistoryBeliefTrace, opponent private hand, hidden deck, future actions, and truth labels are excluded",
+    "natural_state_orbit_rejection_claimed": true,
+    "order": "For every history-training or evaluation state, scrub to the current mover information view, compute its canonical suit orbit, and reject any of the 17 bound hashes before materializing or reading the held-hand label. Every history converging to a reviewed current-view orbit is conservatively rejected.",
+    "post_freeze_audit": "After the terminal TEST verdict only, a separate diagnostic addendum may evaluate the frozen artifact on all 17 positions. It cannot alter the frozen accuracy verdict or authorize actor promotion.",
+    "selection_use": "not_applicable_no_select_split",
+    "training_use": "forbidden"
+  },
+  "schema": "lc-belief-history-v1-exclusions-v1"
+}

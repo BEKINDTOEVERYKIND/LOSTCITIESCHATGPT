@@ -1,0 +1,70 @@
+{
+  "cause": {
+    "classification": "native_python_burned_seed_literal_mismatch",
+    "efficacy_related": false,
+    "mechanism": "All 54 runner batches and all 216 logical TRAIN slices completed. The frozen merger accepted the complete ordered 0..13823 allocation range with zero capped leaves, then the Python TRAIN consumer rejected the native header before calibration fitting because the native producer omitted the retired v8 namespace from its burned-source literal while the Python consumer required it.",
+    "stage": {
+      "error": "policy-cost campaign: TRAIN burned-seed evidence drift",
+      "job_id": 99214015270,
+      "name": "train_calibrate"
+    }
+  },
+  "execution": {
+    "path": "data/experiments/locked_policy_cost_v9_execution.json",
+    "sha256": "2001d12d12e6db74992779ea9a8fd991f597e1cc9e4b346c79b860105edf423f"
+  },
+  "fixed_seed_execution": {
+    "all_policy_cost_v9_fixed_roots_retired": true,
+    "retired_fixed_root_count": 21,
+    "retry_forbidden": true
+  },
+  "github_run": {
+    "attempt": 1,
+    "conclusion": "failure",
+    "event": "push",
+    "head_sha": "09d12bac0eec951997c78f7d1df616f9a1decc2c",
+    "head_tree": "706be14d9b5eb5332cb52ba7c3e244d4ac0dee66",
+    "id": 33278577188,
+    "url": "https://github.com/BEKINDTOEVERYKIND/LOSTCITIESCHATGPT/actions/runs/33278577188"
+  },
+  "immutable_train_audit": {
+    "allocation_count": 13824,
+    "allocation_ids_complete_and_ordered": true,
+    "all_exact": true,
+    "github_outer_sha256_verified": true,
+    "logical_slice_count": 216,
+    "logical_slice_inner_sha256_verified": true,
+    "runner_batch_count": 54,
+    "unfinished_or_capped_leaves": 0
+  },
+  "job_disposition": {
+    "failure": 1,
+    "skipped": 9,
+    "success": 63,
+    "total": 73,
+    "train_evaluate_success": 54
+  },
+  "locked_validation_relaxed": false,
+  "maintained_actor_disposition": {
+    "changed": false,
+    "objective3_result_path": "data/experiments/match_value_objective3_v2_result.json",
+    "objective3_result_sha256": "05d6ee1b0ce59d5d502ebac27b4a59cc7c816bfc1245eccee4d5b8fbda9c6700"
+  },
+  "promotion_efficacy_data_observed": false,
+  "remediation_constraint": "A successor may correct only the proven native/Python burned-seed declaration mismatch, add a direct cross-language contract test, retain every sample and frozen gate, and use all-fresh roots.",
+  "schema": "lc-policy-cost-v9-burned-seed-binding-failure-v1",
+  "search_and_truth_labels_generated": true,
+  "source_parent": {
+    "commit": "95ee415828db20bd7e884e5207409cec4887f826",
+    "tree": "5d15d500daa7dc069734d2cbea9c6b9e33cb5915"
+  },
+  "status": "complete_terminal_non_promotable",
+  "untouched_stages": [
+    "calibration_fit_and_decision",
+    "SELECT_search_and_truth",
+    "untouched_TEST_search_and_truth",
+    "200_pair_per_orientation_safety",
+    "2500_pair_per_orientation_final",
+    "promotion"
+  ]
+}

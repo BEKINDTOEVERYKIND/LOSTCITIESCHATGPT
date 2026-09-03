@@ -1,0 +1,733 @@
+{
+  "arena_id": "16c39d9d0f81853885c78c35442c70114538fe8545025b9fa33995dddf4884e0",
+  "pair_start": "0",
+  "pairs_per_checkpoint": 1500,
+  "plan_id": "5b5ffe0dee8eb637415c2efbdf7b42c5537efeb2fa4df6d8764df99b5296e06a",
+  "ranking": "maximize minimum standardized delta across early margin, round-2 final match score, and round-2 hybrid; ties use final-score lower bound, early-margin lower bound, then earlier locked checkpoint",
+  "record": "continuation-v2-screen-a-selection",
+  "schema": 1,
+  "seed": "202608260201",
+  "selections": [
+    {
+      "candidate_artifact": "models/o0-shared/r1/full2.bin",
+      "candidate_checkpoint": "models/o0-shared/r1/full2.bin",
+      "candidate_model_id": "75181ba35f2eb0fe6380b73b6287a21a03b7e2c43664b82d31a59594383913d6",
+      "cell": "o0-shared",
+      "cell_order": 0,
+      "checkpoint": "full2",
+      "checkpoint_order": 2,
+      "metrics": {
+        "cap_forces": 0,
+        "caps": 0,
+        "cycle_forces": 1,
+        "early_margin": {
+          "estimate": 0.259,
+          "pair_clustered_se": 0.32590202689018544,
+          "pairs": 1000
+        },
+        "exact_moves": 3000,
+        "round2_final_match_score": {
+          "estimate": 0.503,
+          "pair_clustered_se": 0.006004507325037823,
+          "pairs": 500
+        },
+        "round2_hybrid": {
+          "estimate": 0.3242000000000001,
+          "pair_clustered_se": 0.6159837137385876,
+          "pairs": 500
+        },
+        "round_margin": [
+          {
+            "estimate": 0.022,
+            "pair_clustered_se": 0.41962507361311197,
+            "pairs": 500
+          },
+          {
+            "estimate": 0.496,
+            "pair_clustered_se": 0.49896282004933307,
+            "pairs": 500
+          },
+          {
+            "estimate": 0.484,
+            "pair_clustered_se": 0.5357382934214019,
+            "pairs": 500
+          }
+        ]
+      },
+      "minimum_standardized_delta": 0.49962467153474666,
+      "objective": 0,
+      "raw": "evidence/screen-a/o0-shared/r1/full2/result.jsonl",
+      "raw_id": "aa2fb149cdb9cac062c292dc4a33c4182e945a426851d737f0792b22c39bdb40",
+      "replicate": "r1",
+      "replicate_order": 0,
+      "role_mapping": "shared",
+      "standardized_deltas": {
+        "early_margin": 0.7947173648210281,
+        "round2_final_match_score": 0.49962467153474666,
+        "round2_hybrid": 0.5263126163390494
+      },
+      "tie_break": "earlier_locked_checkpoint_order"
+    },
+    {
+      "candidate_artifact": "models/o0-shared/r2/full4.bin",
+      "candidate_checkpoint": "models/o0-shared/r2/full4.bin",
+      "candidate_model_id": "87887942d317ead893e071dc09d1e0070de11e10796fc0ca61b84957e6e0d5ef",
+      "cell": "o0-shared",
+      "cell_order": 0,
+      "checkpoint": "full4",
+      "checkpoint_order": 3,
+      "metrics": {
+        "cap_forces": 0,
+        "caps": 0,
+        "cycle_forces": 3,
+        "early_margin": {
+          "estimate": 0.2515,
+          "pair_clustered_se": 0.3524723173307153,
+          "pairs": 1000
+        },
+        "exact_moves": 3000,
+        "round2_final_match_score": {
+          "estimate": 0.503,
+          "pair_clustered_se": 0.005526579970682111,
+          "pairs": 500
+        },
+        "round2_hybrid": {
+          "estimate": 0.34054999999999996,
+          "pair_clustered_se": 0.566384676787074,
+          "pairs": 500
+        },
+        "round_margin": [
+          {
+            "estimate": 0.534,
+            "pair_clustered_se": 0.4560127006634055,
+            "pairs": 500
+          },
+          {
+            "estimate": -0.031,
+            "pair_clustered_se": 0.537752203961761,
+            "pairs": 500
+          },
+          {
+            "estimate": 0.811,
+            "pair_clustered_se": 0.49796334502247447,
+            "pairs": 500
+          }
+        ]
+      },
+      "minimum_standardized_delta": 0.5428311932360822,
+      "objective": 0,
+      "raw": "evidence/screen-a/o0-shared/r2/full4/result.jsonl",
+      "raw_id": "6dcffb4a356bbb0312464c2f493716a3ec0b333ee8604c5175b31276873aae9d",
+      "replicate": "r2",
+      "replicate_order": 1,
+      "role_mapping": "shared",
+      "standardized_deltas": {
+        "early_margin": 0.7135312126200943,
+        "round2_final_match_score": 0.5428311932360822,
+        "round2_hybrid": 0.6012697976432472
+      },
+      "tie_break": "earlier_locked_checkpoint_order"
+    },
+    {
+      "candidate_artifact": "models/o0-shared/r3/full10.bin",
+      "candidate_checkpoint": "models/o0-shared/r3/full10.bin",
+      "candidate_model_id": "66402372e4c19f1c2dec8461b24b465f1d7977752f0dae827fe2b5223a29889d",
+      "cell": "o0-shared",
+      "cell_order": 0,
+      "checkpoint": "full10",
+      "checkpoint_order": 6,
+      "metrics": {
+        "cap_forces": 0,
+        "caps": 0,
+        "cycle_forces": 0,
+        "early_margin": {
+          "estimate": 0.374,
+          "pair_clustered_se": 0.36691859213353206,
+          "pairs": 1000
+        },
+        "exact_moves": 3000,
+        "round2_final_match_score": {
+          "estimate": 0.5075,
+          "pair_clustered_se": 0.006058953857200711,
+          "pairs": 500
+        },
+        "round2_hybrid": {
+          "estimate": 0.7804000000000001,
+          "pair_clustered_se": 0.6213917339763285,
+          "pairs": 500
+        },
+        "round_margin": [
+          {
+            "estimate": 0.413,
+            "pair_clustered_se": 0.492177141563233,
+            "pairs": 500
+          },
+          {
+            "estimate": 0.335,
+            "pair_clustered_se": 0.5448047121204967,
+            "pairs": 500
+          },
+          {
+            "estimate": 0.608,
+            "pair_clustered_se": 0.5452037842244544,
+            "pairs": 500
+          }
+        ]
+      },
+      "minimum_standardized_delta": 1.019299670330935,
+      "objective": 0,
+      "raw": "evidence/screen-a/o0-shared/r3/full10/result.jsonl",
+      "raw_id": "2435ccc416b6e2be92efe2623363e9bdcd2b6966e6e23b4fa25148a7d92a2acd",
+      "replicate": "r3",
+      "replicate_order": 2,
+      "role_mapping": "shared",
+      "standardized_deltas": {
+        "early_margin": 1.019299670330935,
+        "round2_final_match_score": 1.2378374512766162,
+        "round2_hybrid": 1.2558905394607789
+      },
+      "tie_break": "earlier_locked_checkpoint_order"
+    },
+    {
+      "candidate_artifact": "models/o0-independent/r1/full2.bin",
+      "candidate_checkpoint": "models/o0-independent/r1/full2.bin",
+      "candidate_model_id": "025c790cb2df800d587147fa758b6c2179cd07532c6b438d48428437a7c4621e",
+      "cell": "o0-independent",
+      "cell_order": 1,
+      "checkpoint": "full2",
+      "checkpoint_order": 2,
+      "metrics": {
+        "cap_forces": 0,
+        "caps": 0,
+        "cycle_forces": 0,
+        "early_margin": {
+          "estimate": 0.3475,
+          "pair_clustered_se": 0.3451914699132945,
+          "pairs": 1000
+        },
+        "exact_moves": 3000,
+        "round2_final_match_score": {
+          "estimate": 0.5055,
+          "pair_clustered_se": 0.0060217957494501755,
+          "pairs": 500
+        },
+        "round2_hybrid": {
+          "estimate": 0.5662,
+          "pair_clustered_se": 0.6163777764054225,
+          "pairs": 500
+        },
+        "round_margin": [
+          {
+            "estimate": 0.331,
+            "pair_clustered_se": 0.45758567208184,
+            "pairs": 500
+          },
+          {
+            "estimate": 0.364,
+            "pair_clustered_se": 0.5174170937433317,
+            "pairs": 500
+          },
+          {
+            "estimate": 0.324,
+            "pair_clustered_se": 0.5210441651569359,
+            "pairs": 500
+          }
+        ]
+      },
+      "minimum_standardized_delta": 0.9133488130184639,
+      "objective": 0,
+      "raw": "evidence/screen-a/o0-independent/r1/full2/result.jsonl",
+      "raw_id": "f28b5a150bd3e3aa0d7868b4c3acfa46485e5dccb0a665904de0d0abec9110a1",
+      "replicate": "r1",
+      "replicate_order": 0,
+      "role_mapping": "independent",
+      "standardized_deltas": {
+        "early_margin": 1.006687679991876,
+        "round2_final_match_score": 0.9133488130184639,
+        "round2_hybrid": 0.9185924958261019
+      },
+      "tie_break": "earlier_locked_checkpoint_order"
+    },
+    {
+      "candidate_artifact": "models/o0-independent/r2/full10.bin",
+      "candidate_checkpoint": "models/o0-independent/r2/full10.bin",
+      "candidate_model_id": "db102a4f7beea189c5c1011feb0ee614817319275198906885ef7a5da53466ab",
+      "cell": "o0-independent",
+      "cell_order": 1,
+      "checkpoint": "full10",
+      "checkpoint_order": 6,
+      "metrics": {
+        "cap_forces": 3,
+        "caps": 0,
+        "cycle_forces": 1,
+        "early_margin": {
+          "estimate": 0.26,
+          "pair_clustered_se": 0.3798548271243761,
+          "pairs": 1000
+        },
+        "exact_moves": 3000,
+        "round2_final_match_score": {
+          "estimate": 0.508,
+          "pair_clustered_se": 0.006036960309589514,
+          "pairs": 500
+        },
+        "round2_hybrid": {
+          "estimate": 0.8160499999999999,
+          "pair_clustered_se": 0.6201808977927117,
+          "pairs": 500
+        },
+        "round_margin": [
+          {
+            "estimate": 1.087,
+            "pair_clustered_se": 0.5478779083014843,
+            "pairs": 500
+          },
+          {
+            "estimate": -0.567,
+            "pair_clustered_se": 0.524238183793105,
+            "pairs": 500
+          },
+          {
+            "estimate": 0.321,
+            "pair_clustered_se": 0.577277590794643,
+            "pairs": 500
+          }
+        ]
+      },
+      "minimum_standardized_delta": 0.6844720178187127,
+      "objective": 0,
+      "raw": "evidence/screen-a/o0-independent/r2/full10/result.jsonl",
+      "raw_id": "67862d923f9570a5828e1eeb80fe6bc84d81cd17c76dac88cd4db98af0745fdf",
+      "replicate": "r2",
+      "replicate_order": 1,
+      "role_mapping": "independent",
+      "standardized_deltas": {
+        "early_margin": 0.6844720178187127,
+        "round2_final_match_score": 1.3251702164236974,
+        "round2_hybrid": 1.3158257581044608
+      },
+      "tie_break": "earlier_locked_checkpoint_order"
+    },
+    {
+      "candidate_artifact": "models/o0-independent/r3/full4.bin",
+      "candidate_checkpoint": "models/o0-independent/r3/full4.bin",
+      "candidate_model_id": "b054e70b8ede66b638ef9da78e46678a305847fa4b4f4415b7a998be23e8c6b5",
+      "cell": "o0-independent",
+      "cell_order": 1,
+      "checkpoint": "full4",
+      "checkpoint_order": 3,
+      "metrics": {
+        "cap_forces": 0,
+        "caps": 0,
+        "cycle_forces": 0,
+        "early_margin": {
+          "estimate": 0.643,
+          "pair_clustered_se": 0.35050235791347095,
+          "pairs": 1000
+        },
+        "exact_moves": 3000,
+        "round2_final_match_score": {
+          "estimate": 0.505,
+          "pair_clustered_se": 0.006287213859590945,
+          "pairs": 500
+        },
+        "round2_hybrid": {
+          "estimate": 0.48750000000000004,
+          "pair_clustered_se": 0.6446879109344381,
+          "pairs": 500
+        },
+        "round_margin": [
+          {
+            "estimate": 1.184,
+            "pair_clustered_se": 0.48833721388906853,
+            "pairs": 500
+          },
+          {
+            "estimate": 0.102,
+            "pair_clustered_se": 0.5022486430034406,
+            "pairs": 500
+          },
+          {
+            "estimate": -0.25,
+            "pair_clustered_se": 0.5505535563747397,
+            "pairs": 500
+          }
+        ]
+      },
+      "minimum_standardized_delta": 0.7561798379209512,
+      "objective": 0,
+      "raw": "evidence/screen-a/o0-independent/r3/full4/result.jsonl",
+      "raw_id": "2c2382ce928cd156363bcc3833681d313511c2a57aa7ce20bc394b2b62e1702d",
+      "replicate": "r3",
+      "replicate_order": 2,
+      "role_mapping": "independent",
+      "standardized_deltas": {
+        "early_margin": 1.8345097699991462,
+        "round2_final_match_score": 0.7952648202625815,
+        "round2_hybrid": 0.7561798379209512
+      },
+      "tie_break": "earlier_locked_checkpoint_order"
+    },
+    {
+      "candidate_artifact": "models/o2-shared/r1/full8.bin",
+      "candidate_checkpoint": "models/o2-shared/r1/full8.bin",
+      "candidate_model_id": "14a7b6b9379d7b8a87d3ba72eac630723c59117add290714268b68cbfaa50a7b",
+      "cell": "o2-shared",
+      "cell_order": 2,
+      "checkpoint": "full8",
+      "checkpoint_order": 5,
+      "metrics": {
+        "cap_forces": 0,
+        "caps": 0,
+        "cycle_forces": 0,
+        "early_margin": {
+          "estimate": 0.3725,
+          "pair_clustered_se": 0.37935590763115135,
+          "pairs": 1000
+        },
+        "exact_moves": 3000,
+        "round2_final_match_score": {
+          "estimate": 0.5135,
+          "pair_clustered_se": 0.006668916620995917,
+          "pairs": 500
+        },
+        "round2_hybrid": {
+          "estimate": 1.3914,
+          "pair_clustered_se": 0.681961134565685,
+          "pairs": 500
+        },
+        "round_margin": [
+          {
+            "estimate": 0.692,
+            "pair_clustered_se": 0.5367275145264115,
+            "pairs": 500
+          },
+          {
+            "estimate": 0.053,
+            "pair_clustered_se": 0.5364092203750853,
+            "pairs": 500
+          },
+          {
+            "estimate": 0.828,
+            "pair_clustered_se": 0.549879593305906,
+            "pairs": 500
+          }
+        ]
+      },
+      "minimum_standardized_delta": 0.9819275052971698,
+      "objective": 2,
+      "raw": "evidence/screen-a/o2-shared/r1/full8/result.jsonl",
+      "raw_id": "3650b9550bde767fffcafc9576b13f29f25d5d4334f7b9b537a99f44214b95fb",
+      "replicate": "r1",
+      "replicate_order": 0,
+      "role_mapping": "shared",
+      "standardized_deltas": {
+        "early_margin": 0.9819275052971698,
+        "round2_final_match_score": 2.0243168069454596,
+        "round2_hybrid": 2.040292224110586
+      },
+      "tie_break": "earlier_locked_checkpoint_order"
+    },
+    {
+      "candidate_artifact": "data/champion.bin",
+      "candidate_checkpoint": "data/champion.bin",
+      "candidate_model_id": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+      "cell": "o2-shared",
+      "cell_order": 2,
+      "checkpoint": "base",
+      "checkpoint_order": 0,
+      "metrics": {
+        "cap_forces": 0,
+        "caps": 0,
+        "cycle_forces": 0,
+        "early_margin": {
+          "estimate": 0.0,
+          "pair_clustered_se": 0.0,
+          "pairs": 1000
+        },
+        "exact_moves": 3000,
+        "round2_final_match_score": {
+          "estimate": 0.5,
+          "pair_clustered_se": 0.0,
+          "pairs": 500
+        },
+        "round2_hybrid": {
+          "estimate": 0.0,
+          "pair_clustered_se": 0.0,
+          "pairs": 500
+        },
+        "round_margin": [
+          {
+            "estimate": 0.0,
+            "pair_clustered_se": 0.0,
+            "pairs": 500
+          },
+          {
+            "estimate": 0.0,
+            "pair_clustered_se": 0.0,
+            "pairs": 500
+          },
+          {
+            "estimate": 0.0,
+            "pair_clustered_se": 0.0,
+            "pairs": 500
+          }
+        ]
+      },
+      "minimum_standardized_delta": 0.0,
+      "objective": 2,
+      "raw": "evidence/screen-a/o2-shared/r2/base/result.jsonl",
+      "raw_id": "06f6d5ea10be8aeb01f94f7ebed1f7f1e290a49d282e59b828a0a490d080ab69",
+      "replicate": "r2",
+      "replicate_order": 1,
+      "role_mapping": "shared",
+      "standardized_deltas": {
+        "early_margin": 0.0,
+        "round2_final_match_score": 0.0,
+        "round2_hybrid": 0.0
+      },
+      "tie_break": "earlier_locked_checkpoint_order"
+    },
+    {
+      "candidate_artifact": "models/o2-shared/r3/full2.bin",
+      "candidate_checkpoint": "models/o2-shared/r3/full2.bin",
+      "candidate_model_id": "d84cb432ff38cccdb2c922243691a271b10db4eb9b339a9dc774476a98371984",
+      "cell": "o2-shared",
+      "cell_order": 2,
+      "checkpoint": "full2",
+      "checkpoint_order": 2,
+      "metrics": {
+        "cap_forces": 0,
+        "caps": 0,
+        "cycle_forces": 0,
+        "early_margin": {
+          "estimate": 0.4325,
+          "pair_clustered_se": 0.3162067052268665,
+          "pairs": 1000
+        },
+        "exact_moves": 3000,
+        "round2_final_match_score": {
+          "estimate": 0.506,
+          "pair_clustered_se": 0.006164739087425522,
+          "pairs": 500
+        },
+        "round2_hybrid": {
+          "estimate": 0.60225,
+          "pair_clustered_se": 0.631722933812926,
+          "pairs": 500
+        },
+        "round_margin": [
+          {
+            "estimate": 0.093,
+            "pair_clustered_se": 0.41008785167593587,
+            "pairs": 500
+          },
+          {
+            "estimate": 0.772,
+            "pair_clustered_se": 0.4813662419798834,
+            "pairs": 500
+          },
+          {
+            "estimate": 0.045,
+            "pair_clustered_se": 0.5147590735554015,
+            "pairs": 500
+          }
+        ]
+      },
+      "minimum_standardized_delta": 0.9533451577655498,
+      "objective": 2,
+      "raw": "evidence/screen-a/o2-shared/r3/full2/result.jsonl",
+      "raw_id": "29541397de779bd818432d19d4726c5aadb3be82c0310250b1c0b5944a52f456",
+      "replicate": "r3",
+      "replicate_order": 2,
+      "role_mapping": "shared",
+      "standardized_deltas": {
+        "early_margin": 1.3677761820063157,
+        "round2_final_match_score": 0.9732772003665909,
+        "round2_hybrid": 0.9533451577655498
+      },
+      "tie_break": "earlier_locked_checkpoint_order"
+    },
+    {
+      "candidate_artifact": "models/o2-independent/r1/full6.bin",
+      "candidate_checkpoint": "models/o2-independent/r1/full6.bin",
+      "candidate_model_id": "545d9176705d6cc9e484629c04e7847c397e5e1b3e622eff83846b6d135fb6ac",
+      "cell": "o2-independent",
+      "cell_order": 3,
+      "checkpoint": "full6",
+      "checkpoint_order": 4,
+      "metrics": {
+        "cap_forces": 0,
+        "caps": 0,
+        "cycle_forces": 0,
+        "early_margin": {
+          "estimate": 0.063,
+          "pair_clustered_se": 0.3660170754206687,
+          "pairs": 1000
+        },
+        "exact_moves": 3000,
+        "round2_final_match_score": {
+          "estimate": 0.5035,
+          "pair_clustered_se": 0.006504622989880425,
+          "pairs": 500
+        },
+        "round2_hybrid": {
+          "estimate": 0.3221,
+          "pair_clustered_se": 0.6647369243069577,
+          "pairs": 500
+        },
+        "round_margin": [
+          {
+            "estimate": 0.316,
+            "pair_clustered_se": 0.5074320274924022,
+            "pairs": 500
+          },
+          {
+            "estimate": -0.19,
+            "pair_clustered_se": 0.527889320093272,
+            "pairs": 500
+          },
+          {
+            "estimate": -0.558,
+            "pair_clustered_se": 0.5436343888105265,
+            "pairs": 500
+          }
+        ]
+      },
+      "minimum_standardized_delta": 0.17212311728241966,
+      "objective": 2,
+      "raw": "evidence/screen-a/o2-independent/r1/full6/result.jsonl",
+      "raw_id": "588fb90ff91a6fba80d0d4b8b17b2d6ae1943c529f2aada5a428c3f567d4f845",
+      "replicate": "r1",
+      "replicate_order": 0,
+      "role_mapping": "independent",
+      "standardized_deltas": {
+        "early_margin": 0.17212311728241966,
+        "round2_final_match_score": 0.5380788410712007,
+        "round2_hybrid": 0.48455259249486615
+      },
+      "tie_break": "earlier_locked_checkpoint_order"
+    },
+    {
+      "candidate_artifact": "data/champion.bin",
+      "candidate_checkpoint": "data/champion.bin",
+      "candidate_model_id": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+      "cell": "o2-independent",
+      "cell_order": 3,
+      "checkpoint": "base",
+      "checkpoint_order": 0,
+      "metrics": {
+        "cap_forces": 0,
+        "caps": 0,
+        "cycle_forces": 0,
+        "early_margin": {
+          "estimate": 0.0,
+          "pair_clustered_se": 0.0,
+          "pairs": 1000
+        },
+        "exact_moves": 3000,
+        "round2_final_match_score": {
+          "estimate": 0.5,
+          "pair_clustered_se": 0.0,
+          "pairs": 500
+        },
+        "round2_hybrid": {
+          "estimate": 0.0,
+          "pair_clustered_se": 0.0,
+          "pairs": 500
+        },
+        "round_margin": [
+          {
+            "estimate": 0.0,
+            "pair_clustered_se": 0.0,
+            "pairs": 500
+          },
+          {
+            "estimate": 0.0,
+            "pair_clustered_se": 0.0,
+            "pairs": 500
+          },
+          {
+            "estimate": 0.0,
+            "pair_clustered_se": 0.0,
+            "pairs": 500
+          }
+        ]
+      },
+      "minimum_standardized_delta": 0.0,
+      "objective": 2,
+      "raw": "evidence/screen-a/o2-independent/r2/base/result.jsonl",
+      "raw_id": "06f6d5ea10be8aeb01f94f7ebed1f7f1e290a49d282e59b828a0a490d080ab69",
+      "replicate": "r2",
+      "replicate_order": 1,
+      "role_mapping": "independent",
+      "standardized_deltas": {
+        "early_margin": 0.0,
+        "round2_final_match_score": 0.0,
+        "round2_hybrid": 0.0
+      },
+      "tie_break": "earlier_locked_checkpoint_order"
+    },
+    {
+      "candidate_artifact": "models/o2-independent/r3/full10.bin",
+      "candidate_checkpoint": "models/o2-independent/r3/full10.bin",
+      "candidate_model_id": "0dda045053bbea6278bc67b725f0bb62f6b08d7723d6fecac474f9622c2bc182",
+      "cell": "o2-independent",
+      "cell_order": 3,
+      "checkpoint": "full10",
+      "checkpoint_order": 6,
+      "metrics": {
+        "cap_forces": 5,
+        "caps": 0,
+        "cycle_forces": 0,
+        "early_margin": {
+          "estimate": 0.2195,
+          "pair_clustered_se": 0.3735774750702722,
+          "pairs": 1000
+        },
+        "exact_moves": 3000,
+        "round2_final_match_score": {
+          "estimate": 0.5035,
+          "pair_clustered_se": 0.006229213932144637,
+          "pairs": 500
+        },
+        "round2_hybrid": {
+          "estimate": 0.3231,
+          "pair_clustered_se": 0.6386432950376862,
+          "pairs": 500
+        },
+        "round_margin": [
+          {
+            "estimate": 0.472,
+            "pair_clustered_se": 0.5224196364543605,
+            "pairs": 500
+          },
+          {
+            "estimate": -0.033,
+            "pair_clustered_se": 0.534436213342869,
+            "pairs": 500
+          },
+          {
+            "estimate": -0.538,
+            "pair_clustered_se": 0.5633665554073147,
+            "pairs": 500
+          }
+        ]
+      },
+      "minimum_standardized_delta": 0.5059162172538489,
+      "objective": 2,
+      "raw": "evidence/screen-a/o2-independent/r3/full10/result.jsonl",
+      "raw_id": "9cb8e968b0a2d8ae792b2248025280f19017e42b9a9a9285f33dee0afd9eaffe",
+      "replicate": "r3",
+      "replicate_order": 2,
+      "role_mapping": "independent",
+      "standardized_deltas": {
+        "early_margin": 0.5875621916409995,
+        "round2_final_match_score": 0.5618686463694695,
+        "round2_hybrid": 0.5059162172538489
+      },
+      "tie_break": "earlier_locked_checkpoint_order"
+    }
+  ],
+  "status": "complete"
+}

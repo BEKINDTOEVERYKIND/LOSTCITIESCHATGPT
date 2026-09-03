@@ -1,0 +1,13 @@
+{
+  "artifact_kind": "policy_cost_v2_locked_attempt_infrastructure_disposition",
+  "available_evidence": [],
+  "execution_sha256": "9474f9302941392ff6e77aa7ad87bb484d9648fc5887a88d68a6b05c82c282ce",
+  "failed_or_skipped_stages": [
+    "preflight:failure"
+  ],
+  "maintained_actor": "rolloutu2:data/champion.bin:data/champion.bin:800:5:0.02:0:1:0:0:0:3:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1:0:0:0:1:0:data/models/match_value_objective3_v2_projected.lcmv",
+  "partial_evidence_retained": false,
+  "promotion_gate_passed": false,
+  "schema": "lc-policy-cost-v2-infrastructure-retain-v1",
+  "status": "complete_terminal_non_promotable"
+}

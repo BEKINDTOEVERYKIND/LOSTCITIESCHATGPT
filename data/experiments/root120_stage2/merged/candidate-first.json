@@ -1,0 +1,106 @@
+{
+  "artifact_kind": "merged_arena_pair_evidence",
+  "canonical_pair_rows_sha256": "4f6a92461a652a0cc87e72a5a62a9a8e246ca0761647529869443c00f84ec0a2",
+  "inputs": [
+    {
+      "pair_count": 100,
+      "pair_start": 0,
+      "path": "raw/candidate-first-0.jsonl",
+      "sha256": "e808b91c9f0c6ad947f1de38231f41e900556230eb176ddc4fd8cba43777cb18"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 100,
+      "path": "raw/candidate-first-100.jsonl",
+      "sha256": "a9d54c9568cf4604b19ccfec83c8ea5d2e7b0ca75335401d5e014dcb35351334"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 200,
+      "path": "raw/candidate-first-200.jsonl",
+      "sha256": "78a2a9e07babc3f0bad2631655eacaac478b67da56e85b40d9821335d149d737"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 300,
+      "path": "raw/candidate-first-300.jsonl",
+      "sha256": "42d1ead1325923d6f51bc604d5ccdba441368be768d60471443f4f634b0985ea"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 400,
+      "path": "raw/candidate-first-400.jsonl",
+      "sha256": "7f6335bc203cb875f0277d2c514907ca228f334f5d495e0cd3f10f9d0fcb5938"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 500,
+      "path": "raw/candidate-first-500.jsonl",
+      "sha256": "e58f9beac4d966ee2960df2c9c5f00e6210fe0544286e071fa06f5f10646d3da"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 600,
+      "path": "raw/candidate-first-600.jsonl",
+      "sha256": "2d0e1f2cf4b4d905966e1f1f3ef03d51008f6e03d10fb9ab81c1c24f395b708c"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 700,
+      "path": "raw/candidate-first-700.jsonl",
+      "sha256": "d25f877234fe4db4a7e9dc55c5f10fae6b313285da702b77165915d193bb52eb"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 800,
+      "path": "raw/candidate-first-800.jsonl",
+      "sha256": "ccdb716448c177ffa30a4f102a2b8371eefb7aabed59a7c016175449b56cf208"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 900,
+      "path": "raw/candidate-first-900.jsonl",
+      "sha256": "82764631e4da1acaba12df12c9482ea6438628bd5381199650378508e23af406"
+    }
+  ],
+  "metadata": {
+    "agent_a": "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:2:120:0:0:20:1:0:512:1:0:0:0:0:0:0:2:1:0:0:0:0:0:0:1",
+    "agent_b": "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:2:20:0:0:20:1:0:512:1:0:0:0:0:0:0:2:1:0:0:0:0:0:0:1",
+    "provenance": "parent_plan=166e66b23e6c7f0676b8dfda88a48425380ec562890118ee6700c2bc83c37458;distributed_plan=d4db81351c57a5847dee279bc1fe7514e0943411edcaa107139388c7d8c1c230;source=0b8c65f91fe1f844b8dbfcda5df8cc92806c839d;arena=a63463d9521d3d1e7639174dd105ce2c751492410f447c604c74a94d1d556e7c;model=af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+    "rounds": 3,
+    "schema": 1,
+    "seed": "202608171211"
+  },
+  "pair_count": 1000,
+  "pair_start": "0",
+  "result": {
+    "capped_rounds": 0,
+    "draws": 10,
+    "games": 2000,
+    "losses": 1016,
+    "margin_pair_clustered_se": 1.148385234861389,
+    "margin_per_game": -2.121,
+    "match_score": 0.4895,
+    "match_score_pair_clustered_se": 0.009046910886960068,
+    "pairs": 1000,
+    "plies_per_game": 140.4055,
+    "points_per_game_a": 121.06,
+    "points_per_game_b": 123.181,
+    "wins": 974
+  },
+  "schema_version": 1,
+  "sufficient_statistics": {
+    "capped_rounds": 0,
+    "draws": 10,
+    "losses": 1016,
+    "margin_sum": -4242,
+    "margin_sumsq": 5287874,
+    "pairs": 1000,
+    "plies_sum": 280811,
+    "points_a_sum": 242120,
+    "points_b_sum": 246362,
+    "score_quarters_sum": 1958,
+    "score_quarters_sumsq": 5142,
+    "wins": 974
+  }
+}

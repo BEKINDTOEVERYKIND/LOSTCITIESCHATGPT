@@ -1,0 +1,468 @@
+name: Locked action-core shortlist campaign
+
+# Inert until one future addendum-only push.  The plan and this workflow do
+# not consume any locked seed, compile an evaluator, or inspect efficacy.
+on:
+  push:
+    branches:
+      - agent/correctness-and-policy-upgrade
+    paths:
+      - data/experiments/locked_action_core_shortlist_execution.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: locked-action-core-shortlist-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PLAN_PATH: data/experiments/locked_action_core_shortlist_plan.json
+  EXECUTION_PATH: data/experiments/locked_action_core_shortlist_execution.json
+  WORLD_RESULT_PATH: data/experiments/world800_result.json
+  WORKFLOW_PATH: .github/workflows/action-core-shortlist.yml
+  COMPILER_EXECUTABLE: gcc
+  COMPILER_SEMANTIC_VERSION_COMMAND: 'gcc -dumpfullversion -dumpversion'
+  REQUIRED_COMPILER_SEMANTIC_VERSION: '13.3.0'
+  BUILD_CFLAGS: '-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11'
+  BUILD_LDFLAGS: '-lm -pthread'
+  MODEL_SHA: af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417
+  MODEL_SIZE: '2823748'
+  SAFETY_CANDIDATE_SEED: '202609040101'
+  SAFETY_BASELINE_SEED: '202609040102'
+  FINAL_CANDIDATE_SEED: '202609040201'
+  FINAL_BASELINE_SEED: '202609040202'
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      candidate: ${{ steps.freeze.outputs.candidate }}
+      baseline: ${{ steps.freeze.outputs.baseline }}
+      safety_provenance: ${{ steps.freeze.outputs.safety_provenance }}
+      final_provenance: ${{ steps.freeze.outputs.final_provenance }}
+      source_commit: ${{ steps.guard.outputs.source_commit }}
+      source_tree: ${{ steps.guard.outputs.source_tree }}
+      execution_sha: ${{ steps.guard.outputs.execution_sha }}
+      plan_sha: ${{ steps.guard.outputs.plan_sha }}
+      arena_sha: ${{ steps.freeze.outputs.arena_sha }}
+    steps:
+      # actions/checkout v4.2.2
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          path: campaign
+
+      - name: Fail closed unless this is the unique addendum-only launch
+        id: guard
+        working-directory: campaign
+        env:
+          EVENT_BEFORE: ${{ github.event.before }}
+          EVENT_AFTER: ${{ github.event.after }}
+          EVENT_FORCED: ${{ github.event.forced }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = push
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$GITHUB_REF" = refs/heads/agent/correctness-and-policy-upgrade
+          test "$EVENT_FORCED" = false
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$EVENT_AFTER" = "$GITHUB_SHA"
+          test "$(git rev-list --parents -n 1 HEAD | wc -w)" -eq 2
+          SOURCE_COMMIT="$(git rev-parse HEAD^)"
+          SOURCE_TREE="$(git rev-parse 'HEAD^^{tree}')"
+          test "$EVENT_BEFORE" = "$SOURCE_COMMIT"
+          test -f "$EXECUTION_PATH"
+          test -f "$WORLD_RESULT_PATH"
+          git cat-file -e "HEAD^:$WORLD_RESULT_PATH"
+          test "$(git diff-tree --no-commit-id --name-only -r HEAD)" = \
+            "$EXECUTION_PATH"
+          test "$(git diff-tree --no-commit-id --name-status -r HEAD)" = \
+            "$(printf 'A\t%s' "$EXECUTION_PATH")"
+          if git cat-file -e "HEAD^:$EXECUTION_PATH" 2>/dev/null; then
+            echo "execution addendum existed before launch" >&2
+            exit 1
+          fi
+          test "$(git rev-list --all --count -- "$EXECUTION_PATH")" = 1
+          python3 tools/action_core_campaign.py guard-execution \
+            --root . --execution "$EXECUTION_PATH" \
+            --source-commit "$SOURCE_COMMIT" --source-tree "$SOURCE_TREE" \
+            --output locked-execution-validation.json
+          PLAN_SHA="$(sha256sum "$PLAN_PATH" | cut -d' ' -f1)"
+          EXECUTION_SHA="$(sha256sum "$EXECUTION_PATH" | cut -d' ' -f1)"
+          echo "source_commit=$SOURCE_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "source_tree=$SOURCE_TREE" >> "$GITHUB_OUTPUT"
+          echo "plan_sha=$PLAN_SHA" >> "$GITHUB_OUTPUT"
+          echo "execution_sha=$EXECUTION_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Materialize only the bound parent source
+        run: |
+          set -euo pipefail
+          mkdir source
+          git -C campaign archive HEAD^ | tar -x -C source
+          test ! -e "source/$EXECUTION_PATH"
+          test "$(git -C campaign rev-parse HEAD^)" = \
+            "${{ steps.guard.outputs.source_commit }}"
+          test "$(git -C campaign rev-parse 'HEAD^^{tree}')" = \
+            "${{ steps.guard.outputs.source_tree }}"
+          test "$(sha256sum source/$PLAN_PATH | cut -d' ' -f1)" = \
+            "${{ steps.guard.outputs.plan_sha }}"
+          test "$(sha256sum source/data/champion.bin | cut -d' ' -f1)" = \
+            "$MODEL_SHA"
+          test "$(stat -c %s source/data/champion.bin)" = "$MODEL_SIZE"
+
+      - name: Compile the evaluator exactly once
+        run: |
+          set -euo pipefail
+          test "$COMPILER_EXECUTABLE" = gcc
+          test "$COMPILER_SEMANTIC_VERSION_COMMAND" = \
+            "gcc -dumpfullversion -dumpversion"
+          test "$(gcc -dumpfullversion -dumpversion)" = \
+            "$REQUIRED_COMPILER_SEMANTIC_VERSION"
+          test ! -e source/bin/arena
+          make -C source -j2 CC="$COMPILER_EXECUTABLE" \
+            CFLAGS="$BUILD_CFLAGS" LDFLAGS="$BUILD_LDFLAGS" bin/arena
+          test -x source/bin/arena
+
+      - name: Freeze actors and bind the immutable evaluator transport
+        id: freeze
+        run: |
+          set -euo pipefail
+          test -n "${ImageOS:-}"
+          test -n "${ImageVersion:-}"
+          test -n "${RUNNER_OS:-}"
+          test -n "${RUNNER_ARCH:-}"
+          mkdir -p evaluator/bin evaluator/data evaluator/tools evaluator/bindings
+          cp source/bin/arena evaluator/bin/arena
+          cp source/data/champion.bin evaluator/data/champion.bin
+          cp source/tools/action_core_campaign.py evaluator/tools/
+          cp source/tools/gate_actor_panel.py evaluator/tools/
+          cp source/tools/match_value_campaign.py evaluator/tools/
+          cp source/tools/merge_arena.py evaluator/tools/
+          cp source/tools/validate_actor_shards.py evaluator/tools/
+          cp "source/$PLAN_PATH" evaluator/bindings/plan.json
+          cp "source/$WORKFLOW_PATH" evaluator/bindings/workflow.yml
+          cp "source/$WORLD_RESULT_PATH" evaluator/bindings/world800-result.json
+          cp "campaign/$EXECUTION_PATH" evaluator/bindings/execution.json
+          cp campaign/locked-execution-validation.json \
+            evaluator/bindings/execution-validation.json
+          python3 source/tools/action_core_campaign.py freeze \
+            --root source --execution "campaign/$EXECUTION_PATH" \
+            --arena evaluator/bin/arena \
+            --source-commit "${{ steps.guard.outputs.source_commit }}" \
+            --source-tree "${{ steps.guard.outputs.source_tree }}" \
+            --output evaluator/frozen-actors.json
+          {
+            echo "launch_commit=$GITHUB_SHA"
+            echo "source_parent_commit=${{ steps.guard.outputs.source_commit }}"
+            echo "source_parent_tree=${{ steps.guard.outputs.source_tree }}"
+            echo "compiler_executable=$COMPILER_EXECUTABLE"
+            echo "compiler_semantic_version_command=$COMPILER_SEMANTIC_VERSION_COMMAND"
+            echo "compiler_semantic_version=$(gcc -dumpfullversion -dumpversion)"
+            echo "compiler_banner=$(gcc --version | head -1)"
+            echo "runner_image_os=$ImageOS"
+            echo "runner_image_version=$ImageVersion"
+            echo "runner_os=$RUNNER_OS"
+            echo "runner_arch=$RUNNER_ARCH"
+            echo "uname=$(uname -a)"
+            echo "cflags=$BUILD_CFLAGS"
+            echo "ldflags=$BUILD_LDFLAGS"
+            echo "threads_per_shard=4"
+            sha256sum evaluator/bin/arena evaluator/data/champion.bin
+          } > evaluator/BUILD_INFO.txt
+          chmod 755 evaluator/bin/arena evaluator/tools/*.py
+          (cd evaluator && { find bin data tools bindings -type f -print0; \
+            printf '%s\0' frozen-actors.json BUILD_INFO.txt; } | sort -z | \
+            xargs -0 sha256sum > SHA256SUMS.txt)
+          (cd evaluator && sha256sum -c SHA256SUMS.txt)
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          value = json.load(open('evaluator/frozen-actors.json', encoding='utf-8'))
+          print('candidate=' + value['candidate'])
+          print('baseline=' + value['baseline'])
+          print('safety_provenance=' + value['safety_provenance'])
+          print('final_provenance=' + value['final_provenance'])
+          print('arena_sha=' + value['arena_sha256'])
+          PY
+
+      # actions/upload-artifact v4.6.2
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: action-core-shortlist-evaluator
+          path: evaluator
+          if-no-files-found: error
+          retention-days: 30
+
+  safety_evaluate:
+    if: ${{ github.run_attempt == 1 && needs.preflight.result == 'success' }}
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        orientation: [candidate-first, baseline-first]
+        start: [0, 20, 40, 60, 80, 100, 120, 140, 160, 180]
+    steps:
+      # actions/download-artifact v4.3.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: action-core-shortlist-evaluator
+          path: evaluator
+
+      - name: Run one immutable 20-pair safety shard
+        env:
+          ORIENTATION: ${{ matrix.orientation }}
+          PAIR_START: ${{ matrix.start }}
+          CANDIDATE: ${{ needs.preflight.outputs.candidate }}
+          BASELINE: ${{ needs.preflight.outputs.baseline }}
+          PROVENANCE: ${{ needs.preflight.outputs.safety_provenance }}
+          ARENA_SHA: ${{ needs.preflight.outputs.arena_sha }}
+        run: |
+          set -euo pipefail
+          (cd evaluator && sha256sum -c SHA256SUMS.txt)
+          test "$(sha256sum evaluator/bin/arena | cut -d' ' -f1)" = "$ARENA_SHA"
+          test "$(sha256sum evaluator/data/champion.bin | cut -d' ' -f1)" = "$MODEL_SHA"
+          mkdir -p bin data raw
+          cp evaluator/bin/arena bin/arena
+          cp evaluator/data/champion.bin data/champion.bin
+          chmod 755 bin/arena
+          if [ "$ORIENTATION" = candidate-first ]; then
+            AGENT_A="$CANDIDATE"; AGENT_B="$BASELINE"; SEED="$SAFETY_CANDIDATE_SEED"
+          elif [ "$ORIENTATION" = baseline-first ]; then
+            AGENT_A="$BASELINE"; AGENT_B="$CANDIDATE"; SEED="$SAFETY_BASELINE_SEED"
+          else
+            exit 2
+          fi
+          OUT="raw/${ORIENTATION}-${PAIR_START}"
+          /usr/bin/time \
+            -f 'wall_s=%e user_s=%U sys_s=%S max_rss_kb=%M exit=%x' \
+            -o "${OUT}.time" \
+            ./bin/arena -a "$AGENT_A" -b "$AGENT_B" \
+              -n 20 -t 4 -s "$SEED" -r 3 --pair-start "$PAIR_START" \
+              --raw-pairs "${OUT}.jsonl" --raw-only \
+              --provenance "$PROVENANCE"
+          sha256sum "${OUT}.jsonl" > "${OUT}.sha256"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: action-core-safety-${{ matrix.orientation }}-${{ matrix.start }}
+          path: raw
+          if-no-files-found: error
+          retention-days: 30
+
+  safety_merge:
+    if: ${{ github.run_attempt == 1 && needs.preflight.result == 'success' && needs.safety_evaluate.result == 'success' }}
+    needs: [preflight, safety_evaluate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      passed: ${{ steps.decision.outputs.passed }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: action-core-shortlist-evaluator
+          path: evaluator
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: action-core-safety-*
+          path: downloads
+          merge-multiple: true
+
+      - name: Validate every safety shard before computing efficacy
+        env:
+          CANDIDATE: ${{ needs.preflight.outputs.candidate }}
+          BASELINE: ${{ needs.preflight.outputs.baseline }}
+          PROVENANCE: ${{ needs.preflight.outputs.safety_provenance }}
+        run: |
+          set -euo pipefail
+          (cd evaluator && sha256sum -c SHA256SUMS.txt)
+          mkdir -p merged bindings
+          python3 evaluator/tools/validate_actor_shards.py \
+            --directory downloads --candidate "$CANDIDATE" --baseline "$BASELINE" \
+            --provenance "$PROVENANCE" \
+            --candidate-first-seed "$SAFETY_CANDIDATE_SEED" \
+            --baseline-first-seed "$SAFETY_BASELINE_SEED" \
+            --starts 0,20,40,60,80,100,120,140,160,180 \
+            --pairs-per-shard 20 --rounds 3 \
+            --output merged/structural-validation.json
+          python3 evaluator/tools/merge_arena.py block \
+            --expect-start 0 --expect-pairs 200 \
+            --output merged/candidate-first.json downloads/candidate-first-*.jsonl
+          python3 evaluator/tools/merge_arena.py block \
+            --expect-start 0 --expect-pairs 200 \
+            --output merged/baseline-first.json downloads/baseline-first-*.jsonl
+          python3 evaluator/tools/merge_arena.py reciprocal \
+            --first merged/candidate-first.json --second merged/baseline-first.json \
+            --gate-z 1.645 --require-positive-margin \
+            --output merged/reciprocal.json
+
+      - name: Apply the one reciprocal safety gate
+        id: decision
+        env:
+          CANDIDATE: ${{ needs.preflight.outputs.candidate }}
+          BASELINE: ${{ needs.preflight.outputs.baseline }}
+          PROVENANCE: ${{ needs.preflight.outputs.safety_provenance }}
+        run: |
+          set -euo pipefail
+          python3 evaluator/tools/gate_actor_panel.py \
+            --reciprocal merged/reciprocal.json --mode safety \
+            --candidate "$CANDIDATE" --baseline "$BASELINE" \
+            --provenance "$PROVENANCE" --pairs-per-orientation 200 \
+            --candidate-first-seed "$SAFETY_CANDIDATE_SEED" \
+            --baseline-first-seed "$SAFETY_BASELINE_SEED" \
+            --gate-z 1.645 --output merged/safety-decision.json \
+            --github-output "$GITHUB_OUTPUT"
+          cp evaluator/frozen-actors.json bindings/frozen-actors.json
+          cp evaluator/SHA256SUMS.txt bindings/EVALUATOR_SHA256SUMS.txt
+          cp -r evaluator/bindings/. bindings/
+          find downloads merged bindings -type f ! -name SHA256SUMS.txt -print0 | \
+            sort -z | xargs -0 sha256sum > merged/SHA256SUMS.txt
+          sha256sum -c merged/SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: action-core-shortlist-safety-evidence
+          path: |
+            downloads
+            merged
+            bindings
+          if-no-files-found: error
+          retention-days: 30
+
+  final_evaluate:
+    if: ${{ github.run_attempt == 1 && needs.preflight.result == 'success' && needs.safety_merge.result == 'success' && needs.safety_merge.outputs.passed == 'true' }}
+    needs: [preflight, safety_merge]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        orientation: [candidate-first, baseline-first]
+        start: [0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000, 2100, 2200, 2300, 2400]
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: action-core-shortlist-evaluator
+          path: evaluator
+
+      - name: Run one immutable 100-pair final shard
+        env:
+          ORIENTATION: ${{ matrix.orientation }}
+          PAIR_START: ${{ matrix.start }}
+          CANDIDATE: ${{ needs.preflight.outputs.candidate }}
+          BASELINE: ${{ needs.preflight.outputs.baseline }}
+          PROVENANCE: ${{ needs.preflight.outputs.final_provenance }}
+          ARENA_SHA: ${{ needs.preflight.outputs.arena_sha }}
+        run: |
+          set -euo pipefail
+          (cd evaluator && sha256sum -c SHA256SUMS.txt)
+          test "$(sha256sum evaluator/bin/arena | cut -d' ' -f1)" = "$ARENA_SHA"
+          test "$(sha256sum evaluator/data/champion.bin | cut -d' ' -f1)" = "$MODEL_SHA"
+          mkdir -p bin data raw
+          cp evaluator/bin/arena bin/arena
+          cp evaluator/data/champion.bin data/champion.bin
+          chmod 755 bin/arena
+          if [ "$ORIENTATION" = candidate-first ]; then
+            AGENT_A="$CANDIDATE"; AGENT_B="$BASELINE"; SEED="$FINAL_CANDIDATE_SEED"
+          elif [ "$ORIENTATION" = baseline-first ]; then
+            AGENT_A="$BASELINE"; AGENT_B="$CANDIDATE"; SEED="$FINAL_BASELINE_SEED"
+          else
+            exit 2
+          fi
+          OUT="raw/${ORIENTATION}-${PAIR_START}"
+          /usr/bin/time \
+            -f 'wall_s=%e user_s=%U sys_s=%S max_rss_kb=%M exit=%x' \
+            -o "${OUT}.time" \
+            ./bin/arena -a "$AGENT_A" -b "$AGENT_B" \
+              -n 100 -t 4 -s "$SEED" -r 3 --pair-start "$PAIR_START" \
+              --raw-pairs "${OUT}.jsonl" --raw-only \
+              --provenance "$PROVENANCE"
+          sha256sum "${OUT}.jsonl" > "${OUT}.sha256"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: action-core-final-${{ matrix.orientation }}-${{ matrix.start }}
+          path: raw
+          if-no-files-found: error
+          retention-days: 30
+
+  final_merge:
+    if: ${{ github.run_attempt == 1 && needs.preflight.result == 'success' && needs.safety_merge.result == 'success' && needs.safety_merge.outputs.passed == 'true' && needs.final_evaluate.result == 'success' }}
+    needs: [preflight, safety_merge, final_evaluate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: action-core-shortlist-evaluator
+          path: evaluator
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: action-core-final-*
+          path: downloads
+          merge-multiple: true
+
+      - name: Validate every final shard before computing efficacy
+        env:
+          CANDIDATE: ${{ needs.preflight.outputs.candidate }}
+          BASELINE: ${{ needs.preflight.outputs.baseline }}
+          PROVENANCE: ${{ needs.preflight.outputs.final_provenance }}
+        run: |
+          set -euo pipefail
+          (cd evaluator && sha256sum -c SHA256SUMS.txt)
+          mkdir -p merged bindings
+          python3 evaluator/tools/validate_actor_shards.py \
+            --directory downloads --candidate "$CANDIDATE" --baseline "$BASELINE" \
+            --provenance "$PROVENANCE" \
+            --candidate-first-seed "$FINAL_CANDIDATE_SEED" \
+            --baseline-first-seed "$FINAL_BASELINE_SEED" \
+            --starts 0,100,200,300,400,500,600,700,800,900,1000,1100,1200,1300,1400,1500,1600,1700,1800,1900,2000,2100,2200,2300,2400 \
+            --pairs-per-shard 100 --rounds 3 \
+            --output merged/structural-validation.json
+          python3 evaluator/tools/merge_arena.py block \
+            --expect-start 0 --expect-pairs 2500 \
+            --output merged/candidate-first.json downloads/candidate-first-*.jsonl
+          python3 evaluator/tools/merge_arena.py block \
+            --expect-start 0 --expect-pairs 2500 \
+            --output merged/baseline-first.json downloads/baseline-first-*.jsonl
+          python3 evaluator/tools/merge_arena.py reciprocal \
+            --first merged/candidate-first.json --second merged/baseline-first.json \
+            --gate-z 1.645 --require-positive-margin \
+            --output merged/reciprocal.json
+
+      - name: Apply the one reserved final promotion gate
+        env:
+          CANDIDATE: ${{ needs.preflight.outputs.candidate }}
+          BASELINE: ${{ needs.preflight.outputs.baseline }}
+          PROVENANCE: ${{ needs.preflight.outputs.final_provenance }}
+        run: |
+          set -euo pipefail
+          python3 evaluator/tools/gate_actor_panel.py \
+            --reciprocal merged/reciprocal.json --mode final \
+            --candidate "$CANDIDATE" --baseline "$BASELINE" \
+            --provenance "$PROVENANCE" --pairs-per-orientation 2500 \
+            --candidate-first-seed "$FINAL_CANDIDATE_SEED" \
+            --baseline-first-seed "$FINAL_BASELINE_SEED" \
+            --gate-z 1.645 --output merged/final-decision.json
+          cp evaluator/frozen-actors.json bindings/frozen-actors.json
+          cp evaluator/SHA256SUMS.txt bindings/EVALUATOR_SHA256SUMS.txt
+          cp -r evaluator/bindings/. bindings/
+          find downloads merged bindings -type f ! -name SHA256SUMS.txt -print0 | \
+            sort -z | xargs -0 sha256sum > merged/SHA256SUMS.txt
+          sha256sum -c merged/SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: action-core-shortlist-final-evidence
+          path: |
+            downloads
+            merged
+            bindings
+          if-no-files-found: error
+          retention-days: 30

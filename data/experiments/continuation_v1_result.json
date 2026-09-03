@@ -1,0 +1,131 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "continuation_role_ppo_campaign_result",
+  "status": "complete_stopped_at_seed_robustness_gate",
+  "plan": {
+    "path": "data/experiments/locked_continuation_v1_plan.json",
+    "sha256": "a1e99680e0e7ad5c027984dd3c17ca55b01336a941f83278a232fdaa625c3716",
+    "remote_commit": "970d43134bfc59068b87cdc25c8d0539026eecca"
+  },
+  "source": {
+    "remote_commit": "4badfaa7d3c1c396f7bcab107cabbaaf32b89bb1",
+    "tree": "a1d8d48160d5ae26ddd2c55ec0393e389011f546",
+    "rl_sha256": "764a9ecdb32aa7f8325c8c3e31e9d7f0b131ea1f87b0d543daf035672117fc1b",
+    "continuation_arena_sha256": "3c3f5d3b905a46de53c915234a3474d1b0e15c52e4447ceb6ba2269f90f982c9",
+    "root_sha256_before_and_after": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417"
+  },
+  "operational_self_control": {
+    "pairs": 2000,
+    "seed": "202608239902",
+    "margin": 0.0,
+    "margin_se": 0.0,
+    "score": 0.5,
+    "score_se": 0.0,
+    "wins": 1980,
+    "losses": 1980,
+    "draws": 40,
+    "caps": 0,
+    "passed": true
+  },
+  "training": {
+    "families": 3,
+    "continuation_tails_per_family": 49176,
+    "total_continuation_tails": 147528,
+    "eligible_checkpoints": 18,
+    "elapsed_seconds": {
+      "A_warm": 29.32,
+      "A_full": 136.24,
+      "B_warm": 27.15,
+      "B_full": 137.67,
+      "C_warm": 26.52,
+      "C_full": 152.58,
+      "total": 509.48
+    },
+    "validity": {
+      "every_iteration_had_4098_roots": true,
+      "every_iteration_had_4098_exact_deck_one_moves": true,
+      "first_actor_round_ply": 15,
+      "root_actor_rows": 0,
+      "cap_reserve_forces": 0,
+      "unfinished_trajectories": 0,
+      "finite_losses": true,
+      "immutable_root_verified_after_every_iteration": true,
+      "reservoir_sample_loss": 0
+    }
+  },
+  "screen_a": {
+    "purpose": "Within-family checkpoint selection; not promotion evidence",
+    "seed": "202608230201",
+    "pairs_per_checkpoint": 1500,
+    "rows": [
+      {"family":"A","checkpoint":"warm2","model_sha256":"d1624f5a6b363ab964c0e056a527728ee4c95c833855d090429f0c0256424fb1","margin":-0.248000,"margin_se":0.202628,"score":0.499167,"score_se":0.002805,"wins":1481,"losses":1486,"draws":33,"caps":0},
+      {"family":"A","checkpoint":"full2","model_sha256":"fc17a70f10485a9b362d8d0d3fac5db90d62d3452986409c05078e65042a88c3","margin":0.388333,"margin_se":0.286161,"score":0.508333,"score_se":0.004105,"wins":1510,"losses":1460,"draws":30,"caps":0},
+      {"family":"A","checkpoint":"full4","model_sha256":"ff1691b93e7c105708c113152591f3d1b3dc87095a5087a86398914e6308152e","margin":0.191667,"margin_se":0.317259,"score":0.503500,"score_se":0.004470,"wins":1494,"losses":1473,"draws":33,"caps":0},
+      {"family":"A","checkpoint":"full6","model_sha256":"39c4dd6705683396c2f5c3bfe5d124d2c5f26a8b23055fe395698e03bf5ef6ca","margin":0.388667,"margin_se":0.319887,"score":0.501000,"score_se":0.004474,"wins":1489,"losses":1483,"draws":28,"caps":0},
+      {"family":"A","checkpoint":"full8","model_sha256":"edf16605520d328cf5e9987907cb420f037e1ac034391d8c51eed34df95734f7","margin":0.825000,"margin_se":0.316048,"score":0.508833,"score_se":0.004527,"wins":1512,"losses":1459,"draws":29,"caps":0,"selected":true},
+      {"family":"A","checkpoint":"full10","model_sha256":"bfdce6ff041d3eaae4f10ea3bb281208fc31f9e4a920cf0465a63432f012ee42","margin":0.189667,"margin_se":0.318215,"score":0.507167,"score_se":0.004528,"wins":1509,"losses":1466,"draws":25,"caps":0},
+      {"family":"B","checkpoint":"warm2","model_sha256":"9ccdb7521ab38b47eac2d1db1eb05bcc464e2070147e239a64b423dc8e428b6a","margin":0.181667,"margin_se":0.217962,"score":0.500500,"score_se":0.002959,"wins":1487,"losses":1484,"draws":29,"caps":0},
+      {"family":"B","checkpoint":"full2","model_sha256":"d20b06bb4ff96ce8dfe32342d1580c20d4ec79078bd9167038e31a17ed69c53e","margin":0.218000,"margin_se":0.278986,"score":0.501167,"score_se":0.003892,"wins":1489,"losses":1482,"draws":29,"caps":0},
+      {"family":"B","checkpoint":"full4","model_sha256":"1e6b7c16b704f0d0ad05db0c2a0278b83ba15601fce38a999b396ddccb94a967","margin":0.156000,"margin_se":0.297621,"score":0.497667,"score_se":0.004237,"wins":1475,"losses":1489,"draws":36,"caps":0},
+      {"family":"B","checkpoint":"full6","model_sha256":"b5c16f6616f84d635192965f7529a58db1e3ea4cd838a010234acb814a0f4d52","margin":0.671000,"margin_se":0.306433,"score":0.505833,"score_se":0.004355,"wins":1501,"losses":1466,"draws":33,"caps":0},
+      {"family":"B","checkpoint":"full8","model_sha256":"bb03f5f71117ba9798158d21c1628002335c1c3627b9c921b0c32d404cac5563","margin":0.263667,"margin_se":0.304971,"score":0.502833,"score_se":0.004420,"wins":1492,"losses":1475,"draws":33,"caps":0},
+      {"family":"B","checkpoint":"full10","model_sha256":"2bf28139a9a15d826daa3ebdf4a7c8deb2e0ed9581c62105d7a1a48637efce79","margin":0.779000,"margin_se":0.302802,"score":0.513333,"score_se":0.004398,"wins":1524,"losses":1444,"draws":32,"caps":0,"selected":true},
+      {"family":"C","checkpoint":"warm2","model_sha256":"af73546fe563955dcd4f859ca0a204ac145e32dff5ea761dd987703991925bcf","margin":-0.107000,"margin_se":0.201752,"score":0.501500,"score_se":0.003024,"wins":1490,"losses":1481,"draws":29,"caps":0},
+      {"family":"C","checkpoint":"full2","model_sha256":"90474d11632938187e1e11355684c3e5d1318627fb7b2440963076f994b73832","margin":-0.253000,"margin_se":0.276991,"score":0.503000,"score_se":0.003757,"wins":1489,"losses":1471,"draws":40,"caps":0},
+      {"family":"C","checkpoint":"full4","model_sha256":"2791214f5d012645ad780e1e733a54406b9e137dd2b44b3d89657c6dddc679de","margin":0.217000,"margin_se":0.296053,"score":0.505167,"score_se":0.004245,"wins":1497,"losses":1466,"draws":37,"caps":0},
+      {"family":"C","checkpoint":"full6","model_sha256":"bfed8e331677d3ade76e1f9e8572562ad057af6c9558302b874489a655401527","margin":-0.043000,"margin_se":0.315155,"score":0.504167,"score_se":0.004324,"wins":1498,"losses":1473,"draws":29,"caps":0},
+      {"family":"C","checkpoint":"full8","model_sha256":"4f6a96fce282102402594c9841697b87ed7039331f47bf9a29b17836fcc8fd8c","margin":0.300333,"margin_se":0.333111,"score":0.503833,"score_se":0.004494,"wins":1497,"losses":1474,"draws":29,"caps":0},
+      {"family":"C","checkpoint":"full10","model_sha256":"418e2dfbcf590589ee0a9228e9de9590283579093b20cbee14162a31f5c7a966","margin":0.348667,"margin_se":0.310399,"score":0.505167,"score_se":0.004524,"wins":1503,"losses":1472,"draws":25,"caps":0,"selected":true}
+    ]
+  },
+  "screen_b": {
+    "purpose": "Fresh seed-robustness selection; not promotion evidence",
+    "seed": "202608230202",
+    "pairs_per_family_winner": 6000,
+    "one_sided_z": 1.645,
+    "rows": [
+      {
+        "family":"A","checkpoint":"full8","margin":0.105917,"margin_se":0.154717,"margin_lcb":-0.148592,"score":0.503333,"score_se":0.002180,"score_lcb":0.499747,"wins":5984,"losses":5904,"draws":112,"caps":0,"aggregate_gate_passed":false,
+        "by_round":[
+          {"round":0,"pairs":2000,"margin":-0.028750,"margin_se":0.270982,"score":0.503375,"score_se":0.003903},
+          {"round":1,"pairs":2000,"margin":0.183250,"margin_se":0.255977,"score":0.507375,"score_se":0.003807},
+          {"round":2,"pairs":2000,"margin":0.163250,"margin_se":0.276656,"score":0.499250,"score_se":0.003611}
+        ]
+      },
+      {
+        "family":"B","checkpoint":"full10","margin":0.391083,"margin_se":0.155386,"margin_lcb":0.135473,"score":0.507708,"score_se":0.002199,"score_lcb":0.504091,"wins":6036,"losses":5851,"draws":113,"caps":0,"aggregate_gate_passed":true,
+        "by_round":[
+          {"round":0,"pairs":2000,"margin":-0.110250,"margin_se":0.263009,"score":0.504000,"score_se":0.004012},
+          {"round":1,"pairs":2000,"margin":0.476500,"margin_se":0.262505,"score":0.509750,"score_se":0.003711},
+          {"round":2,"pairs":2000,"margin":0.807000,"margin_se":0.281206,"score":0.509375,"score_se":0.003697}
+        ]
+      },
+      {
+        "family":"C","checkpoint":"full10","margin":0.153333,"margin_se":0.156655,"margin_lcb":-0.104364,"score":0.502917,"score_se":0.002175,"score_lcb":0.499339,"wins":5987,"losses":5917,"draws":96,"caps":0,"aggregate_gate_passed":false,
+        "by_round":[
+          {"round":0,"pairs":2000,"margin":-0.101500,"margin_se":0.274186,"score":0.502250,"score_se":0.003954},
+          {"round":1,"pairs":2000,"margin":0.283500,"margin_se":0.254639,"score":0.502750,"score_se":0.003742},
+          {"round":2,"pairs":2000,"margin":0.278000,"margin_se":0.284383,"score":0.503750,"score_se":0.003597}
+        ]
+      }
+    ],
+    "individual_round_harm_gate_passed_all_families": true,
+    "families_passing_both_aggregate_lower_bounds": 1,
+    "families_required": 2,
+    "seed_robustness_gate_passed": false
+  },
+  "decision": {
+    "screen_c_run": false,
+    "locked_full_actor_promotion_arena_run": false,
+    "promoted": false,
+    "reason": "Only family B cleared both fresh one-sided component bounds; the precommitted two-of-three independent-family robustness requirement failed.",
+    "strongest_observation_not_a_claim": "Family B full10 scored 50.7708% +/- 0.2199% and +0.3911 +/- 0.1554 round points on Screen B, but is not promoted or described as a stronger deployed actor.",
+    "next_experiment_boundary": "An equal-weight average of the three predeclared family winners may test whether common learning signal survives while independent optimization noise cancels. That is a separate method and requires a new precommitted plan, fresh validation seeds, and the unchanged full-actor gate."
+  },
+  "retained_evidence": {
+    "archive": "data/experiments/continuation_v1_evidence.tar.gz",
+    "archive_sha256": "fcf5fa0dca030fc1ecd8cd7e5f0d6cce120d1d18bccd24945b890a85fb34ef2d",
+    "archive_size_bytes": 1124550,
+    "contents": "Six complete training logs and all 21 raw Screen-A/Screen-B JSONL files, including metadata and complete footers"
+  }
+}

@@ -1,0 +1,169 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "locked_controller_veto_v3_actor_campaign",
+  "status": "precommitted_before_controller_veto_actor_efficacy",
+  "created_utc": "2026-08-22",
+  "hypothesis": "A differently trained continuation controller can conservatively veto continuation-policy-bias errors without ever introducing its own move. Requiring the maintained primary and fresh champion panels plus the independent controller to agree may improve whole-match strength over the maintained two-panel actor.",
+  "claim_boundary": "The objective-0/shared continuation-v2 soup failed its controller-replacement robustness gate and is not a promoted continuation policy. This campaign tests exactly one new one-way veto method in fresh reciprocal whole-actor play. No continuation-v2 component row is promotion evidence.",
+  "source": {
+    "repository": "BEKINDTOEVERYKIND/LOSTCITIESCHATGPT",
+    "branch": "agent/correctness-and-policy-upgrade",
+    "remote_commit": "cda70a217d776bdfb2c1457bfe8c0f5f0dbfed22",
+    "tree": "d006e7b0c1030f30ac135cdc489e2ea64e934ac0",
+    "compiler": "gcc (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0",
+    "cflags": "-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11",
+    "ldflags": "-lm -pthread",
+    "runner": "ubuntu-24.04 x86_64",
+    "threads_per_shard": 4
+  },
+  "locked_artifacts": {
+    "arena": {
+      "path": "data/evaluators/controller-veto-v3/arena",
+      "sha256": "2612e14a3e3b5c4e32333b8949261061797153b26e7501a37ad306f73889c768",
+      "size_bytes": 366704,
+      "mode": "0755"
+    },
+    "root": {
+      "path": "data/champion.bin",
+      "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+      "size_bytes": 2823748,
+      "role": "immutable root policy, value, belief, shortlist, ordinary continuation, and maintained baseline"
+    },
+    "veto_controller": {
+      "path": "data/models/continuation_v2_o0_shared_soup.bin",
+      "sha256": "2d06a78eb9f088d36787fa559c529e5f6c6c674c45a8d067063deb8e06b15f3a",
+      "size_bytes": 2823748,
+      "role": "veto-only independent continuation controller; never a root policy, ordinary continuation, candidate generator, or direct move selector"
+    }
+  },
+  "veto_controller_provenance": {
+    "factorial_cell": "objective-0/shared training",
+    "construction": "deterministic equal-weight arithmetic mean of the three mechanically selected Screen-A replicate winners in that one cell",
+    "components": [
+      "75181ba35f2eb0fe6380b73b6287a21a03b7e2c43664b82d31a59594383913d6",
+      "87887942d317ead893e071dc09d1e0070de11e10796fc0ca61b84957e6e0d5ef",
+      "66402372e4c19f1c2dec8461b24b465f1d7977752f0dae827fe2b5223a29889d"
+    ],
+    "continuation_v2_execution_result": {
+      "path": "data/experiments/continuation_v2_execution_result.json",
+      "sha256": "8ada5982e633daee3a5c9a2828484edddcf4ffe83c10e654a92560a30ace5c65"
+    },
+    "screen_a_result": {
+      "path": "data/experiments/continuation_v2_screen_a_result.json",
+      "sha256": "4e1861488f89a13d0589cb6850781df52808cf9bb7e6eac02d5174fa8f9af1ce"
+    },
+    "screen_b_result": {
+      "path": "data/experiments/continuation_v2_result.json",
+      "sha256": "1b7c93c383c35049ea14e58ee05f26a8c9fd552a831c467a6e9643aaa22d8d0f"
+    },
+    "selection_caveat": "The pooled soup was the closest continuation-v2 cell but only one of three replicate winners had positive point estimates on all three primary controller endpoints. It is deliberately tested only as a conservative veto and cannot be promoted from those inspected component results."
+  },
+  "method": {
+    "candidate_tail_40_fields": "512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1:0:0:0:1",
+    "candidate_actor": "rolloutu3:data/champion.bin:data/champion.bin:data/models/continuation_v2_o0_shared_soup.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1:0:0:0:1",
+    "baseline_actor": "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+    "phase_boundary": "The champion policy acts directly through zero-based round ply 13. Beginning at ply 14, the unchanged maintained actor evaluates at most five complete top-policy moves: min_cand=1 always retains the policy leader, while each additional move requires prior at least 0.02.",
+    "ordinary_panels": "The candidate and baseline use the identical 512-world primary panel and identical fresh 512-world champion confirmation, objective 0, uniform hidden worlds, independent player-specific trajectory-coherent mode-4 suit roles, and exact one-card leaves.",
+    "veto_rule": "Only after both champion panels authorize the same nonbaseline trusted-prefix move does the distinct veto controller evaluate that exact existing prefix on the same fresh hidden worlds, coherent player roles, and move-keyed randomness. It may retain that already authorized move or return candidate zero. It cannot add, replace, reorder, or widen candidates.",
+    "no_op_boundary": "A null or pointer-aliased veto is byte-compatible with the maintained actor. The candidate spells all 40 rollout-tail fields explicitly; its final 0:0:0:1 are exactly the deck2_replan_worlds, deck2_replan_cores, bounded_late_root, and bounded_late_min defaults omitted by the literal 36-field LC_CHAMPION_AGENT_SPEC baseline. Thus the tails are semantically identical and the one distinct veto checkpoint is the only actor difference.",
+    "forbidden": [
+      "evaluating every legal move or widening the top-policy prefix",
+      "letting the veto controller choose its own move",
+      "using the veto checkpoint for root priors, beliefs, values, or ordinary continuations",
+      "changing worlds, widths, floors, objectives, role mappings, planners, semantic candidates, exact-terminal settings, or thresholds",
+      "testing a different continuation-v2 cell, replicate, soup, mixture, or veto rule on these seeds",
+      "pooling controller-screen rows, safety rows, or development rows with the final actor endpoint"
+    ]
+  },
+  "seed_firewall": {
+    "namespace": "20260828",
+    "rule": "The entire 20260827 development namespace is burned and non-promotional, including local smoke seed 202608270001. Only these four untouched 20260828 seeds are eligible. Any diagnostic or partial use burns the affected stage and forbids retry or substitution.",
+    "excluded_development_namespace": "20260827",
+    "excluded_development_seeds": ["202608270001"],
+    "safety": {
+      "candidate_first": "202608280301",
+      "baseline_first": "202608280302"
+    },
+    "final": {
+      "candidate_first": "202608280401",
+      "baseline_first": "202608280402"
+    }
+  },
+  "safety_screen": {
+    "purpose": "one fresh operational and gross-harm gate; never pooled with final promotion evidence",
+    "rounds": 3,
+    "pairs_per_orientation": 200,
+    "matches_total": 800,
+    "shards_per_orientation": 10,
+    "pairs_per_shard": 20,
+    "pair_starts": [0,20,40,60,80,100,120,140,160,180],
+    "candidate_first_seed": "202608280301",
+    "baseline_first_seed": "202608280302",
+    "gate": [
+      "equal-weight reciprocal combined candidate match score >= 0.5",
+      "equal-weight reciprocal combined candidate point margin > 0",
+      "candidate match score in each reciprocal orientation after inversion >= 0.475",
+      "zero capped rounds, gaps, overlaps, incomplete footers, malformed rows, hash failures, provenance drift, or operational errors"
+    ],
+    "stop_rule": "If any safety requirement fails, stop and do not consume either final seed. A structurally complete panel retains its complete negative merge and decision; an invalid or operationally failed panel retains every available raw shard, sidecar, timing, and failure record but is not described as a complete efficacy result."
+  },
+  "final_promotion": {
+    "dependency": "Execute if and only if the complete safety screen passes its locked gate.",
+    "rounds": 3,
+    "pairs_per_orientation": 2500,
+    "matches_total": 10000,
+    "shards_per_orientation": 25,
+    "pairs_per_shard": 100,
+    "pair_starts": [0,100,200,300,400,500,600,700,800,900,1000,1100,1200,1300,1400,1500,1600,1700,1800,1900,2000,2100,2200,2300,2400],
+    "candidate_first_seed": "202608280401",
+    "baseline_first_seed": "202608280402",
+    "confidence_z": 1.645,
+    "primary_endpoint": "equal-weight reciprocal full-match match score",
+    "promotion_gate": [
+      "combined candidate match score - 1.645 * orientation-stratified pair-clustered SE > 0.5",
+      "combined candidate point margin - 1.645 * orientation-stratified pair-clustered SE > 0",
+      "candidate match-score point estimate > 0.5 in each reciprocal orientation after inversion",
+      "zero capped rounds, gaps, overlaps, incomplete footers, malformed rows, hash failures, provenance drift, or operational errors"
+    ],
+    "failed_panel_rule": "A failed or invalid final panel burns both final seeds and cannot select another model, controller, threshold, or method. Only this untouched final panel may promote the veto actor."
+  },
+  "evidence": {
+    "tools": {
+      "merge_arena": {
+        "path": "tools/merge_arena.py",
+        "sha256": "9cad23c9e6550ea36d7721acf8e64144a44058083ad4aeb5bb5613a3a79139fb"
+      },
+      "gate_actor_panel": {
+        "path": "tools/gate_actor_panel.py",
+        "sha256": "50ae52c66698d04cd4cc13af35c3d0eaed72e37bd76657dae12aa10f09dcc2ed"
+      },
+      "validate_actor_shards": {
+        "path": "tools/validate_actor_shards.py",
+        "sha256": "bca430a94af64180436c7fb60d29b2e86ec4b3567ab3aabb09984aabee054855"
+      }
+    },
+    "inspection_rule": "No automated efficacy parse, merge, gate, or selection occurs until every immutable raw shard and sidecar expected for that stage has been uploaded and the complete shard set validates. Shard artifacts are transport only and must not be used for optional stopping.",
+    "retention_days": 30,
+    "retain": [
+      "plan, workflow, launch-addendum, source commit/tree, evaluator, root, veto model, and evidence-tool hashes",
+      "exact candidate and baseline actor specifications, seeds, pair ranges, thread count, commands, timings, and runner identity",
+      "all raw paired rows, completion footers, SHA-256 sidecars, structural-validation output, canonical block merges, reciprocal merge, and gate decision"
+    ],
+    "native_checkpoint_warning": "Checkpoint serialization is a native C struct and the actor evaluator uses fast-math; exact compiler, flags, executable bytes, architecture, and model bytes are material."
+  },
+  "workflow": {
+    "path": ".github/workflows/controller-veto-v3.yml",
+    "launch_addendum": "data/experiments/locked_controller_veto_v3_execution.json",
+    "trigger": "one future addendum-only push on agent/correctness-and-policy-upgrade",
+    "compile_on_runner": false,
+    "unplanned_retry": false
+  },
+  "multiplicity": {
+    "candidate_methods": 1,
+    "veto_models": 1,
+    "safety_looks": 1,
+    "final_looks": 1,
+    "no_optional_stopping_or_unplanned_retry": true
+  },
+  "results": null
+}

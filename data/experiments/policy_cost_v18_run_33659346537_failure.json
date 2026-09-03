@@ -1,0 +1,47 @@
+{
+  "cause": {
+    "class": "source_free_transport_exact17_filename_binding_mismatch",
+    "detail": "Preflight passed the complete maintained and exact versioned v18 runtime suites, then failed closed while sealing the source-free transport because the workflow renamed the frozen v16 exact-17 manifests to v18 filenames while the execution and runtime verifier correctly required their immutable source paths.",
+    "failed_job": "preflight",
+    "failed_step": "Freeze a source-free transport before any search or truth label",
+    "not_ai_result": true
+  },
+  "execution": {
+    "launch_commit": "73ccfb92712e5db86fe0a7e0514bc4ebb84a3f70",
+    "launch_tree": "1cb8971836a58b0a128855a62a8b3763c63e1225",
+    "path": "data/experiments/locked_policy_cost_v18_execution.json",
+    "sha256": "a7cc58bbb2763718384c1c7784be0c355017ebaf5271755173afc69cf78e2d90"
+  },
+  "fixed_seed_execution": {
+    "all_policy_cost_v18_fixed_roots_retired": true,
+    "campaign_seed_or_truth_use_began": false,
+    "declared_fixed_root_count": 21,
+    "discovery_began": false,
+    "retry_forbidden": true
+  },
+  "github_run": {
+    "attempt": 1,
+    "conclusion": "failure",
+    "event": "push",
+    "id": 33659346537,
+    "job_disposition": {
+      "failure": 1,
+      "skipped": 19,
+      "success": 0,
+      "total": 20
+    },
+    "preflight_job_id": 100345754865,
+    "url": "https://github.com/BEKINDTOEVERYKIND/LOSTCITIESCHATGPT/actions/runs/33659346537"
+  },
+  "locked_validation_relaxed": false,
+  "maintained_actor_changed": false,
+  "partial_efficacy_inspected": false,
+  "promotion_efficacy_data_observed": false,
+  "repair_scope": "Preserve the immutable v16 exact-17 manifest basenames inside the source-free transport. No actor, source, sample, budget, seed-domain, or promotion-gate change is permitted.",
+  "schema": "lc-policy-cost-v18-preflight-exact17-transport-filename-failure-v1",
+  "status": "complete_terminal_non_promotable_before_discovery",
+  "workflow": {
+    "path": ".github/workflows/policy-cost-v18.yml",
+    "sha256": "194681fb04dc0fc0aeeb03c6ded27fc69b99b5810737965adc6f24835bd38ae6"
+  }
+}

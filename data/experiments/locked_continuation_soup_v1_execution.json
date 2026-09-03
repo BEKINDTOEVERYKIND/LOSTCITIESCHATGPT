@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "precommitted_continuation_checkpoint_soup_execution",
+  "status": "candidate_constructed_and_bound_before_fresh_efficacy",
+  "constructed_utc": "2026-08-22T13:52:28Z",
+  "locked_plan": {
+    "path": "data/experiments/locked_continuation_soup_v1_plan.json",
+    "sha256": "5b34f3cac29f4f2e4a4acb713c8c979450a6a1226cf24ad13d91dd30460fc709",
+    "remote_commit": "9a640a37833dda0237fe4ef49150cb520c7b9c22"
+  },
+  "source": {
+    "remote_code_commit": "bd485857eda329b8df7fc2281f1aea83aac195d4",
+    "tree": "28d9f0603dfc7d3df9c2f69deb8dede65f014d45",
+    "compiler": "gcc (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0",
+    "cflags": "-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11",
+    "net_average_strict_suffix": "-fno-fast-math -ffp-contract=off",
+    "platform": "Linux 6.18.35 x86_64, AMD EPYC 9V74, 9 visible CPUs"
+  },
+  "constructor": {
+    "path": "bin/net_average",
+    "sha256": "56172ab722aca829d06e2b97e10c101f5ba39d517d5954bcf619a32528fcfacd",
+    "size_bytes": 72944,
+    "command": "./bin/net_average results/continuation-soup-v1/soup.bin results/continuation-v1/a/full.bin.it8 results/continuation-v1/b/full.bin.it10 results/continuation-v1/c/full.bin.it10",
+    "numeric_contract": {
+      "equal_weight": 3,
+      "parameters": 705931,
+      "ordering": "model_fnv1a_then_bytes_then_path",
+      "accumulation": "binary64_sequential",
+      "rounding": "binary32",
+      "exact_shared_parameters": 67348,
+      "identical_fast_path": false
+    }
+  },
+  "inputs_in_canonical_accumulation_order": [
+    {
+      "index": 0,
+      "family": "B",
+      "checkpoint": "full10",
+      "path": "results/continuation-v1/b/full.bin.it10",
+      "size_bytes": 2823748,
+      "sha256": "2bf28139a9a15d826daa3ebdf4a7c8deb2e0ed9581c62105d7a1a48637efce79",
+      "file_fnv1a": "0665fc06dbd28236",
+      "model_fnv1a": "0eaa184f3600cf79"
+    },
+    {
+      "index": 1,
+      "family": "C",
+      "checkpoint": "full10",
+      "path": "results/continuation-v1/c/full.bin.it10",
+      "size_bytes": 2823748,
+      "sha256": "418e2dfbcf590589ee0a9228e9de9590283579093b20cbee14162a31f5c7a966",
+      "file_fnv1a": "4a57fbee5a3bf1e2",
+      "model_fnv1a": "578d011c5e707e89"
+    },
+    {
+      "index": 2,
+      "family": "A",
+      "checkpoint": "full8",
+      "path": "results/continuation-v1/a/full.bin.it8",
+      "size_bytes": 2823748,
+      "sha256": "edf16605520d328cf5e9987907cb420f037e1ac034391d8c51eed34df95734f7",
+      "file_fnv1a": "4b88ff05d14f608d",
+      "model_fnv1a": "77ef5eb432fba55e"
+    }
+  ],
+  "candidate": {
+    "path": "results/continuation-soup-v1/soup.bin",
+    "size_bytes": 2823748,
+    "sha256": "e88c97912165165f200e7e1ebe9705971916c93083fa0049d63aa6eeba1adb8d",
+    "file_fnv1a": "75a7e7b1013fb151",
+    "model_fnv1a": "b94e83a3fe28af9a",
+    "role": "Post-root continuation policy only; value and belief heads are not promoted or evaluated as root capabilities"
+  },
+  "pre_efficacy_validation": {
+    "all_source_hashes_and_sizes_matched": true,
+    "root_sha256_before_and_after": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+    "finite_current_v6_load": true,
+    "no_trailing_bytes": true,
+    "save_load_save_byte_exact": true,
+    "exact_wager_symmetry_after_projection": true,
+    "candidate_hash_bound_before_fresh_efficacy": true,
+    "fresh_seed_search_found_prior_uses": 0,
+    "fresh_efficacy_inspected_before_this_addendum": false
+  },
+  "evaluation_binding": {
+    "continuation_arena_sha256": "3c3f5d3b905a46de53c915234a3474d1b0e15c52e4447ceb6ba2269f90f982c9",
+    "full_arena_sha256": "a65f73871e04ed0e21f2bc9920a235cbb5d29950b35bb91df37ae9dcc8801efa",
+    "root_sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+    "threads": 4,
+    "role_coherent_run": "https://github.com/BEKINDTOEVERYKIND/LOSTCITIESCHATGPT/actions/runs/32571592557",
+    "role_result_status_at_binding": "pending_complete_valid_reciprocal_merge",
+    "rule": "Run the operational control and fresh continuation screen exactly as locked. Full-actor stages remain blocked until the role workflow is complete and mechanically selects its predeclared tail."
+  },
+  "results": null
+}

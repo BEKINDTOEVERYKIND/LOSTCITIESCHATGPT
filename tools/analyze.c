@@ -1,0 +1,1268 @@
+/* analyze -- play one self-play match and dump a per-ply JSON analysis.
+ *
+ * A match is -r ROUNDS rounds (default MATCH_ROUNDS): fresh deal per round,
+ * st.round / st.cum carrying the match context, and the first player
+ * alternating by round, exactly like the reference loop in src/match.c.
+ *
+ * For every ply, before the chosen move is applied, the dump records the full
+ * public state plus the mover's hand(s), the round and cumulative totals, the
+ * publicly known cards in each hand, the value head from both perspectives,
+ * the policy distribution over legal moves, and the rollout search
+ * statistics.  The actor and evaluator have independent RNG streams:
+ * rollout_move is post-hoc only and its return value never changes the match.
+ *
+ * Output is a single JSON object on stdout; redirect to a file.
+ */
+#define _POSIX_C_SOURCE 200809L /* open_memstream under -std=c11 */
+#include "../src/lc.h"
+#include "../src/agent.h"
+#include "../src/search.h"
+#include <math.h>
+#include "../src/spec.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+static const char SUIT_CH[NSUIT + 1] = "YBWGR";
+
+/* ---- tiny JSON helpers: fp is either stdout or a memstream -------------- */
+
+static void j_string(FILE *fp, const char *s)
+{
+    fputc('"', fp);
+    for (; *s; s++) {
+        unsigned char c = (unsigned char)*s;
+        switch (c) {
+        case '"':  fputs("\\\"", fp); break;
+        case '\\': fputs("\\\\", fp); break;
+        case '\b': fputs("\\b", fp); break;
+        case '\f': fputs("\\f", fp); break;
+        case '\n': fputs("\\n", fp); break;
+        case '\r': fputs("\\r", fp); break;
+        case '\t': fputs("\\t", fp); break;
+        default:
+            if (c < 0x20) fprintf(fp, "\\u%04x", c);
+            else fputc(c, fp);
+        }
+    }
+    fputc('"', fp);
+}
+
+static void j_card(FILE *fp, int c)
+{
+    char b[8];
+    lc_card_name(c, b);
+    j_string(fp, b);
+}
+
+/* ["Y7","Bx",...] */
+static void j_card_arr(FILE *fp, const uint8_t *cards, int n)
+{
+    fputc('[', fp);
+    for (int i = 0; i < n; i++) {
+        if (i) fputc(',', fp);
+        j_card(fp, cards[i]);
+    }
+    fputc(']', fp);
+}
+
+static const char *act_str(Move m) { return m.discard ? "discard" : "play"; }
+
+static void draw_str(Move m, char *b)
+{
+    if (m.draw == 0) strcpy(b, "deck");
+    else { b[0] = SUIT_CH[m.draw - 1]; b[1] = 0; }
+}
+
+/* hand sorted by card id */
+static void j_hand(FILE *fp, const State *st, int p)
+{
+    uint8_t cards[HAND_SIZE];
+    int n = lc_hand_cards(st, p, cards);
+    for (int i = 0; i < n; i++)
+        for (int j = i + 1; j < n; j++)
+            if (cards[j] < cards[i]) { uint8_t t = cards[i]; cards[i] = cards[j]; cards[j] = t; }
+    j_card_arr(fp, cards, n);
+}
+
+/* [[cards p0 is publicly known to hold],[same for p1]], sorted by card id
+ * (bit-order iteration of st->known is ascending id order already) */
+static void j_known(FILE *fp, const State *st)
+{
+    fputc('[', fp);
+    for (int p = 0; p < 2; p++) {
+        if (p) fputc(',', fp);
+        uint8_t cards[HAND_SIZE];
+        int n = 0;
+        uint64_t k = st->known[p];
+        while (k) { cards[n++] = (uint8_t)__builtin_ctzll(k); k &= k - 1; }
+        j_card_arr(fp, cards, n);
+    }
+    fputc(']', fp);
+}
+
+/* one player's five expeditions in play order (card-id order per suit:
+ * wagers first, then ascending numbers -- which is the only legal order) */
+static void j_exps(FILE *fp, const State *st, int p)
+{
+    fputc('[', fp);
+    for (int s = 0; s < NSUIT; s++) {
+        if (s) fputc(',', fp);
+        uint8_t cards[NRANK];
+        int n = 0;
+        for (int c = s * NRANK; c < (s + 1) * NRANK; c++)
+            if ((st->played[p] >> c) & 1ULL) cards[n++] = (uint8_t)c;
+        j_card_arr(fp, cards, n);
+    }
+    fputc(']', fp);
+}
+
+/* the five discard piles bottom-to-top */
+static void j_piles(FILE *fp, const State *st)
+{
+    fputc('[', fp);
+    for (int s = 0; s < NSUIT; s++) {
+        if (s) fputc(',', fp);
+        j_card_arr(fp, st->pile[s], st->pile_n[s]);
+    }
+    fputc(']', fp);
+}
+
+/* {"card":"R2","act":"play","draw":"deck"  -- shared prefix of policy/search
+ * entries and the move object; the caller closes the brace */
+static void j_move_open(FILE *fp, Move m)
+{
+    char d[8];
+    draw_str(m, d);
+    fprintf(fp, "{\"card\":");
+    j_card(fp, m.card);
+    fprintf(fp, ",\"act\":\"%s\",\"draw\":\"%s\"", act_str(m), d);
+}
+
+static int move_eq(Move a, Move b)
+{
+    return a.card == b.card && a.discard == b.discard && a.draw == b.draw;
+}
+
+static int same_semantic_action(Move a, Move b)
+{
+    if (a.discard != b.discard) return 0;
+    if (CARD_IS_WAGER(a.card) && CARD_IS_WAGER(b.card))
+        return CARD_SUIT(a.card) == CARD_SUIT(b.card);
+    return a.card == b.card;
+}
+
+static int search_guard_blocked(const SearchStats *ss)
+{
+    for (int i = 0; i < ss->n; i++)
+        if (ss->guard_rejected[i]) return 1;
+    return 0;
+}
+
+static const char *search_status(const SearchStats *ss, Move recommended)
+{
+    if (ss->late_resolver_used)
+        return ss->late_resolver_override
+            ? "bounded_late_challenger_override"
+            : "bounded_late_policy_retained";
+    if (ss->policy_cost_active) {
+        switch (ss->policy_cost_gate_reason) {
+        case POLICY_COST_GATE_INVALID_PRIMARY:
+            return "policy_cost_invalid_primary";
+        case POLICY_COST_GATE_ADJUSTED_BASELINE:
+            return "policy_cost_adjusted_baseline_retained";
+        case POLICY_COST_GATE_PRIMARY_EVIDENCE:
+            return "policy_cost_failed_primary_all_pair_gate";
+        case POLICY_COST_GATE_INVALID_FRESH:
+            return "policy_cost_invalid_fresh_panel";
+        case POLICY_COST_GATE_FRESH_LEADER_MISMATCH:
+            return "policy_cost_fresh_leader_mismatch";
+        case POLICY_COST_GATE_FRESH_EVIDENCE:
+            return "policy_cost_failed_fresh_all_pair_gate";
+        case POLICY_COST_GATE_DISCARD_GUARD:
+            return "policy_cost_blocked_by_discard_guard";
+        case POLICY_COST_GATE_CAP_INVALID:
+            return "policy_cost_invalid_continuation_cap";
+        case POLICY_COST_GATE_SELECTED:
+            return "policy_cost_confirmed_override";
+        default:
+            return "policy_cost_invalid_authority";
+        }
+    }
+    if (ss->worlds == 0) {
+        if (ss->skip_reason == SEARCH_SKIP_FORCED)
+            return "forced_move";
+        if (ss->skip_reason == SEARCH_SKIP_PLY_WINDOW)
+            return "skipped_ply_window";
+        if (ss->skip_reason == SEARCH_SKIP_DECK_PHASE)
+            return "skipped_deck_phase";
+        if (ss->skip_reason == SEARCH_SKIP_ROOT_FOCUS)
+            return "reduced_by_root_focus";
+        if (ss->skip_reason == SEARCH_SKIP_VISIBLE_PLAN)
+            return "selected_by_visible_plan";
+        if (ss->skip_reason == SEARCH_SKIP_LAST_DECK)
+            return "selected_by_exact_terminal";
+        return "skipped_policy_confidence";
+    }
+    /* Final vetoes are reachable only after the fresh maintained controller
+     * accepted the proposal.  prefix_confirmed is the combined decision. */
+    if (ss->prefix_ranker_attempted && !ss->prefix_ranker_passed)
+        return ss->prefix_ranker_valid
+            ? "failed_action_ranker_veto"
+            : "invalid_action_ranker_veto";
+    if (ss->prefix_veto_attempted && !ss->prefix_veto_passed)
+        return "failed_controller_veto";
+    if (ss->confirmed && ss->n > 0 &&
+        !move_eq(ss->mv[0], recommended))
+        return "supported_baseline_override";
+    if (ss->trusted_prefix_override)
+        return ss->prefix_confirmed
+            ? "confirmed_policy_prefix_override"
+            : "selected_policy_prefix_leader";
+    if (ss->prefix_confirm_worlds > 0 && !ss->prefix_confirmed)
+        return "failed_policy_prefix_confirmation";
+    if (search_guard_blocked(ss))
+        return "blocked_by_discard_guard";
+    if (ss->confirm_worlds > 0)
+        return "failed_stochastic_confirmation";
+    if (!ss->resolved)
+        return "inconclusive";
+    if (ss->raw_best >= 0 && ss->raw_best < ss->n &&
+        move_eq(ss->mv[ss->raw_best], recommended))
+        return "resolved";
+    return "resolved_below_action_threshold";
+}
+
+static const char *policy_cost_gate_reason(const SearchStats *ss)
+{
+    if (!ss || !ss->policy_cost_active) return "not_configured";
+    switch (ss->policy_cost_gate_reason) {
+    case POLICY_COST_GATE_INVALID_PRIMARY: return "invalid_primary";
+    case POLICY_COST_GATE_ADJUSTED_BASELINE: return "adjusted_baseline";
+    case POLICY_COST_GATE_PRIMARY_EVIDENCE: return "primary_all_pair_gate";
+    case POLICY_COST_GATE_INVALID_FRESH: return "invalid_fresh";
+    case POLICY_COST_GATE_FRESH_LEADER_MISMATCH: return "fresh_leader_mismatch";
+    case POLICY_COST_GATE_FRESH_EVIDENCE: return "fresh_all_pair_gate";
+    case POLICY_COST_GATE_DISCARD_GUARD: return "discard_guard";
+    case POLICY_COST_GATE_CAP_INVALID: return "continuation_cap";
+    case POLICY_COST_GATE_SELECTED: return "selected";
+    default: return "invalid_authority";
+    }
+}
+
+static void j_policy_cost(FILE *fp, const SearchStats *ss)
+{
+    if (!ss || !ss->policy_cost_active) {
+        fputs("null", fp);
+        return;
+    }
+    fprintf(fp,
+            "{\"active\":true,\"artifact_fingerprint\":\"%016llx\","
+            "\"anchor_interval\":%d,\"lambda_action\":%.12g,"
+            "\"lambda_draw\":%.12g,\"legacy_override_min\":%.12g,"
+            "\"proposed\":%d,\"selected\":%d,"
+            "\"gate_reason\":\"%s\",\"cap_valid\":%s,"
+            "\"primary\":{\"valid\":%s,\"passed\":%s,"
+            "\"z\":3.5,\"worlds\":%d,\"protected_rivals\":%d},"
+            "\"fresh\":{\"valid\":%s,\"passed\":%s,"
+            "\"z\":2.58,\"worlds\":%d,\"protected_rivals\":%d}}",
+            (unsigned long long)ss->policy_cost_fingerprint,
+            ss->policy_cost_anchor_interval,
+            ss->policy_cost_lambda_action, ss->policy_cost_lambda_draw,
+            ss->policy_cost_override_min,
+            ss->policy_cost_proposed, ss->policy_cost_selected,
+            policy_cost_gate_reason(ss),
+            ss->policy_cost_cap_valid ? "true" : "false",
+            ss->policy_cost_primary_valid ? "true" : "false",
+            ss->policy_cost_primary_passed ? "true" : "false",
+            ss->worlds, ss->policy_cost_primary_protected,
+            ss->policy_cost_fresh_valid ? "true" : "false",
+            ss->policy_cost_fresh_passed ? "true" : "false",
+            ss->policy_cost_fresh_worlds,
+            ss->policy_cost_fresh_protected);
+}
+
+static const char *search_metric(const SearchStats *ss)
+{
+    if (ss->late_resolver_used)
+        return "bounded_late_particle_objective";
+    switch (ss->metric_kind) {
+    case SEARCH_METRIC_NETWORK_VALUE: return "network_state_value";
+    case SEARCH_METRIC_VISIBLE_PLAN: return "visible_hand_guarantee";
+    case SEARCH_METRIC_LAST_DECK_RULE: return "exact_terminal_objective";
+    default: return "rollout_objective";
+    }
+}
+
+static const char *analysis_objective(const Agent *evaluator, int round)
+{
+    /* Selection mode 3 replaces an early round's isolated margin with the
+     * controller-bound Bellman value of the complete three-round match.  Its
+     * deciding-round leaf is the same final hybrid utility used by mode 2.
+     * Keep the established mode 0/1/2 labels unchanged. */
+    if (evaluator->win_q == 3 && evaluator->match_value)
+        return round == MATCH_ROUNDS - 1
+            ? "final_hybrid"
+            : "controller_bound_full_match_value";
+    if (round == MATCH_ROUNDS - 1 && evaluator->win_q == 2)
+        return "final_hybrid";
+    if (round == MATCH_ROUNDS - 1 && evaluator->win_q == 1)
+        return "final_result";
+    return "round_margin";
+}
+
+static void j_search_rows(FILE *fp, const SearchStats *ss, Move played,
+                          Move recommended)
+{
+    int order[MAX_MOVES];
+    for (int i = 0; i < ss->n; i++) order[i] = i;
+    for (int i = 0; i < ss->n; i++)
+        for (int j = i + 1; j < ss->n; j++)
+            if (ss->q[order[j]] > ss->q[order[i]]) {
+                int t = order[i]; order[i] = order[j]; order[j] = t;
+            }
+
+    fputc('[', fp);
+    for (int i = 0; i < ss->n; i++) {
+        if (i) fputc(',', fp);
+        int k = order[i];
+        j_move_open(fp, ss->mv[k]);
+        fprintf(fp, ",\"q\":%.3f,\"q_se\":%.3f,"
+                    "\"delta_vs_baseline\":%.3f,\"delta_se\":%.3f,"
+                    "\"delta_vs_reference\":%.3f,"
+                    "\"delta_reference_se\":%.3f,"
+                    "\"policy_prob\":%.6f,\"visits\":%.0f,"
+                    "\"played\":%s,\"baseline\":%s,"
+                    "\"policy_top\":%s,\"retained\":%s,"
+                    "\"trusted_prefix\":%s,\"prefix_proposed\":%s,"
+                    "\"selection_reference\":%s,"
+                    "\"highest_mean\":%s,\"confirmed_best\":%s,"
+                    "\"primary_pass\":%s,"
+                    "\"confirmation_delta\":%.3f,"
+                    "\"confirmation_se\":%.3f,"
+                    "\"coherent_evaluated\":%s,"
+                    "\"coherent_q\":%.3f,\"coherent_q_se\":%.3f,"
+                    "\"coherent_delta_vs_baseline\":%.3f,"
+                    "\"coherent_delta_se\":%.3f,"
+                    "\"coherent_numerical_agreement\":%s,"
+                    "\"coherent_gate_pass\":%s,"
+                    "\"controller_veto_evaluated\":%s,"
+                    "\"controller_veto_q\":%.3f,"
+                    "\"controller_veto_q_se\":%.3f,"
+                    "\"controller_veto_delta_vs_baseline\":%.3f,"
+                    "\"controller_veto_delta_se\":%.3f,"
+                    "\"controller_veto_numerical_agreement\":%s,"
+                    "\"controller_veto_gate_pass\":%s,"
+                    "\"confirmation_pass\":%s,"
+                    "\"guard_rejected\":%s",
+                ss->q[k], ss->se[k], ss->delta[k], ss->dse[k],
+                ss->rdelta[k], ss->rdse[k],
+                ss->prior[k], ss->visits[k],
+                move_eq(ss->mv[k], played) ? "true" : "false",
+                k == 0 ? "true" : "false",
+                k == ss->policy_top ? "true" : "false",
+                move_eq(ss->mv[k], recommended) ? "true" : "false",
+                k < ss->trusted_candidates ? "true" : "false",
+                k == ss->prefix_proposed && ss->prefix_proposed != 0
+                    ? "true" : "false",
+                k == ss->selection_reference ? "true" : "false",
+                k == ss->raw_best ? "true" : "false",
+                ss->csupported[k] && move_eq(ss->mv[k], recommended)
+                    ? "true" : "false",
+                ss->pqualified[k] ? "true" : "false",
+                ss->cdelta[k], ss->cdse[k],
+                ss->prefix_confirm_worlds > 0 &&
+                        k < ss->trusted_candidates
+                    ? "true" : "false",
+                ss->prefix_q[k], ss->prefix_se[k],
+                ss->prefix_delta[k], ss->prefix_dse[k],
+                k == ss->prefix_proposed &&
+                        ss->prefix_numerical_agreement
+                    ? "true" : "false",
+                k == ss->prefix_proposed && ss->prefix_gate_passed
+                    ? "true" : "false",
+                ss->prefix_veto_attempted &&
+                        k < ss->trusted_candidates
+                    ? "true" : "false",
+                ss->prefix_veto_q[k], ss->prefix_veto_se[k],
+                ss->prefix_veto_delta[k], ss->prefix_veto_dse[k],
+                k == ss->prefix_proposed &&
+                        ss->prefix_veto_numerical_agreement
+                    ? "true" : "false",
+                k == ss->prefix_proposed && ss->prefix_veto_gate_passed
+                    ? "true" : "false",
+                ss->csupported[k] ? "true" : "false",
+                ss->guard_rejected[k] ? "true" : "false");
+        if (ss->late_resolver_used && k < 6)
+            fprintf(fp, ",\"bounded_h2_q\":%.6f,\"bounded_h4_q\":%.6f",
+                    ss->late_resolver_h2_q[k],
+                    ss->late_resolver_h4_q[k]);
+        if (ss->policy_cost_active)
+            fprintf(fp,
+                    ",\"policy_cost\":{\"semantic_action_mass\":%.12g,"
+                    "\"conditional_draw_mass\":%.12g,\"cost\":%.12g,"
+                    "\"primary_adjusted_q\":%.12g,"
+                    "\"fresh_evaluated\":%s,\"fresh_q\":%.12g,"
+                    "\"fresh_q_se\":%.12g,\"fresh_delta_vs_baseline\":%.12g,"
+                    "\"fresh_delta_se\":%.12g,\"fresh_adjusted_q\":%.12g}",
+                    ss->policy_semantic_prior[k],
+                    ss->policy_conditional_draw_prior[k],
+                    ss->policy_cost_penalty[k],
+                    ss->policy_adjusted_q[k],
+                    ss->policy_cost_fresh_worlds > 0 ? "true" : "false",
+                    ss->prefix_q[k], ss->prefix_se[k],
+                    ss->prefix_delta[k], ss->prefix_dse[k],
+                    ss->policy_fresh_adjusted_q[k]);
+        if (ss->qw[k] >= 0.0) fprintf(fp, ",\"qw\":%.3f", ss->qw[k]);
+        fputc('}', fp);
+    }
+    fputc(']', fp);
+}
+
+static void j_controller_veto(FILE *fp, const Agent *a,
+                              const SearchStats *ss)
+{
+    int enabled = a && a->kind == AG_ROLLOUT &&
+        a->veto_continuation_net != NULL &&
+        a->veto_continuation_net != a->continuation_net;
+    const char *outcome = !enabled
+        ? "not_configured"
+        : (!ss->prefix_veto_attempted
+            ? "not_reached"
+            : (ss->prefix_veto_passed
+                ? "retained_confirmed_override"
+                : "rejected_confirmed_override"));
+    int proposed = ss->prefix_proposed;
+    double delta = proposed > 0 ? ss->prefix_veto_delta[proposed] : 0.0;
+    double dse = proposed > 0 ? ss->prefix_veto_dse[proposed] : 0.0;
+
+    fprintf(fp,
+            "{\"enabled\":%s,\"role\":\"veto_only\","
+            "\"may_introduce_move\":false,\"attempted\":%s,"
+            "\"worlds\":%d,\"proposed\":%d,"
+            "\"numerical_agreement\":%s,\"gate_passed\":%s,"
+            "\"passed\":%s,\"delta_vs_baseline\":%.3f,"
+            "\"delta_se\":%.3f,\"outcome\":\"%s\"}",
+            enabled ? "true" : "false",
+            ss->prefix_veto_attempted ? "true" : "false",
+            ss->prefix_veto_worlds, proposed,
+            ss->prefix_veto_numerical_agreement ? "true" : "false",
+            ss->prefix_veto_gate_passed ? "true" : "false",
+            ss->prefix_veto_passed ? "true" : "false",
+            delta, dse, outcome);
+}
+
+static void j_action_ranker_veto(FILE *fp, const Agent *a,
+                                 const SearchStats *ss)
+{
+    int enabled = a && a->kind == AG_ROLLOUT &&
+        a->action_ranker_net != NULL;
+    const char *outcome = !enabled
+        ? "not_configured"
+        : (!ss->prefix_ranker_attempted
+            ? "not_reached"
+            : (!ss->prefix_ranker_valid
+                ? "invalid_score_rejected"
+                : (ss->prefix_ranker_passed
+                    ? "retained_confirmed_override"
+                    : "rejected_confirmed_override")));
+    fprintf(fp,
+            "{\"enabled\":%s,"
+            "\"role\":\"direct_signed_ranker_veto_only\","
+            "\"may_introduce_move\":false,\"attempted\":%s,"
+            "\"baseline\":0,\"proposed\":%d,"
+            "\"valid\":%s,\"score\":%.6f,\"threshold\":%.6f,"
+            "\"passed\":%s,\"outcome\":\"%s\"}",
+            enabled ? "true" : "false",
+            ss->prefix_ranker_attempted ? "true" : "false",
+            ss->prefix_proposed,
+            ss->prefix_ranker_valid ? "true" : "false",
+            ss->prefix_ranker_score, ss->prefix_ranker_threshold,
+            ss->prefix_ranker_passed ? "true" : "false", outcome);
+}
+
+static const char *late_selection_reason(const SearchStats *ss)
+{
+    if (!ss->late_resolver_attempted) return "not_attempted";
+    if (!ss->late_resolver_completed || !ss->late_resolver_used)
+        return "unavailable";
+    if (ss->late_resolver_override) return "challenger_override";
+    if (ss->late_resolver_h2_best == 0 &&
+        ss->late_resolver_h4_best == 0)
+        return "baseline_best";
+    if (!ss->late_resolver_stable ||
+        ss->late_resolver_h2_best != ss->late_resolver_h4_best)
+        return "horizon_disagreement";
+    return "below_practical_gain";
+}
+
+static void j_late_resolver(FILE *fp, const SearchStats *ss, int enabled)
+{
+    fprintf(fp,
+            "{\"enabled\":%s,\"attempted\":%s,\"completed\":%s,"
+            "\"method\":\"one_sided_bounded_particle_policy_improvement\","
+            "\"used_to_select\":%s,\"stable\":%s,"
+            "\"retained_policy\":%s,\"override_authorized\":%s,"
+            "\"practical_gate_passed\":%s,"
+            "\"practical_threshold\":%.9f,"
+            "\"selection_reason\":\"%s\",\"support\":%d,"
+            "\"candidate_count\":%d,"
+            "\"opponent_continuation\":"
+            "\"frozen_champion_policy_with_exact_terminal_response\","
+            "\"scope\":\"root_player_future_information_sets\","
+            "\"horizon2\":{\"best_index\":%d,\"value\":%.9f,"
+            "\"delta_vs_policy\":%.9f,\"nodes\":%llu,"
+            "\"improved_root_nodes\":%llu,"
+            "\"frozen_opponent_nodes\":%llu,"
+            "\"transitions\":%llu,\"deviation_evaluations\":%llu,"
+            "\"exact_terminal_leaves\":%llu},"
+            "\"horizon4\":{\"best_index\":%d,\"value\":%.9f,"
+            "\"delta_vs_policy\":%.9f,\"nodes\":%llu,"
+            "\"improved_root_nodes\":%llu,"
+            "\"frozen_opponent_nodes\":%llu,"
+            "\"transitions\":%llu,\"deviation_evaluations\":%llu,"
+            "\"exact_terminal_leaves\":%llu},\"candidates\":[",
+            enabled ? "true" : "false",
+            ss->late_resolver_attempted ? "true" : "false",
+            ss->late_resolver_completed ? "true" : "false",
+            ss->late_resolver_used ? "true" : "false",
+            ss->late_resolver_stable ? "true" : "false",
+            ss->late_resolver_retained ? "true" : "false",
+            ss->late_resolver_override ? "true" : "false",
+            ss->late_resolver_override ? "true" : "false",
+            ss->late_resolver_practical_min,
+            late_selection_reason(ss),
+            ss->late_resolver_support,
+            ss->late_resolver_candidates,
+            ss->late_resolver_h2_best,
+            ss->late_resolver_h2_value,
+            ss->late_resolver_h2_delta,
+            (unsigned long long)ss->late_resolver_h2_nodes,
+            (unsigned long long)ss->late_resolver_h2_root_nodes,
+            (unsigned long long)ss->late_resolver_h2_frozen_opponent_nodes,
+            (unsigned long long)ss->late_resolver_h2_transitions,
+            (unsigned long long)ss->late_resolver_h2_deviation_evals,
+            (unsigned long long)ss->late_resolver_h2_exact_leaves,
+            ss->late_resolver_h4_best,
+            ss->late_resolver_h4_value,
+            ss->late_resolver_h4_delta,
+            (unsigned long long)ss->late_resolver_h4_nodes,
+            (unsigned long long)ss->late_resolver_h4_root_nodes,
+            (unsigned long long)ss->late_resolver_h4_frozen_opponent_nodes,
+            (unsigned long long)ss->late_resolver_h4_transitions,
+            (unsigned long long)ss->late_resolver_h4_deviation_evals,
+            (unsigned long long)ss->late_resolver_h4_exact_leaves);
+    for (int i = 0; i < ss->late_resolver_candidates && i < 6; i++) {
+        if (i) fputc(',', fp);
+        j_move_open(fp, ss->late_resolver_candidate[i]);
+        fprintf(fp,
+                ",\"policy_prob\":%.9f,\"horizon2_q\":%.9f,"
+                "\"horizon4_q\":%.9f,\"policy_baseline\":%s,"
+                "\"horizon2_best\":%s,\"horizon4_best\":%s}",
+                ss->late_resolver_prior[i],
+                ss->late_resolver_h2_q[i],
+                ss->late_resolver_h4_q[i],
+                i == 0 ? "true" : "false",
+                i == ss->late_resolver_h2_best ? "true" : "false",
+                i == ss->late_resolver_h4_best ? "true" : "false");
+    }
+    fputs("]}", fp);
+}
+
+static uint64_t mix64(uint64_t x)
+{
+    x += 0x9E3779B97F4A7C15ULL;
+    x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ULL;
+    x = (x ^ (x >> 27)) * 0x94D049BB133111EBULL;
+    return x ^ (x >> 31);
+}
+
+int main(int argc, char **argv)
+{
+    const char *actor_spec = LC_CHAMPION_AGENT_SPEC;
+    const char *eval_spec = LC_AUDIT_AGENT_SPEC;
+    uint64_t seed = 1;
+    int rounds = MATCH_ROUNDS;
+    float belief_alpha = 1.15f;
+    int belief_symmetries = 20;
+    for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "-a") && i + 1 < argc) actor_spec = argv[++i];
+        else if (!strcmp(argv[i], "-e") && i + 1 < argc) eval_spec = argv[++i];
+        else if (!strcmp(argv[i], "-s") && i + 1 < argc) seed = strtoull(argv[++i], NULL, 10);
+        else if (!strcmp(argv[i], "-r") && i + 1 < argc) rounds = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--belief-alpha") && i + 1 < argc)
+            belief_alpha = (float)atof(argv[++i]);
+        else if (!strcmp(argv[i], "--belief-symmetries") && i + 1 < argc)
+            belief_symmetries = atoi(argv[++i]);
+        else {
+            fprintf(stderr, "usage: %s [-a ACTOR] [-e EVALUATOR] [-s seed] "
+                            "[-r rounds] [--belief-alpha A] "
+                            "[--belief-symmetries N]\n", argv[0]);
+            return 1;
+        }
+    }
+    if (rounds < 1) rounds = 1;
+    if (rounds > MATCH_ROUNDS) rounds = MATCH_ROUNDS;
+
+    Agent actor, evaluator;
+    spec_parse(actor_spec, &actor);
+    spec_parse(eval_spec, &evaluator);
+    if (rounds != MATCH_ROUNDS &&
+        (actor.match_value || evaluator.match_value)) {
+        fprintf(stderr,
+                "analyze: a match-value actor or evaluator requires "
+                "exactly %d rounds\n",
+                MATCH_ROUNDS);
+        spec_release(&actor);
+        spec_release(&evaluator);
+        return 1;
+    }
+    if (!actor.net ||
+        (actor.kind != AG_POLICY && actor.kind != AG_ROLLOUT)) {
+        fprintf(stderr, "analyze: actor must be a network policy or rollout "
+                        "spec (got '%s')\n", actor_spec);
+        spec_release(&actor);
+        spec_release(&evaluator);
+        return 1;
+    }
+    if (evaluator.kind != AG_ROLLOUT || !evaluator.net) {
+        fprintf(stderr, "analyze: evaluator must be a network rollout spec\n");
+        spec_release(&actor);
+        spec_release(&evaluator);
+        return 1;
+    }
+
+    Rng deal_rng, actor_rng;
+    rng_seed(&deal_rng, seed);
+    rng_seed(&actor_rng, mix64(seed ^ 0xA17C0AULL));
+
+    /* the ply array is streamed into memory while the match is played, because
+     * meta (which needs the final scores) comes first in the output */
+    char *plybuf = NULL;
+    size_t plylen = 0;
+    FILE *pf = open_memstream(&plybuf, &plylen);
+    if (!pf) {
+        fprintf(stderr, "analyze: open_memstream failed\n");
+        spec_release(&actor);
+        spec_release(&evaluator);
+        return 1;
+    }
+
+    char start_hands[2][256];
+    int cum[2] = { 0, 0 };
+    int round_scores[MATCH_ROUNDS][2];
+    int ply = 0;
+
+    for (int rd = 0; rd < rounds; rd++) {
+    State st;
+    lc_deal(&st, &deal_rng);
+    st.round = (uint8_t)rd;
+    st.cum[0] = (int16_t)cum[0];
+    st.cum[1] = (int16_t)cum[1];
+    st.turn = (uint8_t)(rd & 1);
+
+    if (rd == 0) {
+        for (int p = 0; p < 2; p++) {
+            char *hb = NULL;
+            size_t hl = 0;
+            FILE *hf = open_memstream(&hb, &hl);
+            j_hand(hf, &st, p);
+            fclose(hf);
+            snprintf(start_hands[p], sizeof start_hands[p], "%s", hb);
+            free(hb);
+        }
+    }
+
+    while (!st.over) {
+        int p = st.turn;
+        ply++;
+        if (ply > 1) fputc(',', pf);
+        fprintf(pf, "{\"n\":%d,\"round_ply\":%u,\"player\":%d,"
+                    "\"round\":%d,\"cum\":[%d,%d],\"deck_left\":%d,",
+                ply, (unsigned)st.nply, p, rd, cum[0], cum[1], st.deck_left);
+
+        fprintf(pf, "\"known\":");
+        j_known(pf, &st);
+        fprintf(pf, ",\"hands\":[");
+        j_hand(pf, &st, 0);
+        fputc(',', pf);
+        j_hand(pf, &st, 1);
+        fprintf(pf, "],\"exps\":[");
+        j_exps(pf, &st, 0);
+        fputc(',', pf);
+        j_exps(pf, &st, 1);
+        fprintf(pf, "],\"piles\":");
+        j_piles(pf, &st);
+
+        /* value head from each perspective, in points */
+        Features feat;
+        float v[2];
+        for (int q = 0; q < 2; q++) {
+            feat_extract(&st, q, &feat);
+            v[q] = net_value(actor.net, &feat) * VAL_SCALE;
+        }
+        fprintf(pf, ",\"values\":[%.1f,%.1f]", v[0], v[1]);
+
+        /* Coherent fixed-cardinality belief diagnostic.  These are analytic
+         * inclusion marginals of one joint K-card distribution, so they sum
+         * exactly to the number of unknown opponent cards.  The production
+         * audit uses uniform worlds until this learned ranking clears locked
+         * validation; the diagnostic remains visible and honestly labelled. */
+        {
+            int mp = st.turn, mo = mp ^ 1;
+            BeliefDist bd;
+            float effective_alpha = st.nply == 0 ? 0.0f : belief_alpha;
+            if (!belief_dist_init(actor.net, &st, mp, belief_symmetries,
+                                  effective_alpha, &bd)) {
+                fprintf(stderr, "analyze: belief distribution failed at ply %d\n", ply);
+                fclose(pf);
+                free(plybuf);
+                spec_release(&actor);
+                spec_release(&evaluator);
+                return 1;
+            }
+            int bord[NCARD];
+            for (int i = 0; i < bd.n; i++) bord[i] = i;
+            for (int i = 0; i < bd.n; i++)
+                for (int j2 = i + 1; j2 < bd.n; j2++)
+                    if (bd.marginal[bord[j2]] > bd.marginal[bord[i]]) {
+                        int t = bord[i]; bord[i] = bord[j2]; bord[j2] = t;
+                    }
+            float prior = bd.n > 0 ? (float)bd.need / (float)bd.n : 0.0f;
+            double msum = 0.0;
+            for (int i = 0; i < bd.n; i++) msum += bd.marginal[i];
+            fprintf(pf, ",\"belief\":{\"persp\":%d,\"unknown_hand\":%d,"
+                        "\"unknown_pool\":%d,\"prior\":%.6f,"
+                        "\"method\":\"fixed_cardinality\","
+                        "\"alpha\":%.3f,\"symmetries\":%d,"
+                        "\"used_by_rollout\":false,\"marginal_sum\":%.6f,"
+                        "\"cards\":[",
+                    mp, bd.need, bd.n, prior, effective_alpha,
+                    belief_symmetries, msum);
+            int bkeep = bd.n < 14 ? bd.n : 14;
+            for (int i = 0; i < bkeep; i++) {
+                int ci = bord[i];
+                if (i) fputc(',', pf);
+                fprintf(pf, "{\"card\":");
+                j_card(pf, bd.card[ci]);
+                fprintf(pf, ",\"p\":%.3f,\"held\":%s}",
+                        bd.marginal[ci],
+                        ((st.hand[mo] >> bd.card[ci]) & 1ULL) ? "true" : "false");
+            }
+            fprintf(pf, "],\"all_cards\":[");
+            for (int i = 0; i < bd.n; i++) {
+                int ci = bord[i];
+                if (i) fputc(',', pf);
+                fprintf(pf, "{\"card\":");
+                j_card(pf, bd.card[ci]);
+                fprintf(pf, ",\"p\":%.6f,\"held\":%s}",
+                        bd.marginal[ci], ((st.hand[mo] >> bd.card[ci]) & 1ULL)
+                                ? "true" : "false");
+            }
+            fprintf(pf, "]}");
+        }
+
+        /* policy head over all legal moves, best first, capped at 10 */
+        Move pmv[MAX_MOVES];
+        float prob[MAX_MOVES], pv;
+        int nleg = policy_probs_sym(actor.net, &st, pmv, prob, &pv,
+                                    actor.symmetries);
+        int ord[MAX_MOVES];
+        for (int i = 0; i < nleg; i++) ord[i] = i;
+        for (int i = 0; i < nleg; i++)
+            for (int j = i + 1; j < nleg; j++)
+                if (prob[ord[j]] > prob[ord[i]]) { int t = ord[i]; ord[i] = ord[j]; ord[j] = t; }
+        fprintf(pf, ",\"nlegal\":%d,\"policy\":[", nleg);
+        int keep = nleg < 10 ? nleg : 10;
+        for (int i = 0; i < keep; i++) {
+            if (i) fputc(',', pf);
+            j_move_open(pf, pmv[ord[i]]);
+            fprintf(pf, ",\"prob\":%.3f}", prob[ord[i]]);
+        }
+        fputc(']', pf);
+
+        /* The actor chooses first.  Preserve its own rollout statistics when
+         * search is part of the playing agent; those explain the real move and
+         * are distinct from the deeper, stateless post-hoc audit below. */
+        SearchStats actor_ss;
+        memset(&actor_ss, 0, sizeof actor_ss);
+        Move played;
+        if (actor.kind == AG_ROLLOUT)
+            played = rollout_move(&actor, &st, &actor_rng, NULL, &actor_ss);
+        else
+            played = agent_move(&actor, &st, &actor_rng);
+
+        /* A stateless evaluator seed makes the post-hoc audit reproducible
+         * without consuming deal/actor randomness. */
+        SearchStats ss;
+        float sval = 0.0f;
+        Rng eval_rng;
+        rng_seed(&eval_rng, mix64(seed ^ 0xE7A100ULL
+                                 ^ ((uint64_t)rd << 48)
+                                 ^ (uint64_t)ply));
+        Move recommended = rollout_move(&evaluator, &st, &eval_rng, &sval, &ss);
+        const char *analysis_status = search_status(&ss, recommended);
+
+        fprintf(pf, ",\"search\":");
+        j_search_rows(pf, &ss, played, recommended);
+
+        Move actor_policy_move = pmv[ord[0]];
+        int actor_draw_baseline = actor.kind == AG_ROLLOUT
+            ? actor_ss.draw_planned_baseline
+            : (actor.kind == AG_POLICY && actor.draw_root_deck_max > 0 &&
+               st.deck_left <= actor.draw_root_deck_max &&
+               same_semantic_action(actor_policy_move, played) &&
+               actor_policy_move.draw != played.draw);
+        Move actor_baseline_move =
+            actor.kind == AG_ROLLOUT && actor_ss.n > 0
+                ? actor_ss.mv[0]
+                : (actor_draw_baseline ? played : actor_policy_move);
+        fprintf(pf, ",\"actor_decision\":{\"method\":\"%s\","
+                    "\"used_to_choose\":%s,\"searched\":%s,"
+                    "\"status\":\"%s\",\"worlds\":%d,\"max_worlds\":%d,"
+                    "\"exact_terminal\":{\"enabled\":%s,"
+                    "\"continuation_enabled\":%s,\"mode\":\"%s\","
+                    "\"continuation_leaves\":%llu},"
+                    "\"deck2_replan\":{\"enabled\":%s,"
+                    "\"method\":\"recursive_deck_2_to_3\","
+                    "\"configured_worlds\":%d,\"configured_cores\":%d,"
+                    "\"calls\":%llu,\"worlds\":%llu,"
+                    "\"root_calls\":%llu,\"root_worlds\":%llu,"
+                    "\"candidate_evaluations\":%llu,"
+                    "\"budget_cap_hits\":%llu,"
+                    "\"low_world_fallbacks\":%llu,"
+                    "\"transposition_hits\":%llu,"
+                    "\"recursive_cycle_closures\":%llu,"
+                    "\"max_recursive_depth\":%llu,"
+                    "\"max_stall_chain\":%llu,"
+                    "\"cycle_breaks\":%llu,"
+                    "\"cap_reserve_forces\":%llu,"
+                    "\"unfinished_continuation_leaves\":%llu},"
+                    "\"overrode_policy\":%s,\"root_width\":%d,"
+                    "\"policy_mass\":%.6f,\"target_policy_mass\":%.6f,"
+                    "\"policy_floor\":%.6f,\"min_candidates\":%d,"
+                    "\"continuation_policy\":\"%s\","
+                    "\"continuation_symmetries\":%d,"
+                    "\"world_model\":\"%s\",\"world_belief_alpha\":%.9g,"
+                    "\"evaluation_kind\":\"%s\","
+                    "\"baseline_source\":\"%s\","
+                    "\"planner\":{\"deck_max\":%d,\"block_gap\":%d,"
+                    "\"draw_root_deck_max\":%d,"
+                    "\"draw_playout_deck_max\":%d,"
+                    "\"draw_baseline\":%s,"
+                    "\"turns\":%d,\"guaranteed_score\":%d,"
+                    "\"policy_score\":%d,\"policy_regret\":%d,"
+                    "\"policy_block_cost\":%d,\"selected_block_cost\":%d},"
+                    "\"semantic_candidates\":%d,"
+                    "\"draw_variant_candidates\":%d,"
+                    "\"action_core_shortlist\":{\"configured_cores\":%d,"
+                    "\"core_candidates\":%d,\"draw_candidates\":%d},"
+                    "\"policy_prefix\":{\"mode\":%d,"
+                    "\"confirmation_temp\":%.9g,"
+                    "\"trusted_candidates\":%d,\"proposed\":%d,"
+                    "\"selected_reference\":%d,\"overrode\":%s,"
+                    "\"confirmation_required\":%s,"
+                    "\"numerical_agreement\":%s,"
+                    "\"evidence_threshold_se\":%.3f,"
+                    "\"practical_threshold\":%.3f,"
+                    "\"delta_vs_baseline\":%.3f,\"delta_se\":%.3f,"
+                    "\"gate_passed\":%s,"
+                    "\"confirmed\":%s,\"worlds\":%d},"
+                    "\"confirmation\":{\"required\":%s,\"passed\":%s,"
+                    "\"worlds\":%d,\"configured_worlds\":%d},"
+                    "\"policy_move\":",
+                actor.kind == AG_ROLLOUT
+                    ? "late_round_rollout" : "policy_argmax",
+                actor.kind == AG_ROLLOUT ? "true" : "false",
+                actor.kind == AG_ROLLOUT && actor_ss.worlds > 0
+                    ? "true" : "false",
+                actor.kind == AG_ROLLOUT
+                    ? search_status(&actor_ss, played) : "policy_argmax",
+                actor.kind == AG_ROLLOUT ? actor_ss.worlds : 0,
+                actor.kind == AG_ROLLOUT ? actor_ss.max_worlds : 0,
+                actor.kind == AG_ROLLOUT && actor.exact_terminal
+                    ? "true" : "false",
+                actor.kind == AG_ROLLOUT && actor.exact_terminal == 1
+                    ? "true" : "false",
+                actor.kind != AG_ROLLOUT || actor.exact_terminal == 0
+                    ? "off" : (actor.exact_terminal == 1
+                        ? "root_and_continuations"
+                        : (actor.exact_terminal == 2
+                            ? "root_only"
+                            : "policy_action_terminal_control")),
+                (unsigned long long)(actor.kind == AG_ROLLOUT
+                    ? actor_ss.exact_terminal_leaves : 0),
+                actor.kind == AG_ROLLOUT &&
+                        actor.deck2_replan_worlds > 0
+                    ? "true" : "false",
+                actor.kind == AG_ROLLOUT ? actor.deck2_replan_worlds : 0,
+                actor.kind == AG_ROLLOUT ? actor.deck2_replan_cores : 0,
+                (unsigned long long)(actor.kind == AG_ROLLOUT
+                    ? actor_ss.deck2_replans : 0),
+                (unsigned long long)(actor.kind == AG_ROLLOUT
+                    ? actor_ss.deck2_replan_worlds : 0),
+                (unsigned long long)(actor.kind == AG_ROLLOUT
+                    ? actor_ss.deck2_replan_root_calls : 0),
+                (unsigned long long)(actor.kind == AG_ROLLOUT
+                    ? actor_ss.deck2_replan_root_worlds : 0),
+                (unsigned long long)(actor.kind == AG_ROLLOUT
+                    ? actor_ss.deck2_replan_evals : 0),
+                (unsigned long long)(actor.kind == AG_ROLLOUT
+                    ? actor_ss.deck2_replan_cap_hits : 0),
+                (unsigned long long)(actor.kind == AG_ROLLOUT
+                    ? actor_ss.deck2_replan_low_world_fallbacks : 0),
+                (unsigned long long)(actor.kind == AG_ROLLOUT
+                    ? actor_ss.deck2_replan_cache_hits : 0),
+                (unsigned long long)(actor.kind == AG_ROLLOUT
+                    ? actor_ss.deck2_replan_cycle_closures : 0),
+                (unsigned long long)(actor.kind == AG_ROLLOUT
+                    ? actor_ss.deck2_replan_max_depth : 0),
+                (unsigned long long)(actor.kind == AG_ROLLOUT
+                    ? actor_ss.deck2_replan_max_stall_chain : 0),
+                (unsigned long long)(actor.kind == AG_ROLLOUT
+                    ? actor_ss.cycle_breaks : 0),
+                (unsigned long long)(actor.kind == AG_ROLLOUT
+                    ? actor_ss.cap_reserve_forces : 0),
+                (unsigned long long)(actor.kind == AG_ROLLOUT
+                    ? actor_ss.unfinished_cap_leaves : 0),
+                !move_eq(actor_policy_move, played) ? "true" : "false",
+                actor.kind == AG_ROLLOUT ? actor.root_width : 1,
+                actor.kind == AG_ROLLOUT ? actor_ss.policy_mass
+                                         : prob[ord[0]],
+                actor.kind == AG_ROLLOUT ? actor.cand_mass : 1.0f,
+                actor.kind == AG_ROLLOUT ? actor.cand_floor : 0.0f,
+                actor.kind == AG_ROLLOUT ? actor.min_cand : 1,
+                actor.kind == AG_ROLLOUT
+                    ? (actor.playout_sample == 1
+                        ? "sampled_policy"
+                        : (actor.playout_sample == 2
+                            ? "random_symmetry_argmax"
+                            : (actor.playout_sample == 3
+                                ? "fixed_world_symmetry_argmax"
+                                : (actor.playout_sample == 4
+                                    ? "role_fixed_world_symmetry_argmax"
+                                    : "exact_ensemble_argmax"))))
+                    : "none",
+                actor.kind == AG_ROLLOUT ? actor.playout_symmetries : 0,
+                actor.kind == AG_ROLLOUT && !actor.no_belief
+                    ? "learned_fixed_cardinality" : "uniform_card_count",
+                actor.kind == AG_ROLLOUT && !actor.no_belief
+                    ? actor.belief_alpha : 0.0f,
+                actor.kind == AG_ROLLOUT
+                    ? search_metric(&actor_ss) : "network_state_value",
+                actor.kind == AG_ROLLOUT && actor_ss.planned_baseline
+                    ? "visible_hand_scheduler"
+                    : (actor.kind == AG_ROLLOUT &&
+                       actor_ss.deck_end_baseline
+                        ? "exact_terminal_solver"
+                        : (actor_draw_baseline
+                            ? "draw_source_planner" : "network_policy")),
+                actor.kind == AG_ROLLOUT ? actor.plan_deck_max : 0,
+                actor.kind == AG_ROLLOUT ? actor.plan_block_gap : 0,
+                actor.draw_root_deck_max,
+                actor.kind == AG_ROLLOUT
+                    ? actor.draw_playout_deck_max : 0,
+                actor_draw_baseline ? "true" : "false",
+                actor.kind == AG_ROLLOUT ? actor_ss.planner_turns : 0,
+                actor.kind == AG_ROLLOUT ? actor_ss.planner_score : 0,
+                actor.kind == AG_ROLLOUT ? actor_ss.planner_policy_score : 0,
+                actor.kind == AG_ROLLOUT ? actor_ss.planner_regret : 0,
+                actor.kind == AG_ROLLOUT ? actor_ss.planner_policy_block : 0,
+                actor.kind == AG_ROLLOUT ? actor_ss.planner_selected_block : 0,
+                actor.kind == AG_ROLLOUT
+                    ? actor_ss.semantic_candidates : 0,
+                actor.kind == AG_ROLLOUT
+                    ? actor_ss.draw_variant_candidates : 0,
+                actor.kind == AG_ROLLOUT ? actor.action_core_count : 0,
+                actor.kind == AG_ROLLOUT
+                    ? actor_ss.action_core_candidates : 0,
+                actor.kind == AG_ROLLOUT
+                    ? actor_ss.action_draw_candidates : 0,
+                actor.kind == AG_ROLLOUT ? actor.policy_prefix_mode : 0,
+                actor.kind == AG_ROLLOUT ? actor.confirm_temp : 0.0f,
+                actor.kind == AG_ROLLOUT ? actor_ss.trusted_candidates : 0,
+                actor.kind == AG_ROLLOUT ? actor_ss.prefix_proposed : 0,
+                actor.kind == AG_ROLLOUT ? actor_ss.selection_reference : 0,
+                actor.kind == AG_ROLLOUT && actor_ss.trusted_prefix_override
+                    ? "true" : "false",
+                actor.kind == AG_ROLLOUT && actor.policy_prefix_mode >= 2 &&
+                        actor_ss.prefix_proposed != 0
+                    ? "true" : "false",
+                actor.kind == AG_ROLLOUT &&
+                        actor_ss.prefix_numerical_agreement
+                    ? "true" : "false",
+                actor.kind == AG_ROLLOUT ? actor.prefix_confirm_k : 0.0f,
+                actor.kind == AG_ROLLOUT ? actor.prefix_confirm_min : 0.0f,
+                actor.kind == AG_ROLLOUT && actor_ss.prefix_proposed > 0
+                    ? actor_ss.prefix_delta[actor_ss.prefix_proposed] : 0.0,
+                actor.kind == AG_ROLLOUT && actor_ss.prefix_proposed > 0
+                    ? actor_ss.prefix_dse[actor_ss.prefix_proposed] : 0.0,
+                actor.kind == AG_ROLLOUT && actor_ss.prefix_gate_passed
+                    ? "true" : "false",
+                actor.kind == AG_ROLLOUT && actor_ss.prefix_confirmed
+                    ? "true" : "false",
+                actor.kind == AG_ROLLOUT ? actor_ss.prefix_confirm_worlds : 0,
+                actor.kind == AG_ROLLOUT && actor.override_k > 0.0f
+                    ? "true" : "false",
+                actor.kind == AG_ROLLOUT && actor_ss.confirmed
+                    ? "true" : "false",
+                actor.kind == AG_ROLLOUT ? actor_ss.confirm_worlds : 0,
+                actor.kind == AG_ROLLOUT ? actor.confirm_dets : 0);
+        j_move_open(pf, actor_policy_move);
+        fprintf(pf, "},\"baseline_move\":");
+        j_move_open(pf, actor_baseline_move);
+        fprintf(pf, "},\"selected\":");
+        j_move_open(pf, played);
+        fprintf(pf, "},\"candidates\":");
+        if (actor.kind == AG_ROLLOUT)
+            j_search_rows(pf, &actor_ss, played, played);
+        else
+            fputs("[]", pf);
+        fputs(",\"policy_cost\":", pf);
+        j_policy_cost(pf, actor.kind == AG_ROLLOUT ? &actor_ss : NULL);
+        fputs(",\"late_resolver\":", pf);
+        j_late_resolver(
+            pf, &actor_ss,
+            actor.kind == AG_ROLLOUT && actor.bounded_late_root);
+        fputs(",\"controller_veto\":", pf);
+        j_controller_veto(pf, &actor, &actor_ss);
+        fputs(",\"action_ranker_veto\":", pf);
+        j_action_ranker_veto(pf, &actor, &actor_ss);
+        fputc('}', pf);
+
+        fprintf(pf, ",\"actor_value\":%.3f,"
+                    "\"analysis\":{\"kind\":\"posthoc_rollout\","
+                    "\"objective\":\"%s\",\"worlds\":%d,\"max_worlds\":%d,"
+                    "\"exact_terminal\":{\"enabled\":%s,"
+                    "\"continuation_enabled\":%s,\"mode\":\"%s\","
+                    "\"continuation_leaves\":%llu},"
+                    "\"deck2_replan\":{\"enabled\":%s,"
+                    "\"method\":\"recursive_deck_2_to_3\","
+                    "\"configured_worlds\":%d,\"configured_cores\":%d,"
+                    "\"calls\":%llu,\"worlds\":%llu,"
+                    "\"root_calls\":%llu,\"root_worlds\":%llu,"
+                    "\"candidate_evaluations\":%llu,"
+                    "\"budget_cap_hits\":%llu,"
+                    "\"low_world_fallbacks\":%llu,"
+                    "\"transposition_hits\":%llu,"
+                    "\"recursive_cycle_closures\":%llu,"
+                    "\"max_recursive_depth\":%llu,"
+                    "\"max_stall_chain\":%llu,"
+                    "\"cycle_breaks\":%llu,"
+                    "\"cap_reserve_forces\":%llu,"
+                    "\"unfinished_continuation_leaves\":%llu},"
+                    "\"used_to_choose\":false,\"searched\":%s,"
+                    "\"status\":\"%s\",\"resolved\":%s,"
+                    "\"confidence_guard_se\":%.3f,"
+                    "\"practical_threshold\":%.3f,\"policy_mass\":%.6f,"
+                    "\"target_policy_mass\":%.6f,\"shortlist_capped\":%s,"
+                    "\"audited_moves\":%d,\"omitted_moves\":%d,"
+                    "\"world_model\":\"%s\",\"world_belief_alpha\":%.9g,"
+                    "\"continuation_policy\":\"%s\","
+                    "\"continuation_symmetries\":%d,"
+                    "\"continuation_symmetry_mode\":\"%s\","
+                    "\"root_dead_discard_focus\":%s,"
+                    "\"continuation_dead_discard_focus\":%s,"
+                    "\"challenger_discard_guard\":%s,"
+                    "\"deck_max\":%d,"
+                    "\"evaluation_kind\":\"%s\","
+                    "\"planner\":{\"deck_max\":%d,\"block_gap\":%d,"
+                    "\"draw_root_deck_max\":%d,"
+                    "\"draw_playout_deck_max\":%d,"
+                    "\"draw_baseline\":%s,"
+                    "\"turns\":%d,\"guaranteed_score\":%d,"
+                    "\"policy_score\":%d,\"policy_regret\":%d,"
+                    "\"policy_block_cost\":%d,\"selected_block_cost\":%d},"
+                    "\"semantic_candidates\":%d,"
+                    "\"draw_variant_candidates\":%d,"
+                    "\"action_core_shortlist\":{\"configured_cores\":%d,"
+                    "\"core_candidates\":%d,\"draw_candidates\":%d},"
+                    "\"policy_prefix\":{\"mode\":%d,"
+                    "\"confirmation_temp\":%.9g,"
+                    "\"trusted_candidates\":%d,\"proposed\":%d,"
+                    "\"selected_reference\":%d,\"overrode\":%s,"
+                    "\"confirmation_required\":%s,"
+                    "\"numerical_agreement\":%s,"
+                    "\"evidence_threshold_se\":%.3f,"
+                    "\"practical_threshold\":%.3f,"
+                    "\"delta_vs_baseline\":%.3f,\"delta_se\":%.3f,"
+                    "\"gate_passed\":%s,"
+                    "\"confirmed\":%s,\"worlds\":%d},"
+                    "\"baseline_source\":\"%s\","
+                    "\"confirmation\":{\"required\":%s,"
+                    "\"passed\":%s,\"worlds\":%d,\"configured_worlds\":%d,"
+                    "\"continuation\":\"%s\"}",
+                pv,
+                analysis_objective(&evaluator, rd),
+                ss.worlds, ss.max_worlds,
+                evaluator.exact_terminal ? "true" : "false",
+                evaluator.exact_terminal == 1 ? "true" : "false",
+                evaluator.exact_terminal == 0
+                    ? "off" : (evaluator.exact_terminal == 1
+                        ? "root_and_continuations"
+                        : (evaluator.exact_terminal == 2
+                            ? "root_only"
+                            : "policy_action_terminal_control")),
+                (unsigned long long)ss.exact_terminal_leaves,
+                evaluator.deck2_replan_worlds > 0 ? "true" : "false",
+                evaluator.deck2_replan_worlds,
+                evaluator.deck2_replan_cores,
+                (unsigned long long)ss.deck2_replans,
+                (unsigned long long)ss.deck2_replan_worlds,
+                (unsigned long long)ss.deck2_replan_root_calls,
+                (unsigned long long)ss.deck2_replan_root_worlds,
+                (unsigned long long)ss.deck2_replan_evals,
+                (unsigned long long)ss.deck2_replan_cap_hits,
+                (unsigned long long)ss.deck2_replan_low_world_fallbacks,
+                (unsigned long long)ss.deck2_replan_cache_hits,
+                (unsigned long long)ss.deck2_replan_cycle_closures,
+                (unsigned long long)ss.deck2_replan_max_depth,
+                (unsigned long long)ss.deck2_replan_max_stall_chain,
+                (unsigned long long)ss.cycle_breaks,
+                (unsigned long long)ss.cap_reserve_forces,
+                (unsigned long long)ss.unfinished_cap_leaves,
+                ss.worlds > 0 ? "true" : "false",
+                analysis_status, ss.resolved ? "true" : "false",
+                evaluator.override_k > 3.5f ? evaluator.override_k : 3.5f,
+                evaluator.override_min, ss.policy_mass, evaluator.cand_mass,
+                ss.worlds > 0 && evaluator.cand_mass > 0.0f &&
+                        ss.policy_mass + 1e-6 < evaluator.cand_mass &&
+                        ss.n >= evaluator.root_width
+                    ? "true" : "false",
+                ss.n, nleg - ss.n,
+                evaluator.no_belief ? "uniform_card_count"
+                                    : "learned_fixed_cardinality",
+                evaluator.no_belief ? 0.0f : evaluator.belief_alpha,
+                evaluator.playout_sample == 1
+                    ? "sampled_policy"
+                        : (evaluator.playout_sample == 2
+                        ? "random_symmetry_argmax"
+                        : (evaluator.playout_sample == 3
+                            ? "fixed_world_symmetry_argmax"
+                            : (evaluator.playout_sample == 4
+                                ? "role_fixed_world_symmetry_argmax"
+                                : "exact_ensemble_argmax"))),
+                evaluator.playout_symmetries,
+                evaluator.playout_sample == 4 &&
+                        evaluator.playout_symmetries > 1
+                    ? "independent_group_member_per_player_world"
+                    : (evaluator.playout_sample == 3 &&
+                        evaluator.playout_symmetries > 1
+                    ? "random_group_member_per_world"
+                    : (evaluator.playout_sample > 0 &&
+                        evaluator.playout_symmetries > 1
+                    ? "random_group_member_per_decision"
+                    : "exact_average")),
+                evaluator.prune_dom ? "true" : "false",
+                (evaluator.playout_prune < 0
+                     ? evaluator.prune_dom : evaluator.playout_prune)
+                    ? "true" : "false",
+                evaluator.discard_guard ? "true" : "false",
+                evaluator.deck_max,
+                search_metric(&ss),
+                evaluator.plan_deck_max,
+                evaluator.plan_block_gap,
+                evaluator.draw_root_deck_max,
+                evaluator.draw_playout_deck_max,
+                ss.draw_planned_baseline ? "true" : "false",
+                ss.planner_turns,
+                ss.planner_score,
+                ss.planner_policy_score,
+                ss.planner_regret,
+                ss.planner_policy_block,
+                ss.planner_selected_block,
+                ss.semantic_candidates,
+                ss.draw_variant_candidates,
+                evaluator.action_core_count,
+                ss.action_core_candidates,
+                ss.action_draw_candidates,
+                evaluator.policy_prefix_mode,
+                evaluator.confirm_temp,
+                ss.trusted_candidates,
+                ss.prefix_proposed,
+                ss.selection_reference,
+                ss.trusted_prefix_override ? "true" : "false",
+                evaluator.policy_prefix_mode >= 2 && ss.prefix_proposed != 0
+                    ? "true" : "false",
+                ss.prefix_numerical_agreement ? "true" : "false",
+                evaluator.prefix_confirm_k,
+                evaluator.prefix_confirm_min,
+                ss.prefix_proposed > 0
+                    ? ss.prefix_delta[ss.prefix_proposed] : 0.0,
+                ss.prefix_proposed > 0
+                    ? ss.prefix_dse[ss.prefix_proposed] : 0.0,
+                ss.prefix_gate_passed ? "true" : "false",
+                ss.prefix_confirmed ? "true" : "false",
+                ss.prefix_confirm_worlds,
+                ss.planned_baseline
+                    ? "visible_hand_scheduler"
+                    : (ss.deck_end_baseline
+                        ? "exact_terminal_solver"
+                        : (ss.draw_planned_baseline
+                            ? "draw_source_planner" : "network_policy")),
+                evaluator.override_k > 0.0f ? "true" : "false",
+                ss.confirmed ? "true" : "false",
+                ss.confirm_worlds, evaluator.confirm_dets,
+                evaluator.confirm_exact5
+                    ? "exact_5way_argmax"
+                    : (evaluator.playout_sample == 3
+                        ? "fixed_world_symmetry_argmax"
+                        : (evaluator.playout_sample == 4
+                            ? "role_fixed_world_symmetry_argmax"
+                            : "random_symmetry_argmax")));
+        fputs(",\"late_resolver\":", pf);
+        j_late_resolver(pf, &ss, evaluator.bounded_late_root);
+        fputs(",\"controller_veto\":", pf);
+        j_controller_veto(pf, &evaluator, &ss);
+        fputs(",\"action_ranker_veto\":", pf);
+        j_action_ranker_veto(pf, &evaluator, &ss);
+        fputs(",\"policy_cost\":", pf);
+        j_policy_cost(pf, &ss);
+        fputc('}', pf);
+
+        /* the card that will be drawn: read before lc_apply */
+        int drawn = played.draw == 0 ? st.deck[st.deck_pos]
+                                : st.pile[played.draw - 1][st.pile_n[played.draw - 1] - 1];
+        fprintf(pf, ",\"move\":");
+        j_move_open(pf, played);
+        fprintf(pf, ",\"drawn\":");
+        j_card(pf, drawn);
+        fprintf(pf, "}}");
+
+        lc_apply(&st, played);
+    }
+
+    round_scores[rd][0] = lc_score(&st, 0);
+    round_scores[rd][1] = lc_score(&st, 1);
+    cum[0] += round_scores[rd][0];
+    cum[1] += round_scores[rd][1];
+    }   /* rounds */
+    fclose(pf);
+
+    printf("{\"meta\":{\"actor\":");
+    j_string(stdout, actor_spec);
+    printf(",\"evaluator\":");
+    j_string(stdout, eval_spec);
+    printf(",\"actor_bounded_late_root\":%s,"
+           "\"evaluator_bounded_late_root\":%s,"
+           "\"actor_bounded_late_min\":%.6f,"
+           "\"evaluator_bounded_late_min\":%.6f,"
+           "\"belief_alpha\":%.9g,\"belief_symmetries\":%d,"
+           "\"seed\":%llu,\"plies\":%d,\"rounds\":%d,\"round_scores\":[",
+           actor.kind == AG_ROLLOUT && actor.bounded_late_root
+               ? "true" : "false",
+           evaluator.bounded_late_root ? "true" : "false",
+           actor.bounded_late_min,
+           evaluator.bounded_late_min,
+           belief_alpha, belief_symmetries,
+           (unsigned long long)seed, ply, rounds);
+    for (int rd = 0; rd < rounds; rd++)
+        printf("%s[%d,%d]", rd ? "," : "", round_scores[rd][0], round_scores[rd][1]);
+    printf("],\"final\":[%d,%d],\"generated\":\"analyze\"},\n", cum[0], cum[1]);
+    printf("\"start_hands\":[%s,%s],\n", start_hands[0], start_hands[1]);
+    printf("\"plies\":[%s]}\n", plybuf);
+    free(plybuf);
+    spec_release(&actor);
+    spec_release(&evaluator);
+    return 0;
+}

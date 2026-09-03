@@ -1,0 +1,73 @@
+{
+  "artifact_count": 228,
+  "cause": {
+    "classification": "zero_policy_mass_json_serialization_defect",
+    "efficacy_related": false,
+    "mechanism": "TRAIN shard 88 allocation 5632 contained a legal semantic action whose complete-move probabilities all underflowed to exact binary32 zero. The evidence producer computed conditional draw probability as joint_mass / semantic_action_mass, i.e. 0/0, and fprintf serialized the result as the JSON-invalid token -nan. The shard completed and was persisted byte-exactly, but the calibration input parser correctly failed closed before fitting.",
+    "producer": {
+      "allocation_id": 5632,
+      "artifact_digest": "2a38017d119a94a6f585a4cf830cc0492ebefdb5b81189aa925a68ee000afedb",
+      "artifact_id": 9707005417,
+      "artifact_name": "policy-cost-v6-train-eval-88",
+      "artifact_size": 209806,
+      "evidence_file_sha256": "fe00deb0bfa038b5bc33737ea0fdc719bbd92cb36b53dcfb2aaa7ed12fda9d05",
+      "invalid_column": 10668,
+      "invalid_line": 2,
+      "job_id": 99011003409,
+      "source_match_id": "TRAIN-000000061723"
+    },
+    "stage": {
+      "error": "../shards/88.jsonl: invalid JSONL line 2: Expecting value: line 1 column 10668 (char 10667)",
+      "job_id": 99050055287,
+      "name": "train_calibrate"
+    }
+  },
+  "efficacy_data_observed": false,
+  "execution": {
+    "path": "data/experiments/locked_policy_cost_v6_execution.json",
+    "sha256": "a6e793d20745b852be6e32e9719364216c2ffb343b0a678ff31d2dca0e4bb206"
+  },
+  "fixed_seed_execution": {
+    "all_policy_cost_v6_fixed_roots_retired": true,
+    "retired_fixed_root_count": 21,
+    "retry_forbidden": true
+  },
+  "github_run": {
+    "attempt": 1,
+    "conclusion": "failure",
+    "event": "push",
+    "head_sha": "5175504127c0dd836e07ed60c10541956ceea349",
+    "head_tree": "802bd64af71ed651a003aeb2faa23c0a383bfa5b",
+    "id": 33213087155,
+    "url": "https://github.com/BEKINDTOEVERYKIND/LOSTCITIESCHATGPT/actions/runs/33213087155"
+  },
+  "job_disposition": {
+    "failure": 1,
+    "skipped": 9,
+    "success": 225,
+    "total": 235,
+    "train_evaluate_success": 216
+  },
+  "locked_validation_relaxed": false,
+  "maintained_actor_disposition": {
+    "changed": false,
+    "objective3_result_path": "data/experiments/match_value_objective3_v2_result.json",
+    "objective3_result_sha256": "05d6ee1b0ce59d5d502ebac27b4a59cc7c816bfc1245eccee4d5b8fbda9c6700"
+  },
+  "remediation_constraint": "A successor may define conditional draw probability as zero only when the complete semantic action mass is exactly zero, must reject every non-finite policy evidence number before artifact upload, must add exact native and parser regressions, use all-fresh roots, and preserve every sampling budget, model-adequacy criterion, safety gate, and final gate.",
+  "schema": "lc-policy-cost-v6-zero-mass-serialization-failure-v1",
+  "search_and_truth_labels_generated": true,
+  "source_parent": {
+    "commit": "f7b500776c4284c83c9fc3a69e7220ee0b02a0aa",
+    "tree": "109dc3c9028eb115c0c7169bc5b84ea044046f9b"
+  },
+  "status": "complete_terminal_non_promotable",
+  "untouched_stages": [
+    "calibration_decision",
+    "SELECT_search_and_truth",
+    "untouched_TEST_search_and_truth",
+    "200_pair_per_orientation_safety",
+    "2500_pair_per_orientation_final",
+    "promotion"
+  ]
+}

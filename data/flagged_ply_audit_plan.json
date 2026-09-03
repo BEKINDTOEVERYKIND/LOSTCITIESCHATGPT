@@ -1,0 +1,46 @@
+{
+  "schema": "lc-flagged-ply-audit-plan-v2",
+  "status": "locked_inert_pending_authoritative_final_actor_result",
+  "purpose": "Post-training diagnosis on every literal user-commented ply. This diagnostic corpus cannot select or promote an actor and is opened only after authoritative full-match selection is complete.",
+  "authoritative_final_actor_contract": {
+    "path": "data/experiments/final_actor_result.json",
+    "schema": "lc-authoritative-final-actor-result-v2",
+    "required_status": "complete",
+    "selection_modes": "no_challenge mechanically carries forward the fully revalidated archived world winner when no later method qualified for a final comparison; component_final binds a distinct component challenger to either its standard locked_reciprocal_actor_gate_decision or the match-value-specific match_value_reserved_final_gate; composition_final binds a distinct composed challenger to the standard gate and a strictly revalidated locked_composition_pre_efficacy_manifest.",
+    "selection": "The result records winner_actor and complete actor asset hashes, but the launch helper independently derives them. For either real final comparison, audit the challenger only when every raw-valid, zero-cap final-gate requirement passed and otherwise audit its distinct reference. no_challenge needs no fake failed gate and permits winner==reference only because no challenger qualified."
+  },
+  "manifest": "data/user_reviewed_plies.json",
+  "cases": 36,
+  "decision_cases": 34,
+  "belief_only_cases": 2,
+  "decision_worlds_per_actor_per_case": 16384,
+  "belief_alpha": 1.15,
+  "history_worlds": 20000,
+  "base_seed": 202608231701,
+  "candidate_rule": "Union of each actor's top-three complete semantic policy moves, capped at five. Physical wager IDs are deduplicated but draw sources remain distinct. Never enumerate rollout values for every legal move.",
+  "world_model": "Uniform hidden-card determinizations shared by every admitted move and reproducible across actors. Complete ordered hidden support replaces sampling in sufficiently small late states and the report records requested and actual support.",
+  "continuation": "Each actor's production continuation checkpoint and role schedule, with exact one-card endings, semantic cycle handling, and cap-reserve completion.",
+  "belief_diagnostics": "The two belief-only complaints spend no action-rollout worlds. They report both comparison actors' snapshot-only fixed-cardinality marginals and a separate actor-aware posterior from the frozen perspective history at exactly 20000 worlds.",
+  "shards": {
+    "count": 12,
+    "assignment": "manifest_index modulo 12",
+    "coverage": "Each shard receives exactly three cases, yielding all 36 cases once."
+  },
+  "build": {
+    "runner": "ubuntu-24.04",
+    "compiler": "gcc",
+    "compiler_semantic_version_command": "gcc -dumpfullversion -dumpversion",
+    "required_compiler_semantic_version": "13.3.0",
+    "cflags": "-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11",
+    "ldflags": "-lm -pthread",
+    "binding": "Preflight compiles once, records the full compiler banner and runner platform, hashes the complete evaluator transport, and every shard and merge job verifies that transport without a checkout or compiler."
+  },
+  "execution": {
+    "canonical_path": "data/flagged_ply_audit_execution.json",
+    "prepare_command": "python3 tools/flagged_ply_execution.py prepare-execution --root . --execution data/flagged_ply_audit_execution.json --source-parent-commit $(git rev-parse HEAD) --source-parent-tree $(git rev-parse HEAD^{tree})",
+    "launch_commit": "After the authoritative final result is committed, run the prepare command without editing its output, then make one direct-parent commit that adds only the canonical execution file and push it once to agent/correctness-and-policy-upgrade.",
+    "guard": "No workflow_dispatch exists. The first run attempt rejects force pushes, merge commits, non-direct parents, branch drift, any launch-commit path other than the one new regular execution blob, any prior execution-file history, and any byte drift in the plan, workflow, manifest, tools, corpus artifacts, actor models/tables, authoritative results, source parent, or tree."
+  },
+  "reporting": "The complete artifact retains all 12 immutable shard JSON files, the lossless merged JSON, deterministic per-ply Markdown, execution/plan/workflow/manifest/final-result bindings, compiler/platform metadata, evaluator hashes, and a final checksum manifest.",
+  "result": null
+}

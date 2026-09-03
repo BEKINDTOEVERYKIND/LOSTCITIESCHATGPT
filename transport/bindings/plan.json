@@ -1,0 +1,384 @@
+{
+  "artifact_build": {
+    "build_command": "./bin/build_match_value --model data/champion.bin --out data/models/match_value_objective3_v2_projected.lcmv --raw-out data/models/match_value_objective3_v2_raw.lcmv --samples 16000 --threads 8 --seed 202610200001 --playout-symmetries 20",
+    "build_profile_hex": "0030d23b",
+    "cflags": "-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11",
+    "compiler": {
+      "executable": "gcc",
+      "required_semantic_version": "13.3.0",
+      "semantic_version_command": "gcc -dumpfullversion -dumpversion"
+    },
+    "controller_abi": 1,
+    "controller_words": [
+      0,
+      20,
+      4,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      300
+    ],
+    "counters_are_independent_of_worker_assignment": true,
+    "cumulative_policy_leads": {
+      "count": 301,
+      "maximum": 150,
+      "minimum": -150
+    },
+    "ldflags": "-lm -pthread",
+    "model": {
+      "path": "data/champion.bin",
+      "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417"
+    },
+    "playout_symmetries": 20,
+    "projected_path": "data/models/match_value_objective3_v2_projected.lcmv",
+    "raw_path": "data/models/match_value_objective3_v2_raw.lcmv",
+    "role_balance": "complete_20x20_product_cycles",
+    "role_cycle_size": 400,
+    "round_indices": [
+      1,
+      2
+    ],
+    "runner": "ubuntu-24.04",
+    "samples_per_policy_lead": 16000,
+    "seed": "202610200001",
+    "single_invocation_emits_both_tables": true,
+    "threads": 8,
+    "total_round_simulations": 9632000,
+    "variants_share_identical_transition_histograms": true
+  },
+  "artifact_schemas": {
+    "definition_lock": "lc-match-value-objective3-v2-definition-lock-v1",
+    "development_selection": "lc-match-value-objective3-v2-development-selection-v1",
+    "execution": "lc-match-value-objective3-v2-execution-v1",
+    "plan": "lc-match-value-objective3-v2-plan-v1",
+    "pre_efficacy_manifest": "lc-match-value-objective3-v2-pre-efficacy-manifest-v1",
+    "result": "lc-match-value-objective3-v2-result-v1",
+    "table_pair": "lc-controller-bound-match-value-table-pair-v2"
+  },
+  "authoritative_actor": {
+    "actor": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+    "checkpoint_path": "data/champion.bin",
+    "checkpoint_sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+    "derivation": "mechanically validate and read winner_actor from the authoritative final actor result; no handwritten substitute is permitted at execution",
+    "path": "data/experiments/final_actor_result.json",
+    "sha256": "5ad3566c5fb66aa45efa0c3b45eff6bde83eacece2eefd13a6794eb57530e476",
+    "world_result_path": "data/experiments/world800_result.json",
+    "world_result_sha256": "798a4f0948295445d25dd34cb1a8e3f96794e24f032a76a82df7c92485da4db8"
+  },
+  "candidate_construction": {
+    "allowed_changes_from_baseline": [
+      "change actor family from rolloutu to rolloutu2",
+      "add the same data/champion.bin as the continuation network",
+      "change zero-based rollout tail field 5 ply_lo from 14 to 0",
+      "change zero-based rollout tail field 8 objective from 0 to 3",
+      "materialize otherwise default tail fields 36 through 40 as 0,0,0,1,0",
+      "append the variant's bound match-value table as tail field 41"
+    ],
+    "continuation_checkpoint_must_equal_root_checkpoint": true,
+    "forbidden_changes": "every baseline controller field not enumerated in allowed_changes_from_baseline must remain byte-for-byte textually identical",
+    "search_plies": {
+      "ply_hi": 0,
+      "ply_lo": 0,
+      "semantics": "all plies, subject only to existing intrinsic exact-terminal behavior"
+    }
+  },
+  "definition_lock": {
+    "definition_files": [
+      ".github/workflows/match-value-objective3-v2.yml",
+      "MATCH_VALUE_OBJECTIVE3_V2.md",
+      "data/experiments/locked_match_value_objective3_v2_plan.json",
+      "tests/test_match_value_objective3_v2.py",
+      "tools/match_value_objective3_v2.py"
+    ],
+    "definition_parent_commit": "42c89f554a92269ce6051a2808d4fb495530c37e",
+    "definition_parent_tree": "e594c2d8609b7f28e75b8cc3a5ae661448b9385e",
+    "path": "data/experiments/locked_match_value_objective3_v2_definition_lock.json",
+    "rule": "the definition commit adds exactly the five named new files; its sole-child lock commit adds exactly this one lock file and freezes the definition commit, tree, every definition-file hash, all inherited campaign dependencies, and the authoritative audit bindings before any table build or efficacy match"
+  },
+  "development": {
+    "eligibility_gate": {
+      "combined_equal_weight_margin_strictly_above_zero": true,
+      "combined_equal_weight_match_score_at_least": 0.5,
+      "each_orientation_match_score_at_least": 0.475,
+      "exact_validity_required": true,
+      "zero_capped_rounds_required": true
+    },
+    "failure_behavior": "if neither variant is eligible, select no challenger, skip safety and final, retain the authoritative actor, and do not promote a table",
+    "identical_mirrored_pair_indices_across_variants": true,
+    "pairs_per_orientation": 1000,
+    "pairs_per_shard": 100,
+    "purpose": "choose exactly one predeclared all-ply objective-3 table variant without using held-out safety or final evidence",
+    "seeds": {
+      "baseline_first": "202610200102",
+      "candidate_first": "202610200101"
+    },
+    "selection_rule": [
+      "discard every ineligible variant",
+      "maximize exact combined match-score numerator",
+      "then maximize exact combined margin numerator",
+      "then use the fixed tie priority PROJECTED_ALL_PLY before RAW_ALL_PLY"
+    ],
+    "shard_starts": [
+      0,
+      100,
+      200,
+      300,
+      400,
+      500,
+      600,
+      700,
+      800,
+      900
+    ],
+    "shards_per_orientation_per_variant": 10,
+    "total_mirrored_pairs": 4000,
+    "total_raw_shards": 40,
+    "variants": [
+      "RAW_ALL_PLY",
+      "PROJECTED_ALL_PLY"
+    ]
+  },
+  "diagnostic_audit": {
+    "authoritative_commit": "42c89f554a92269ce6051a2808d4fb495530c37e",
+    "cases": [
+      "seed=2214615196 plies=3,4,8,10,12,13,16,20",
+      "seed=5726968372613385 plies=14,15,17,32",
+      "seed=725402798 plies=21,22,23,25",
+      "seed=95647345759839 ply=44"
+    ],
+    "evidence": {
+      "path": "data/experiments/commented_ply_audit_v3_evidence.zip",
+      "sha256": "aacec0f3da9bbedd5d6512cf7bf2ef0d993232ed888d64f2e8099f5b15c03994"
+    },
+    "json": {
+      "path": "data/experiments/commented_ply_audit_v3.json",
+      "sha256": "be63dcae2ae1a179cf43a0c47e9971755290f9b3bfd90cc40fd4b6bd2838bbd7"
+    },
+    "markdown": {
+      "path": "data/experiments/commented_ply_audit_v3.md",
+      "sha256": "a30eb93e4623e75ec2dae4c2cb73103b801d67954e0b02298e1a5b1082ebcd71"
+    },
+    "result": {
+      "path": "data/experiments/commented_ply_audit_v3_result.json",
+      "sha256": "9897b402116b897942031ecbd46c50127b358c5a2c579e9c854720c667f55a82"
+    },
+    "selection_use": "forbidden",
+    "strict_isolation": [
+      "the 17 states, their alternatives, observations, estimates, and verdicts are diagnostic only",
+      "none may be a table-build transition, training example, generated probe, development or gate seed, variant-selection input, threshold-selection input, stopping signal, or promotion input",
+      "the audit may motivate this already predeclared general method, but may not choose between raw and projected tables or alter any budget, actor, shortlist, criterion, or gate"
+    ]
+  },
+  "evidence_contract": {
+    "complete_evidence_artifact": "match-value-objective3-v2-complete-evidence",
+    "independent_verification_required_before_persistence": true,
+    "pre_efficacy_manifest": {
+      "must_exist_before_first_efficacy_match": true,
+      "must_hash": [
+        "definition and lock",
+        "execution binding",
+        "source commit, tree, and source files",
+        "compiler, runner, flags, binaries, and build log",
+        "both table payloads and parsed controller metadata",
+        "mechanically constructed baseline and two candidate actor strings",
+        "all commands, seeds, shard matrices, gates, and artifact paths"
+      ],
+      "path": "evidence/pre-efficacy-manifest.json"
+    },
+    "raw_stage_barrier": "within a stage, every expected immutable raw shard and sidecar must finish and validate before reciprocal results, selection, a gate, or a downstream condition may be computed",
+    "required_terminal_contents": [
+      "BUILD_INFO.txt and source/build manifests",
+      "definition, lock, execution, plan, workflow, helper, tests, and documentation",
+      "raw and projected tables plus table-pair manifest",
+      "mechanical actor manifest",
+      "all raw development shards and sidecars for both variants",
+      "both complete development reciprocal results and the mechanical development selection",
+      "all raw safety shards and the complete safety result and decision when a challenger exists",
+      "all raw final shards and the complete final result and decision only when safety passes",
+      "terminal authoritative result recommendation, all SHA256 manifests, and explicit skipped-stage records"
+    ]
+  },
+  "execution_protocol": {
+    "automatic_stage_order": [
+      "preflight",
+      "single paired-table build",
+      "pre-efficacy freeze manifest",
+      "complete development matrices for both variants",
+      "mechanical eligible-variant selection",
+      "complete safety matrix for the selected challenger if one exists",
+      "complete reserved final matrix only if safety passes",
+      "terminal evidence merge and fail-closed recommendation"
+    ],
+    "execution_path": "data/experiments/locked_match_value_objective3_v2_execution.json",
+    "launch": "one non-forced first-attempt push whose commit adds only the execution JSON to the sealed lock parent",
+    "manual_dispatch": false,
+    "no_partial_result_inspection": true,
+    "no_repository_writes_from_workflow": true,
+    "no_retry": true,
+    "no_seed_reuse": true,
+    "optional_stopping": false,
+    "result_dependent_table_rebuild": false,
+    "workflow_path": ".github/workflows/match-value-objective3-v2.yml"
+  },
+  "experiment": "match-value-objective3-v2",
+  "final": {
+    "confidence": {
+      "critical_z": 1.645,
+      "estimator": "mirrored-pair clusters within orientation; combine the two independent reciprocal orientations with equal weight",
+      "meaning": "95% one-sided lower confidence bound, equivalently the lower endpoint of a 90% two-sided interval"
+    },
+    "pairs_per_orientation": 2500,
+    "pairs_per_shard": 100,
+    "promotion_gate": {
+      "combined_margin_pair_clustered_lcb_strictly_above": 0.0,
+      "combined_match_score_pair_clustered_lcb_strictly_above": 0.5,
+      "each_orientation_match_score_strictly_above": 0.5,
+      "exact_validity_required": true,
+      "zero_capped_rounds_required": true
+    },
+    "seeds": {
+      "baseline_first": "202610220102",
+      "candidate_first": "202610220101"
+    },
+    "shard_starts": [
+      0,
+      100,
+      200,
+      300,
+      400,
+      500,
+      600,
+      700,
+      800,
+      900,
+      1000,
+      1100,
+      1200,
+      1300,
+      1400,
+      1500,
+      1600,
+      1700,
+      1800,
+      1900,
+      2000,
+      2100,
+      2200,
+      2300,
+      2400
+    ],
+    "shards_per_orientation": 25,
+    "status": "reserved_before_development_and_executable_only_after_an_exact_safety_pass",
+    "total_mirrored_pairs": 5000,
+    "total_raw_shards": 50
+  },
+  "forbidden": [
+    "manual dispatch, rerun, retry, continuation after cancellation, or reuse of any production seed from this or any earlier campaign",
+    "inspection or use of partial table-build, development, safety, or final efficacy evidence",
+    "optional stopping, adaptive top-ups, sequential peeking, shortlist widening, candidate substitution, threshold tuning, criterion relaxation, or post-lock actor changes",
+    "training on, selecting from, gating on, or otherwise converting any user-commented audit probe into promotion evidence",
+    "using the held-out safety or final panel to choose between RAW_ALL_PLY and PROJECTED_ALL_PLY",
+    "launching the predecessor v1 workflow or creating its absent execution file",
+    "automatic branch mutation, checkpoint replacement, table promotion, final_actor_result edit, or repository write from the workflow",
+    "claiming promotion when any expected shard, hash, binding, sidecar, exact count, zero-cap check, orientation check, score bound, or margin bound is absent or fails",
+    "relaxing any locked criterion for cost, runtime, closeness, a favored audit ply, or any observed outcome"
+  ],
+  "predecessor_v1": {
+    "bindings": {
+      ".github/workflows/match-value-variant.yml": "6e2fc483671912b9c5f7ddfdcfb27399f0e44f90f79bda0b0128a6dd709e9683",
+      "data/experiments/locked_match_value_variant_execution.template.json": "fc1ed86c1a55ebbc73309e8c729516cc6b1a101b218f11cec90ba9b6187b084d",
+      "data/experiments/match_value_variant_plan.json": "30b1f5ee0ef8565bdb6b5182b86ad7236fbd1774eeed5097560f322e7314a001",
+      "tools/match_value_campaign.py": "96f0783374f8e26f2f79008e5976d9db1130157feed092ea519c5c5911ce4690"
+    },
+    "execution_history_count": 0,
+    "execution_path": "data/experiments/locked_match_value_variant_execution.json",
+    "execution_path_present": false,
+    "history_command": "git rev-list --all --count -- data/experiments/locked_match_value_variant_execution.json",
+    "status": "immutable_inert_never_launched_and_never_to_be_backfilled"
+  },
+  "promotion_and_persistence": {
+    "failure": "retain the authoritative 800+800 actor unchanged, persist the terminal result, and do not add or maintain either generated table",
+    "final_actor_result_path": "data/experiments/final_actor_result.json",
+    "pass": "only after independent download and exact verification of all evidence, persist the selected already-canonical table path, persist data/experiments/match_value_objective3_v2_result.json, and mechanically update final_actor_result so its winner actor and asset manifest bind the selected table and unchanged checkpoint",
+    "promotion_requires_every_locked_gate": true,
+    "result_path": "data/experiments/match_value_objective3_v2_result.json",
+    "workflow_recommendation_is_not_promotion": true
+  },
+  "safety": {
+    "gate": {
+      "combined_equal_weight_margin_strictly_above_zero": true,
+      "combined_equal_weight_match_score_at_least": 0.5,
+      "each_orientation_match_score_at_least": 0.475,
+      "exact_validity_required": true,
+      "zero_capped_rounds_required": true
+    },
+    "pairs_per_orientation": 200,
+    "pairs_per_shard": 20,
+    "seeds": {
+      "baseline_first": "202610210102",
+      "candidate_first": "202610210101"
+    },
+    "shard_starts": [
+      0,
+      20,
+      40,
+      60,
+      80,
+      100,
+      120,
+      140,
+      160,
+      180
+    ],
+    "shards_per_orientation": 10,
+    "total_mirrored_pairs": 400,
+    "total_raw_shards": 20
+  },
+  "schema": "lc-match-value-objective3-v2-plan-v1",
+  "scope": "development_selection_then_safety_then_reserved_final",
+  "seed_firewall": {
+    "all_other_seed_namespaces_forbidden": true,
+    "burn_rule": "every production seed in a failed, cancelled, timed-out, or completed attempt is permanently retired; the locked attempt is never rerun",
+    "production_namespaces": [
+      "20261020",
+      "20261021",
+      "20261022"
+    ],
+    "smoke_namespace": "20261029",
+    "smoke_seeds_are_never_production_seeds": true
+  },
+  "status": "definition_source_pending_unique_seal",
+  "three_commit_topology": {
+    "definition": "D adds exactly the five new definition files named by definition_lock.definition_files to parent 42c89f554a92269ce6051a2808d4fb495530c37e",
+    "execution": "E is the sole child of L used for launch and adds exactly data/experiments/locked_match_value_objective3_v2_execution.json",
+    "lock": "L is the sole child of D and adds exactly data/experiments/locked_match_value_objective3_v2_definition_lock.json",
+    "no_amend_merge_or_extra_file_between_D_L_E": true,
+    "post_run_persistence_is_separate": true
+  },
+  "variants": {
+    "PROJECTED_ALL_PLY": {
+      "actor": "rolloutu2:data/champion.bin:data/champion.bin:800:5:0.02:0:1:0:0:0:3:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1:0:0:0:1:0:data/models/match_value_objective3_v2_projected.lcmv",
+      "isotonic_projected": true,
+      "objective": 3,
+      "phase": {
+        "ply_hi": 0,
+        "ply_lo": 0
+      },
+      "table_path": "data/models/match_value_objective3_v2_projected.lcmv"
+    },
+    "RAW_ALL_PLY": {
+      "actor": "rolloutu2:data/champion.bin:data/champion.bin:800:5:0.02:0:1:0:0:0:3:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1:0:0:0:1:0:data/models/match_value_objective3_v2_raw.lcmv",
+      "isotonic_projected": false,
+      "objective": 3,
+      "phase": {
+        "ply_hi": 0,
+        "ply_lo": 0
+      },
+      "table_path": "data/models/match_value_objective3_v2_raw.lcmv"
+    }
+  }
+}

@@ -1,0 +1,287 @@
+{
+  "artifact_kind": "locked_belief_history_v1_accuracy_campaign_plan",
+  "artifact_schemas": {
+    "control_run": "lc-history-belief-control-run-v1",
+    "evaluation_identity": "lc-belief-history-evaluation-identity-v1",
+    "execution": "lc-belief-history-v1-execution-v1",
+    "exclusions": "lc-belief-history-v1-exclusions-v1",
+    "model": "LCBHM1",
+    "raw_match_metrics": "lc-history-belief-match-v1",
+    "result": "lc-belief-history-accuracy-verdict-v1",
+    "run": "lc-history-belief-run-v1"
+  },
+  "created_utc": "2026-08-29",
+  "data": {
+    "eligible_state_rule": "Score every causal mover information state for which the opponent has 0 < K < N unknown cards. Preserve all scored states; do not select, top up, or discard states after seeing a label or prediction.",
+    "information_boundary": {
+      "allowed": [
+        "observer current hand and observer-known own deck draws",
+        "chronological public opponent actions strictly before the scored state",
+        "public expeditions and ordered discard piles",
+        "public known-card ownership",
+        "round, cumulative scores, within-round ply, deck count, and actor relative to observer"
+      ],
+      "forbidden": [
+        "opponent hidden cards",
+        "opponent deck-draw identities",
+        "future actions or future deals",
+        "hidden deck order",
+        "source-policy probabilities, logits, values, search worlds, or RNG",
+        "truth labels in model features",
+        "source actor identity as a model feature"
+      ],
+      "label": "exact unknown K-card subset in the opponent hand, consulted only after the scrubbed view and causal trace have been constructed",
+      "origin_proof": "The native information-boundary tests reject complete referee states, prove exact-K support, prove action traces contain public move fields only, and reproduce the locked exact-17 current-view suit-orbit hash. Evaluation preserves paired candidate and control sums from the same generated source match."
+    },
+    "source_actor": {
+      "actor_net": {
+        "path": "data/champion.bin",
+        "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417"
+      },
+      "identity_model_input": false,
+      "policy_contract": "The scaled head-only control must be byte-identical to champion.bin outside wbel/bbel, so it generates the same policy distribution. The candidate never drives a trajectory.",
+      "temperature": 0.03,
+      "trajectory_symmetries": 20
+    },
+    "splits": {
+      "TEST": {
+        "matches": 65536,
+        "root": "202706100403",
+        "shards": 16,
+        "untouched_until_both_training_artifacts_are_frozen": true
+      },
+      "TRAIN": {
+        "base_control_matches": 262144,
+        "base_control_root": "202706110102",
+        "base_control_shards": 4,
+        "history_matches": 65536,
+        "history_root": "202706100101",
+        "history_shards": 1,
+        "matched_control_additional_matches": 65536,
+        "matched_control_root": "202706100101",
+        "matched_control_shards": 1
+      }
+    },
+    "capped_prefix_semantics": "A source trajectory may stop when the engine ply cap fires. Every already observed causal prefix remains valid accuracy evidence; capped_rounds is retained, no later round is fabricated from an incomplete cumulative score, and candidate/control pairing remains exact.",
+    "split_unit": "source trajectory cluster; every generated round, seat, and causal prefix for a source_match_id remains in one split",
+    "state_count_contract": "Source-match counts and ordered source_match_id ranges are exact. State counts are data-dependent and must be positive for every retained source trajectory and identical across each candidate/control pair; no fabricated fixed states-per-match count is permitted.",
+    "training_branch_contract": "The 262,144-match base head is fitted in four ordered 65,536-match resumable chunks with one root and disjoint contiguous match ranges. The residual and matched-control branches then start from the identical frozen base head and consume the identical 65,536 source trajectories, match IDs, public prefixes, exclusions, labels, order, and source-manifest digest under root 202706100101. Their augmentation objectives deliberately differ: the residual is suit-invariant and consumes the frozen 20-way base posterior, reconstructed through float log-weights with marginals numerically equivalent within the locked 2e-6 tolerance, while the control trains on one deterministic scheduled suit-group member per state. Their permitted parameter ranges and optimizers also differ."
+  },
+  "evaluation": {
+    "bootstrap": {
+      "method": "paired source-match cluster bootstrap with deterministic SplitMix64 resampling, marginal percentile bounds, and single-step simultaneous max-standardized-error one-sided bounds",
+      "replicates": 20000,
+      "seed": "202706150101",
+      "simultaneous_familywise": {
+        "components": 9,
+        "confidence": 0.99,
+        "coverage_claim": "nominal_asymptotic",
+        "exact_finite_sample_coverage_claimed": false,
+        "method": "single_step_max_standardized_error",
+        "studentization": "fixed_original_source_match_cluster_se",
+        "zero_standard_error_policy": "report null simultaneous LCB, mark inferentially ineligible, and fail the affected replacement bundle"
+      },
+      "unit": "source_match"
+    },
+    "brier_gate": {
+      "confidence": 0.99,
+      "lcb_strictly_above": 0.0,
+      "point_gain_strictly_above": 0.0,
+      "quantity": "ordered comparator per-card Brier minus proposed replacement per-card Brier on all eligible TEST states"
+    },
+    "history_gate": {
+      "confidence": 0.99,
+      "min_opponent_actions": 1,
+      "nll_lcb_strictly_above": 0.0,
+      "point_gain_strictly_above": 0.0,
+      "quantity": "ordered comparator joint NLL minus proposed replacement joint NLL on states after at least one observed opponent action",
+      "relative_nll_improvement_at_least": 0.0
+    },
+    "mandatory_reports": [
+      "joint NLL per state and uncertain card for all eligible states",
+      "joint NLL per state and uncertain card after at least one opponent action",
+      "per-card Brier for both scopes",
+      "tie-correct top-K recall for both scopes",
+      "source-trajectory, scored-state, uncertain-card, positive-card, completed-round, and capped-round counts"
+    ],
+    "primary_gate": {
+      "confidence": 0.99,
+      "comparator": "the three direct ordered comparisons are history versus the matched-budget head-only control, history versus the maintained champion head at alpha 1.15, and matched-budget head-only control versus that incumbent; every pair uses identical TEST source matches and states",
+      "nll_lcb_strictly_above": 0.0,
+      "point_gain_strictly_above": 0.0,
+      "quantity": "ordered comparator joint NLL minus proposed replacement joint NLL on all eligible TEST states",
+      "relative_nll_improvement_at_least": 0.0
+    },
+    "verdict_scope": "Predictive accuracy gain of the fixed causal action-history branch over an equally trained state-only branch on trajectories generated by the frozen self-play actor. It is not evidence about human-opponent calibration and does not attribute gain to any single action feature.",
+    "stages": {
+      "TEST": {
+        "matches": 65536,
+        "one_frozen_candidate": true,
+        "one_look": true,
+        "second_test_or_top_up": false,
+        "test_gate_applies": true
+      },
+      "TRAIN": {
+        "base_control_matches": 262144,
+        "history_matches": 65536,
+        "matched_control_additional_matches": 65536,
+        "test_gate_applies": false
+      }
+    },
+    "terminal_artifact_selection": {
+      "comparison_bundle": "For each ordered replacement comparison, require the frozen all-state joint-NLL, post-opponent-action joint-NLL, and all-state per-card-Brier point/simultaneous-one-sided-nominal-99%-LCB gates directly. One max-standardized-error critical value controls the nine-component selection family asymptotically; exact finite-sample coverage is not claimed and marginal percentile bounds are report-only. A zero original cluster SE is inferentially ineligible and fails its bundle. Never infer a pair by transitivity.",
+      "rule": [
+        "retain history only if history passes directly against both matched_head_control and incumbent_head",
+        "otherwise retain matched_head_control only if it passes directly against incumbent_head",
+        "otherwise retain incumbent_head"
+      ],
+      "selected_artifact_is_playing_actor": false
+    },
+    "structural_gates": {
+      "artifact_provenance": "Every model, checkpoint, resumable control state, executable, plan, execution binding, workflow, training summary, and raw shard is SHA-256 bound; row fingerprints must agree with the sealed identity, which contains one shared_train_source_manifest_sha256 proved equal by the residual and matched-control branches.",
+      "exact_k": "Every evaluated support contains exactly N uncertain legal cards, every label contains exactly K of them, all marginals are finite in [0,1], and their sum equals K within 2e-4.",
+      "head_only_control": "Both the 262,144-match base head and the matched-budget continuation differ from champion.bin only in wbel/bbel, retain exact three-copy wager tying, and bind the active exact17 manifest plus every ordered training range in their checkpoint proofs.",
+      "hidden_information": "Complete referee states fail the inference boundary; opponent hidden hand, hidden deck, future actions, and truth cannot enter trace or feature construction.",
+      "opening_uniform": "Before the first observed opponent action the history candidate equals the uniform exact-card-count prior within the locked 2e-6 marginal tolerance.",
+      "probe_firewall": "The canonical 17-orbit manifest is SHA-256 bound. Every history-training and evaluation state is scrubbed, hashed, and rejected before its truth label is read; rows bind manifest SHA/count, exclusion count, and an enabled structural flag.",
+      "suit_equivariance": "Exact suit relabelling leaves corresponding history logits bitwise equal.",
+      "wager_tying": "All three physical wager copies receive bitwise equal history logits."
+    }
+  },
+  "evidence": {
+    "canonical_complete_artifact": "belief-history-v1-complete-evidence",
+    "independent_terminal_replay_required": true,
+    "raw_predictions_required": "Every TEST source match preserves paired history-candidate, matched-budget head-only control, maintained incumbent champion head at alpha 1.15, diagnostic 262,144-match base head, and uniform-exact-K raw metric sums for all eligible and post-opponent-action scopes.",
+    "retention_days": 30,
+    "strict_serialization": "sealed identities and verdicts use canonical sorted-key ASCII JSON; native rows use one deterministic fixed-order finite ASCII JSON object per LF-terminated line; every artifact has a SHA-256 sidecar and no producer may clobber an existing output",
+    "training_source_identity": "Residual and matched-control training summaries must independently emit the same pre-truth public-source SHA-256; the workflow verifies equality and seals it once as shared_train_source_manifest_sha256."
+  },
+  "execution_protocol": {
+    "compile_once": "Preflight builds and tests the native runtime once and seals a source-free transport verified by every consumer.",
+    "execution_addendum": "data/experiments/locked_belief_history_v1_execution.json",
+    "execution_template": "data/experiments/locked_belief_history_v1_execution.template.json",
+    "launch": "one non-forced attempt-1 push adding exactly the previously absent execution addendum as a unique direct child of this definition",
+    "manual_dispatch": false,
+    "no_partial_test_efficacy_inspection": true,
+    "no_repository_writes_from_workflow": true,
+    "no_retry": true,
+    "no_seed_reuse": true,
+    "optional_stopping": false,
+    "pre_efficacy_throughput_guard": {
+      "candidate_job_timeout_minutes": 360,
+      "control_matches": 100,
+      "history_matches": 100,
+      "minimum_control_matches_per_second": 3.5,
+      "minimum_history_matches_per_second": 3.5,
+      "purpose": "Fail before any production root is touched unless source-free history and head-control smokes demonstrate that every fixed 65,536-match training or evaluation job fits the hosted-job budget with reserve.",
+      "smoke_root": "202706290101"
+    },
+    "python_dependencies": {
+      "install": "Download the one hash-pinned wheel in preflight; every reducer installs it from the sealed source-free transport with --no-index --no-deps.",
+      "numpy": {
+        "sha256": "0d8163f43acde9a73c2a33605353a4f1bc4798745a8b1d73183b28e5b435ae28",
+        "version": "2.3.5",
+        "wheel": "numpy-2.3.5-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl"
+      },
+      "requirements": "data/experiments/belief_history_v1_python_requirements.txt"
+    },
+    "runner": "ubuntu-24.04",
+    "source_free_after_preflight": true,
+    "workflow": ".github/workflows/belief-history-v1.yml"
+  },
+  "experiment": "belief-history-v1",
+  "models": {
+    "candidate": {
+      "artifact": "standalone LCBHM1 causal action-history residual over the frozen 262,144-match base-head exact-K logits",
+      "base_alpha": 1.0,
+      "base_reconstruction_marginal_tolerance": 0.000002,
+      "causal_history": true,
+      "current_head_residual": true,
+      "evaluation_command_contract": "bin/history_belief_train eval --model history-model.bin --actor-net data/champion.bin --incumbent-alpha 1.15 --base-net base-control-262144.bin --base-alpha 1.0 --matched-base-net matched-control-327680.bin --matched-base-alpha 1.0 --matches 4096 --rounds 3 --seed 202706100403 --match-start SHARD_START --max-ply 300 --symmetries 20 --temperature 0.03 --match-jsonl TEST-SHARD.jsonl --exclusions data/experiments/policy_cost_v7_exact17_exclusions.txt --exclusions-sha256 10034cf8b83aadf24fa0775e4dad2712573e1d84cbf364568ce6136682ac254c",
+      "l2": 0.0000001,
+      "learning_rate": 0.01,
+      "playing_actor_bytes_changed": false,
+      "train_command_contract": "bin/history_belief_train train --out history-model.bin --actor-net data/champion.bin --base-net base-control-262144.bin --matches 65536 --rounds 3 --seed 202706100101 --match-start 0 --max-ply 300 --symmetries 20 --temperature 0.03 --base-alpha 1.0 --epochs 1 --lr 0.01 --l2 0.0000001 --exclusions data/experiments/policy_cost_v7_exact17_exclusions.txt --exclusions-sha256 10034cf8b83aadf24fa0775e4dad2712573e1d84cbf364568ce6136682ac254c"
+    },
+    "base_head_only_control": {
+      "artifact": "ordinary Net with only wbel/bbel mutable; trunk, policy, value, combination, and all other bytes frozen",
+      "base_alpha": 1.0,
+      "l2": 0.0000001,
+      "learning_rate": 0.0001,
+      "matches": 262144,
+      "playing_actor_bytes_changed": false,
+      "required_byte_range_proof": true,
+      "control_batch_states": 256,
+      "first_shard_omits_control_state_in": true,
+      "final_shard_adds_control_finalize": true,
+      "intermediate_shards_forbid_control_finalize": true,
+      "shard_command_contract": "bin/history_belief_train train-control --out BASE-CONTROL-NEXT.bin --control-state-out BASE-CONTROL-NEXT.state --actor-net data/champion.bin --base-net BASE-CONTROL-PREV.bin [--control-state-in BASE-CONTROL-PREV.state only after the first shard] --matches 65536 --rounds 3 --seed 202706110102 --match-start SHARD_START --max-ply 300 --symmetries 20 --temperature 0.03 --base-alpha 1.0 --epochs 1 --lr 0.0001 --l2 0.0000001 --control-batch-states 256 [--control-finalize only for SHARD_START=196608] --exclusions data/experiments/policy_cost_v7_exact17_exclusions.txt --exclusions-sha256 10034cf8b83aadf24fa0775e4dad2712573e1d84cbf364568ce6136682ac254c",
+      "shard_starts": [
+        0,
+        65536,
+        131072,
+        196608
+      ]
+    },
+    "matched_head_only_control": {
+      "additional_matches": 65536,
+      "artifact": "base_head_only_control continued with only wbel/bbel mutable on the exact residual-TRAIN source trajectories and labels",
+      "base_alpha": 1.0,
+      "l2": 0.0000001,
+      "learning_rate": 0.00015,
+      "playing_actor_bytes_changed": false,
+      "primary_test_comparator": true,
+      "required_byte_range_proof": true,
+      "shared_source_manifest_with_candidate": true,
+      "train_command_contract": "bin/history_belief_train train-control --out matched-control-327680.bin --control-state-out matched-control-327680.state --actor-net data/champion.bin --base-net base-control-262144.bin --matches 65536 --rounds 3 --seed 202706100101 --match-start 0 --max-ply 300 --symmetries 20 --temperature 0.03 --base-alpha 1.0 --epochs 1 --lr 0.00015 --l2 0.0000001 --control-batch-states 256 --control-finalize --exclusions data/experiments/policy_cost_v7_exact17_exclusions.txt --exclusions-sha256 10034cf8b83aadf24fa0775e4dad2712573e1d84cbf364568ce6136682ac254c"
+    },
+    "incumbent_head": {
+      "alpha": 1.15,
+      "artifact": "the maintained data/champion.bin belief head scored without fitting on TEST",
+      "playing_actor_bytes_changed": false,
+      "replacement_fallback": true,
+      "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417"
+    },
+    "freeze": {
+      "candidate_count": 1,
+      "rule": "Architecture, alpha, optimizer, learning rate, regularization, and every candidate byte are frozen directly after TRAIN. There is no SELECT split, fitted calibrator, or pre-TEST efficacy look. Exactly one immutable LCBHM1 artifact reaches untouched TEST."
+    }
+  },
+  "non_goals": [
+    "match playing-strength evaluation",
+    "changing or promoting the maintained actor",
+    "changing the live policy-cost v7 run or any of its files, seeds, artifacts, or gates",
+    "using exact-17 artifacts as training, calibration, selection, or test inputs",
+    "claiming human-opponent calibration beyond the frozen source-policy distribution"
+  ],
+  "probe_firewall": {
+    "bindings": "data/experiments/belief_history_v1_exclusions.json",
+    "natural_state_orbit_rejection_claimed": true,
+    "proof": "The source-free runtime includes only the bound 17-hash manifest, never reviewed states or comments. Native tests reproduce the canonical hash probe; training and evaluation check the scrubbed current-view suit orbit before truth, and raw rows bind manifest SHA/count plus exclusion counts.",
+    "selection_use": "not_applicable_no_select_split"
+  },
+  "seeds": {
+    "active_production_roots": [
+      "202706100101",
+      "202706100403",
+      "202706110102",
+      "202706150101"
+    ],
+    "definition_smoke_roots": [
+      "202706290101",
+      "202706290102",
+      "202706290103"
+    ],
+    "fresh_namespace": "202706",
+    "pairwise_distinct": true,
+    "production_smoke_disjoint": true,
+    "roles": {
+      "202706100101": "shared history-residual and matched-head TRAIN trajectories",
+      "202706100403": "untouched TEST source matches",
+      "202706110102": "four ordered base-head TRAIN trajectory ranges and resumable optimizer state",
+      "202706150101": "TEST paired source-match bootstrap"
+    }
+  },
+  "schema": "lc-belief-history-v1-plan-v1",
+  "status": "definition_complete_inert_execution_addendum_absent"
+}

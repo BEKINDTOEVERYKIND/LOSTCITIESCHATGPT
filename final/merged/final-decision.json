@@ -1,0 +1,49 @@
+{
+  "artifact_kind": "match_value_objective3_v2_reserved_final_gate",
+  "baseline": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+  "candidate": "rolloutu2:data/champion.bin:data/champion.bin:800:5:0.02:0:1:0:0:0:3:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1:0:0:0:1:0:data/models/match_value_objective3_v2_projected.lcmv",
+  "candidate_result": {
+    "margin_lower_bound": 2.7092965332721577,
+    "margin_pair_clustered_se": 0.5833455724789315,
+    "margin_per_game": 3.6689,
+    "match_score": 0.5346,
+    "match_score_lower_bound": 0.5274507835978888,
+    "match_score_pair_clustered_se": 0.0043460282079703285,
+    "orientation_match_scores": [
+      0.5355,
+      0.5337
+    ]
+  },
+  "confidence_bound": "95% one-sided lower confidence bounds",
+  "critical_z": 1.645,
+  "estimator": "mirrored-pair clusters within orientation; independent reciprocal orientations combined with equal weight",
+  "exact_statistics": {
+    "baseline_first_score_quarters": 4663,
+    "candidate_first_score_quarters": 5355,
+    "capped_rounds": 0,
+    "combined_margin_denominator": 10000,
+    "combined_margin_numerator": 36689,
+    "combined_score_denominator": 20000,
+    "combined_score_numerator": 10692,
+    "pairs_per_orientation": 2500
+  },
+  "promotion_gate_passed": true,
+  "provenance": "stage=match_value_objective3_v2_final;variant=PROJECTED_ALL_PLY;development=9c34c3b73ab5d08c6223c7bd0f55b89649074e89e68e6310a2f99ca6c8bba42b;safety=7571cfa9708a8eb7bd5eab3363462898211e6bdaa0b8846435aa716c289a2d91;plan=72587805f9a22bd981b537572e9c847cc5765123aa502caedea6a6894a722f24;lock=6f40e7579e3ba5157c2750c6540d8688af630298f2338d1ad4617a87532fffbd;execution=7fa8b2de912466c9affd0ff8188cc8403dd1b085f02de6acf10d8df0284db75a;post_build=fcd12297707986c3eabc5d5551dac2b30ee8f12bebcb662f2c76bb8cf5d3a0b5;source=0eb2a90a66f1297d2191547da8e41fcc80b64d61;arena=b54eefb0bb17e75361ebee6faa004eb0062cae17a2543d9fe5a62f213a94201e;model=af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417;table=e3eac1b6fecf314a3db45ef9fd7563db1f18e02ca09a7e63aac00bc8fd4cb28e;worlds=800;threads=4",
+  "reciprocal_path": "merged/reciprocal.json",
+  "reciprocal_sha256": "b70e9a4471918e8a746a28575ab25831182f2c197675658a655996a8597c4042",
+  "repository_promotion_performed": false,
+  "requirements": {
+    "complete_equal_reciprocal_blocks": true,
+    "each_reciprocal_orientation_strictly_above_half": true,
+    "pair_clustered_orientation_stratified_margin_lcb_above_zero": true,
+    "pair_clustered_orientation_stratified_score_lcb_above_half": true,
+    "raw_inputs_validated": true,
+    "zero_capped_rounds": true
+  },
+  "schema": "lc-match-value-objective3-v2-final-gate-v1",
+  "seeds": {
+    "baseline_first": "202610220102",
+    "candidate_first": "202610220101"
+  },
+  "status": "complete_reserved_final_test"
+}

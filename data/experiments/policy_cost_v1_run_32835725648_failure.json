@@ -1,0 +1,105 @@
+{
+  "artifact_count": 0,
+  "artifact_kind": "policy_cost_v1_locked_attempt_preflight_failure",
+  "campaign_computation": {
+    "arena_evaluation_started": false,
+    "compilation_started": false,
+    "dataset_discovery_started": false,
+    "policy_cost_build_started": false,
+    "search_label_started": false,
+    "transport_freeze_started": false,
+    "truth_label_started": false
+  },
+  "cause": {
+    "classification": "ignored_local_build_outputs_absent_from_clean_source_parent",
+    "detail": "The mechanical execution guard replayed the retained Objective-3 prerequisite from the developer worktree. Two required Objective-3 transport binaries were present locally but ignored by Git, so the local guard passed and the clean GitHub checkout correctly failed closed on the first absent binary.",
+    "github_error": "policy-cost campaign: bound path escapes or is absent: transport/bin/arena",
+    "missing_source_parent_members": [
+      {
+        "path": "transport/bin/arena",
+        "sha256": "b54eefb0bb17e75361ebee6faa004eb0062cae17a2543d9fe5a62f213a94201e",
+        "size": 392152
+      },
+      {
+        "path": "transport/bin/build_match_value",
+        "sha256": "9fc12beeaa2a065f302185a5a73aad82bc0234637a7187f58d8e8f05676c61ad",
+        "size": 395824
+      }
+    ]
+  },
+  "created_at": "2026-08-25T10:09:00Z",
+  "efficacy_data_observed": false,
+  "execution": {
+    "commit": "61ba0288a27d2a2639b95a83bf2e11caad351677",
+    "path": "data/experiments/locked_policy_cost_v1_execution.json",
+    "sha256": "7d12f55c8d8151189f1460f70c7835edd250d951ea40cecb6cb539aacae6e3de"
+  },
+  "failed_job": {
+    "id": 97764014307,
+    "name": "preflight",
+    "step": {
+      "name": "Reject every launch except the unique direct addendum push",
+      "number": 3
+    }
+  },
+  "fixed_seed_execution": {
+    "all_policy_cost_v1_fixed_roots_retired": true,
+    "any_policy_cost_v1_fixed_seed_executed": false,
+    "reason": "The unique attempt failed in the execution guard before compilation or any campaign computation; the one-shot contract nevertheless permanently retires every v1 fixed root."
+  },
+  "github_run": {
+    "attempt": 1,
+    "conclusion": "failure",
+    "event": "push",
+    "head_sha": "61ba0288a27d2a2639b95a83bf2e11caad351677",
+    "head_tree": "e1e537628cac16b864541ca278849ab0f1969f91",
+    "id": 32835725648,
+    "url": "https://github.com/BEKINDTOEVERYKIND/LOSTCITIESCHATGPT/actions/runs/32835725648"
+  },
+  "job_disposition": [
+    {
+      "conclusion": "failure",
+      "id": 97764014307,
+      "name": "preflight"
+    },
+    {
+      "conclusion": "failure",
+      "id": 97764054209,
+      "name": "safety_merge"
+    },
+    {
+      "conclusion": "failure",
+      "id": 97764088576,
+      "name": "final_merge"
+    },
+    {
+      "conclusion": "failure",
+      "id": 97764123924,
+      "name": "terminal_recommendation"
+    },
+    {
+      "conclusion": "skipped",
+      "id": 97764159757,
+      "name": "infrastructure_retain"
+    }
+  ],
+  "locked_validation_relaxed": false,
+  "maintained_actor_disposition": {
+    "path": "data/experiments/policy_cost_v1_infrastructure_retain.json",
+    "sha256": "09b7f4228e29d8eef9a185ea3bdfe2a42726532d00e39b26501ed51f1270dadb"
+  },
+  "remediation_contract": {
+    "clean_source_archive_guard_required": true,
+    "new_campaign_version_required": true,
+    "rerun_or_retry_v1_forbidden": true,
+    "reuse_any_v1_fixed_seed_forbidden": true
+  },
+  "schema": "lc-policy-cost-v1-preflight-failure-v1",
+  "search_or_truth_label_jobs_started": false,
+  "source_parent": {
+    "commit": "09aaf8fdf50d364c100295dca1e696472353666e",
+    "tree": "1f18f8b61f69124bb50f959f7ed2c607ea073c19"
+  },
+  "status": "complete_terminal_non_promotable",
+  "updated_at": "2026-08-25T10:09:32Z"
+}

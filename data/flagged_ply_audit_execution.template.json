@@ -1,0 +1,10 @@
+{
+  "schema": "lc-flagged-ply-audit-execution-template-v2",
+  "status": "inert_example_only_do_not_copy_or_edit",
+  "authoritative_final_actor_result": "data/experiments/final_actor_result.json",
+  "canonical_execution": "data/flagged_ply_audit_execution.json",
+  "precondition": "The authoritative final actor result v2 and every result/model/table it binds must already be committed and complete. Its selection_mode is exactly no_challenge, component_final, or composition_final; the helper rederives winner_actor and every actor asset hash.",
+  "preparation": "Run tools/flagged_ply_execution.py prepare-execution against the current HEAD commit/tree. The helper mechanically derives both actors and every hash; this template is not a launch input.",
+  "launch": "Commit only the newly generated canonical execution file as the sole change in one direct-parent commit, then push once to agent/correctness-and-policy-upgrade.",
+  "results": null
+}

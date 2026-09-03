@@ -1,0 +1,42 @@
+{
+  "artifact_kind": "match_value_objective3_v2_safety_gate",
+  "baseline": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+  "candidate": "rolloutu2:data/champion.bin:data/champion.bin:800:5:0.02:0:1:0:0:0:3:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1:0:0:0:1:0:data/models/match_value_objective3_v2_projected.lcmv",
+  "candidate_result": {
+    "margin_per_game": 3.10625,
+    "match_score": 0.52625,
+    "orientation_match_scores": [
+      0.5225,
+      0.53
+    ]
+  },
+  "exact_statistics": {
+    "baseline_first_score_quarters": 376,
+    "candidate_first_score_quarters": 418,
+    "capped_rounds": 0,
+    "combined_margin_denominator": 800,
+    "combined_margin_numerator": 2485,
+    "combined_score_denominator": 1600,
+    "combined_score_numerator": 842,
+    "pairs_per_orientation": 200
+  },
+  "passed": true,
+  "promotion_claim": false,
+  "provenance": "stage=match_value_objective3_v2_safety;variant=PROJECTED_ALL_PLY;development=9c34c3b73ab5d08c6223c7bd0f55b89649074e89e68e6310a2f99ca6c8bba42b;plan=72587805f9a22bd981b537572e9c847cc5765123aa502caedea6a6894a722f24;lock=6f40e7579e3ba5157c2750c6540d8688af630298f2338d1ad4617a87532fffbd;execution=7fa8b2de912466c9affd0ff8188cc8403dd1b085f02de6acf10d8df0284db75a;post_build=fcd12297707986c3eabc5d5551dac2b30ee8f12bebcb662f2c76bb8cf5d3a0b5;source=0eb2a90a66f1297d2191547da8e41fcc80b64d61;arena=b54eefb0bb17e75361ebee6faa004eb0062cae17a2543d9fe5a62f213a94201e;model=af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417;table=e3eac1b6fecf314a3db45ef9fd7563db1f18e02ca09a7e63aac00bc8fd4cb28e;worlds=800;threads=4",
+  "reciprocal_path": "merged/reciprocal.json",
+  "reciprocal_sha256": "0e5f876a89cb66fc648cd2c5ba39126f6ebaae76765b9ff394994e6551ba1884",
+  "requirements": {
+    "combined_margin_strictly_positive": true,
+    "combined_match_score_at_least_half": true,
+    "complete_equal_reciprocal_blocks": true,
+    "each_orientation_match_score_at_least_0_475": true,
+    "raw_inputs_validated": true,
+    "zero_capped_rounds": true
+  },
+  "schema": "lc-match-value-objective3-v2-safety-gate-v1",
+  "seeds": {
+    "baseline_first": "202610210102",
+    "candidate_first": "202610210101"
+  },
+  "status": "complete_locked_safety_panel"
+}

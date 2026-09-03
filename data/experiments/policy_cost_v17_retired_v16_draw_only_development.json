@@ -1,0 +1,39 @@
+{
+  "adequacy": {
+    "mean_group_losses": {
+      "beta_only": 0.781641876872758,
+      "cell_saturated": 1.2233559333109463,
+      "draw_only_gap": 0.7788925433996887,
+      "full_gap": 0.779628227044252,
+      "identity_search": 0.7919057049863331,
+      "round_specific": 0.7759437090718383
+    },
+    "one_sided_cluster_lcb_z_1_645": 0.0015282964893187747,
+    "paired_source_cluster_loss_reduction": 0.002749333473069267,
+    "paired_source_cluster_se": 0.0007422717226446762,
+    "passed": true,
+    "richer_model_check_passed": true,
+    "stratum_loss_reduction": {
+      "pair:different_core": 0.0,
+      "pair:same_core_draw": 0.005498666946138536,
+      "ply:early_0_15": 0.000962037147509188,
+      "ply:late_40_63": 0.014571926543397229,
+      "ply:mid_16_39": 0.0
+    }
+  },
+  "artifact_kind": "retired_train_development_diagnostic",
+  "bindings": {
+    "diagnostic_sha256": "3d3f856ab37122d62a18281c1bb8da5cfd4f3c837220fd47e62e8865985a3496",
+    "train_allocation_sha256": "a59a7fa42c3c3199179ffd4d95852b25acaa9921654109119efd766b146c9686",
+    "train_input_sha256": "f9367dc52117842d3b37740ab9008c18028fe0ca31aa87a477bf79432fcf42f6",
+    "v16_terminal_evidence_commit": "22b3897a1524af5713cac3b6d0ea3a830ea753f3"
+  },
+  "decision": "supports a fresh-seed hierarchical conditional-draw campaign definition only",
+  "deployment_permitted": false,
+  "exact17_excluded": true,
+  "fresh_seeds_consumed": false,
+  "hypothesis": "raw search chooses the semantic action core; a ply-dependent conditional-draw policy term may arbitrate only among draw sources for that same action; the term is exactly zero for plies 16 through 39",
+  "schema": "lc-policy-cost-v17-retired-v16-draw-only-development-v1",
+  "status": "complete_development_only_not_a_promotion",
+  "test_or_promotion_authority": false
+}

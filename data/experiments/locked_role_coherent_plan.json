@@ -1,0 +1,127 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "precommitted_role_coherent_continuation_strength_plan",
+  "status": "precommitted_before_any_promotion_grade_result",
+  "created_utc": "2026-08-17",
+  "hypothesis": "A rollout continuation in which each player keeps an independently stratified suit mapping for the complete hidden-world trajectory will estimate top-policy root decisions more faithfully than changing network orientation at every simulated decision. The independent confirmation panel must use the same role-separated policy family so discovery and confirmation evaluate one coherent method.",
+  "dependency_and_selection_rule": {
+    "parent_test": "data/experiments/locked_root120_plan.json",
+    "rule": "Use root symmetries 120 in both actors if and only if the completed root-120 actor holdout has authoritative promotion_gate_passed=true after hardened raw-input revalidation. Otherwise use root symmetries 20 in both actors. If the parent test is operationally invalid or incomplete, do not start this test.",
+    "no_other_result_dependent_choice": true,
+    "root20_baseline": "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:2:20:0:0:20:1:0:512:1:0:0:0:0:0:0:2:1:0:0:0:0:0:0:1",
+    "root20_candidate": "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+    "root120_baseline": "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:2:120:0:0:20:1:0:512:1:0:0:0:0:0:0:2:1:0:0:0:0:0:0:1",
+    "root120_candidate": "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:120:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
+  },
+  "candidate_definition": {
+    "changes_as_one_coherent_method": [
+      "playout_sample changes from 2 to 4: each player receives an independently stratified suit mapping that remains fixed through the complete sampled trajectory",
+      "policy_prefix_mode changes from 2 to 3: the fresh trusted-prefix confirmation panel uses the same role-separated trajectory policy family"
+    ],
+    "unchanged": [
+      "champion checkpoint and value/policy outputs",
+      "root policy and root suit ensemble selected by the parent-test rule",
+      "512 primary worlds and 512 fresh confirmation worlds",
+      "top-five, two-percent policy prefix and all practical/evidence gates",
+      "ply-14 rollout start, uniform hidden-world sampling, objective mode 0, and exact one-card terminal solution",
+      "all semantic, draw-variant, planner, recursive replan, and bounded-late additions remain disabled"
+    ],
+    "candidate_width": "Only the maintained top-policy prefix is evaluated; this experiment does not scan every legal move.",
+    "compute_class": "Modes 2 and 4 both use one network forward per downstream decision. Role separation changes mapping coherence, not requested world count or root width."
+  },
+  "source": {
+    "repository": "BEKINDTOEVERYKIND/LOSTCITIESCHATGPT",
+    "remote_evaluation_commit": "08f9e1a5218e03c399b257b852efe20b0089c7b0",
+    "remote_evaluation_tree": "c70405a09b88919b228f96d19d84d83875d4fea4",
+    "local_content_equivalent_commit": "83927afa3e5f1bfa19a55d3e7eca49992374c4ff",
+    "compiler": "gcc on one pinned ubuntu-24.04 build runner",
+    "cflags": "-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11",
+    "single_binary_requirement": "Build and hash one portable arena artifact once, then distribute that exact artifact to every shard.",
+    "runtime_provenance_requirement": "Every raw shard must bind this plan SHA-256, selected parent-result SHA-256, source commit, arena SHA-256, model SHA-256, exact actor specifications, seed, pair range, rounds, and thread count."
+  },
+  "model": {
+    "path": "data/champion.bin",
+    "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417"
+  },
+  "prior_evidence": {
+    "status": "No retained direct 4+3 versus 2+2 strength A/B exists. Earlier qualitative position review was mixed and is neither promotion nor rejection evidence.",
+    "excluded_operational_smoke": {
+      "purpose": "Parser/runtime/cap sanity only; efficacy was discarded before execution.",
+      "source_commit": "431c0d2cd731657a93d680ed99fdd5cdbcc434e9",
+      "seed": "202608179950",
+      "pairs": 2,
+      "rounds": 3,
+      "root_symmetries": 120,
+      "margin_per_game": 18.50,
+      "match_score": 0.50,
+      "wins": 2,
+      "losses": 2,
+      "draws": 0,
+      "capped_rounds": 0,
+      "use_in_gate_or_final_estimate": false
+    }
+  },
+  "locked_actor_test": {
+    "purpose": "This reciprocal full-actor test alone can promote the role-coherent continuation method.",
+    "rounds_per_game": 3,
+    "mirrored_deals": true,
+    "threads_per_shard": 4,
+    "pairs_per_orientation": 1000,
+    "shards_per_orientation": 10,
+    "pairs_per_shard": 100,
+    "pair_starts": [
+      0,
+      100,
+      200,
+      300,
+      400,
+      500,
+      600,
+      700,
+      800,
+      900
+    ],
+    "blocks": [
+      {
+        "orientation": "candidate-first",
+        "seed": "202608181301",
+        "pair_start": "0",
+        "pairs": 1000,
+        "agent_a": "selected candidate",
+        "agent_b": "selected baseline"
+      },
+      {
+        "orientation": "baseline-first",
+        "seed": "202608181302",
+        "pair_start": "0",
+        "pairs": 1000,
+        "agent_a": "selected baseline",
+        "agent_b": "selected candidate"
+      }
+    ],
+    "efficacy_looks": 1,
+    "inspection_rule": "Do not inspect or publish any efficacy result until every shard in both orientations has completed and the raw merge succeeds.",
+    "combination": "Invert block two to the candidate perspective, then equal-weight the two independent reciprocal blocks. Combined SE is sqrt(SE1^2 + SE2^2) / 2.",
+    "promotion_gate": [
+      "combined candidate match score minus 1.645 standard errors exceeds 0.5",
+      "candidate match-score point estimate exceeds 0.5 in each reciprocal orientation",
+      "combined candidate point margin exceeds 0",
+      "all recorded raw shards reopen, hash, and exactly remerge to the submitted block summaries",
+      "zero cap-terminated rounds, incomplete shards, gaps, overlaps, malformed rows, provenance mismatches, or operational errors"
+    ],
+    "one_sided_alpha": 0.05,
+    "no_optional_stopping_or_variant_changes": true
+  },
+  "claim_limits": [
+    "The two changed fields jointly validate one coherent discovery-plus-confirmation method; the result cannot attribute gain to either field alone.",
+    "The method is temporally and role coherent but still samples one balanced policy orientation per player rather than evaluating the exact 20-way ensemble at every continuation node.",
+    "A failed gate means not promoted; it does not prove equality or inferiority unless the reported confidence interval supports that narrower statement.",
+    "Exploratory, operational, parent-test, policy-only, or viewer-review observations are never pooled into this estimate."
+  ],
+  "reporting": [
+    "Report each reciprocal orientation and the equal-weight candidate result: match score and pair-clustered SE, point margin and SE, W/L/D, cap count, total pairs, elapsed time, model/arena/source/plan/parent-result hashes, compiler, and exact actor specifications.",
+    "Retain every integer pair row plus complete footer and a canonical merged-row SHA-256.",
+    "Report the selected root symmetry and the parent-test artifact that mechanically selected it."
+  ],
+  "results": null
+}

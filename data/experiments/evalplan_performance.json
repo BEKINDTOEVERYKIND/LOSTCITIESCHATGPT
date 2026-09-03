@@ -1,0 +1,156 @@
+{
+  "artifact_kind": "evalplan_performance_evidence",
+  "schema": 1,
+  "status": "complete",
+  "created_utc": "2026-08-17T12:49:20Z",
+  "scope": "Same-machine output-identity and timing evidence for the parameter-proven rollout inference shortcut.",
+  "environment": {
+    "cpu": "AMD EPYC 9V74 80-Core Processor; 9 vCPUs visible",
+    "kernel": "Linux 6.18.35 x86_64 GNU/Linux",
+    "compiler": "gcc (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0",
+    "compile_command": "gcc -O3 -march=native -ffast-math -funroll-loops -Wall -Wextra -std=c11 -o ARENA tools/arena.c src/lc.c src/features.c src/net.c src/heuristic.c src/planner.c src/search.c src/rollout.c src/late_resolver.c src/agent.c src/match.c src/spec.c -lm -pthread",
+    "timing": "Bash time builtin; wall, user, and system seconds retained below"
+  },
+  "model": {
+    "path": "data/champion.bin",
+    "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417"
+  },
+  "builds": {
+    "reference": {
+      "source_commit": "7c7ebc1a097a7a00da977db771663255c47adccd",
+      "sha256": "9fb6331e8c4f572ff651eca54fd5c601fb18ecd959d7daf6531fba243ecea6ab",
+      "elf_build_id": "9109e77e4538ca05b01a8ddfe5c3eef9e1ddb051"
+    },
+    "four_block_candidate": {
+      "source_commit": "9b8bda2d9c7444b922045e067321ce470403c98c",
+      "sha256": "24577929ac9032e83a3b58238c0f17e445e4ddca4b6a8671505f2b659b96b686",
+      "elf_build_id": "fa03236685f5c5c4abb741cb50236a1114e30e8f"
+    },
+    "final": {
+      "source_commit": "431c0d2cd731657a93d680ed99fdd5cdbcc434e9",
+      "sha256": "260bc950a4440cde70eac82a8bcb1aa848dd450c63b71f69a9418e29ffa7061c",
+      "elf_build_id": "177c2c7e727d224c5170932d1e10d6bf35dd361f"
+    }
+  },
+  "rollout_workload": {
+    "agent_a": "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:2:120:0:0:20:1:0:512:1:0:0:0:0:0:0:2:1:0:0:0:0:0:0:1",
+    "agent_b": "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:2:20:0:0:20:1:0:512:1:0:0:0:0:0:0:2:1:0:0:0:0:0:0:1",
+    "seed": "202608179901",
+    "rounds": 3,
+    "threads": 4,
+    "pairs_per_block": 4,
+    "warmup_seed": "202608179900",
+    "warmup_excluded_from_summary": true,
+    "warmup_wall_seconds": {
+      "reference": 146.586,
+      "four_block_candidate": 100.370
+    }
+  },
+  "four_block_crossover": {
+    "execution_order": [
+      "block0 reference then candidate",
+      "block1 candidate then reference",
+      "block2 reference then candidate",
+      "block3 candidate then reference"
+    ],
+    "blocks": [
+      {
+        "pair_start": "0",
+        "reference_seconds": {"wall": 209.296, "user": 775.168, "system": 0.283},
+        "candidate_seconds": {"wall": 139.969, "user": 519.129, "system": 0.140},
+        "speedup": 1.49530,
+        "reference_raw_sha256": "b7911d4af07094b46b536a1f915e959d15c3d147a427bcde6324dff63e014122",
+        "candidate_raw_sha256": "bf9d2dc10c5f805f34725fe69186c614a910a3ac18fa1ab87990d140a248f520",
+        "canonical_payload_sha256": "8cbae31508bb4f35fc24760b400d13c7a92c7afc575751385f69f8f13273ea3f"
+      },
+      {
+        "pair_start": "4",
+        "reference_seconds": {"wall": 206.615, "user": 722.124, "system": 0.246},
+        "candidate_seconds": {"wall": 149.586, "user": 521.746, "system": 0.023},
+        "speedup": 1.38125,
+        "reference_raw_sha256": "e14983b01f01017639ac17fabcacd255f24280192c7eccdb8f5b08a2a853b83a",
+        "candidate_raw_sha256": "9b7764cda32f2d7959030f88cda3044a54c4600b5b1ea51bda49b8ed544f50ff",
+        "canonical_payload_sha256": "8bdc304d6c2eea73d6983690cb6d0af65d137f36d9dda7711c7f4fd7862e0181"
+      },
+      {
+        "pair_start": "8",
+        "reference_seconds": {"wall": 215.217, "user": 772.674, "system": 0.250},
+        "candidate_seconds": {"wall": 149.630, "user": 529.387, "system": 0.246},
+        "speedup": 1.43833,
+        "reference_raw_sha256": "f38d103f14dde731243c1f2f41a358015a721f1c6c612b4214cff475a36995e4",
+        "candidate_raw_sha256": "95f37b0c07934ebc8f2e8dd61d708bff8e69cffb1c66d0e440066d130cd34e70",
+        "canonical_payload_sha256": "23dc93a822d885934172ae80c4cbe6b98b6a4980697f0a81d963902e7ffb8ea4"
+      },
+      {
+        "pair_start": "12",
+        "reference_seconds": {"wall": 180.363, "user": 683.803, "system": 0.039},
+        "candidate_seconds": {"wall": 125.089, "user": 476.761, "system": 0.090},
+        "speedup": 1.44188,
+        "reference_raw_sha256": "318d1bd6c5f77a5aac494c77173e373a3a608fba2656d4c085bf03a40c014c5c",
+        "candidate_raw_sha256": "d31738a2b81f1192b9e08b51de41093c4e1300b4b3f57a95a896e82cb1a7e515",
+        "canonical_payload_sha256": "6faf245ce920f52704233723f6827298c6c7a6f392febc5254b473dd13bbe7c3"
+      }
+    ],
+    "identity": {
+      "pairs": 16,
+      "games": 32,
+      "all_pair_rows_and_complete_footers_byte_identical": true,
+      "capped_rounds": 0
+    },
+    "speedup_summary": {
+      "median": 1.44010,
+      "geometric_mean": 1.43862,
+      "aggregate_wall_ratio": 1.43812,
+      "minimum": 1.38125,
+      "maximum": 1.49530
+    }
+  },
+  "final_revision_confirmation": {
+    "reason": "The final revision routes 5/10-way policy-only inference around the proof scan while leaving the rollout fast path unchanged.",
+    "blocks": [
+      {
+        "pair_start": "0",
+        "reference_wall_seconds": 209.296,
+        "final_wall_seconds": 143.372,
+        "speedup": 1.45981,
+        "final_raw_sha256": "a2406ebe49d2695b32ce7f9f83ba61d9b1850b21579d70ff84cc59414c4b5ed5",
+        "canonical_payload_sha256": "8cbae31508bb4f35fc24760b400d13c7a92c7afc575751385f69f8f13273ea3f"
+      },
+      {
+        "pair_start": "12",
+        "reference_wall_seconds": 180.363,
+        "final_wall_seconds": 125.526,
+        "speedup": 1.43686,
+        "final_raw_sha256": "66ee4ba396c424f310f8aaf49018a5193582dcfea696c5954fc1f857a7a9e4f9",
+        "canonical_payload_sha256": "6faf245ce920f52704233723f6827298c6c7a6f392febc5254b473dd13bbe7c3"
+      }
+    ],
+    "identity": {
+      "pairs": 8,
+      "games": 16,
+      "all_pair_rows_and_complete_footers_byte_identical": true,
+      "capped_rounds": 0
+    },
+    "geometric_mean_speedup": 1.44829
+  },
+  "small_policy_guard": {
+    "agent_a": "policy:data/champion.bin:0:5",
+    "agent_b": "policy:data/champion.bin:0:5",
+    "seed": "202608179905",
+    "pairs": 3000,
+    "rounds": 3,
+    "threads": 4,
+    "reference_wall_seconds": 17.409,
+    "final_wall_seconds": 16.274,
+    "reference_raw_sha256": "e92908fcf2b428fab09b8e4a52d6fcf0067619d9b9824c3df96d30e9362c2c5f",
+    "final_raw_sha256": "4a8213b65f7d0ab56f35f2d0638c1da17ddf1290cf163ca468676efb81c0ad67",
+    "canonical_payload_sha256": "4ba8bb5b0ce1252a373ff118539020e29da3d0565ea7d53ec1de5909a7b77184",
+    "all_pair_rows_and_complete_footer_byte_identical": true,
+    "capped_rounds": 0
+  },
+  "claim_limits": [
+    "These measurements establish output identity and throughput on this compiler, CPU, checkpoint, and fixed workload; they are not a playing-strength result.",
+    "The four-block speed estimate uses the four_block_candidate binary. The final revision was separately confirmed on two of those blocks because its only semantic change is the non-rollout small-policy dispatch.",
+    "Raw JSONL files were temporary benchmark outputs; their complete-file and canonical-payload SHA-256 digests are retained here."
+  ]
+}

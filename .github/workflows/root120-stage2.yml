@@ -1,0 +1,149 @@
+name: Locked root-120 stage 2
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  EVAL_SOURCE: 0b8c65f91fe1f844b8dbfcda5df8cc92806c839d
+  PARENT_PLAN_SHA: 166e66b23e6c7f0676b8dfda88a48425380ec562890118ee6700c2bc83c37458
+  DISTRIBUTED_PLAN_SHA: d4db81351c57a5847dee279bc1fe7514e0943411edcaa107139388c7d8c1c230
+  MODEL_SHA: af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417
+  CANDIDATE: rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:2:120:0:0:20:1:0:512:1:0:0:0:0:0:0:2:1:0:0:0:0:0:0:1
+  BASELINE: rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:2:20:0:0:20:1:0:512:1:0:0:0:0:0:0:2:1:0:0:0:0:0:0:1
+
+jobs:
+  build-evaluator:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EVAL_SOURCE }}
+
+      - name: Build one portable evaluator artifact
+        run: |
+          set -euo pipefail
+          make CC=gcc \
+            CFLAGS='-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11' \
+            bin/arena data/champion.bin
+          test "$(sha256sum data/champion.bin | cut -d' ' -f1)" = "$MODEL_SHA"
+          mkdir -p evaluator
+          cp bin/arena evaluator/arena
+          cp data/champion.bin evaluator/champion.bin
+          {
+            echo "source=$EVAL_SOURCE"
+            echo "cflags=-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11"
+            gcc --version | head -1
+            sha256sum evaluator/arena evaluator/champion.bin
+          } > evaluator/BUILD_INFO.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: root120-evaluator
+          path: evaluator
+          if-no-files-found: error
+          retention-days: 30
+
+  evaluate:
+    needs: build-evaluator
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        orientation: [candidate-first, baseline-first]
+        start: [0, 100, 200, 300, 400, 500, 600, 700, 800, 900]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: root120-evaluator
+          path: evaluator
+
+      - name: Run locked shard
+        env:
+          ORIENTATION: ${{ matrix.orientation }}
+          PAIR_START: ${{ matrix.start }}
+        run: |
+          set -euo pipefail
+          mkdir -p bin data raw
+          cp evaluator/arena bin/arena
+          cp evaluator/champion.bin data/champion.bin
+          chmod +x bin/arena
+          test "$(sha256sum data/champion.bin | cut -d' ' -f1)" = "$MODEL_SHA"
+          ARENA_SHA="$(sha256sum bin/arena | cut -d' ' -f1)"
+          if [ "$ORIENTATION" = candidate-first ]; then
+            AGENT_A="$CANDIDATE"
+            AGENT_B="$BASELINE"
+            SEED=202608171211
+          else
+            AGENT_A="$BASELINE"
+            AGENT_B="$CANDIDATE"
+            SEED=202608171212
+          fi
+          PROVENANCE="parent_plan=$PARENT_PLAN_SHA;distributed_plan=$DISTRIBUTED_PLAN_SHA;source=$EVAL_SOURCE;arena=$ARENA_SHA;model=$MODEL_SHA"
+          OUT="raw/${ORIENTATION}-${PAIR_START}"
+          /usr/bin/time \
+            -f 'wall_s=%e user_s=%U sys_s=%S max_rss_kb=%M exit=%x' \
+            -o "${OUT}.time" \
+            ./bin/arena -a "$AGENT_A" -b "$AGENT_B" \
+              -n 100 -t 4 -s "$SEED" -r 3 \
+              --pair-start "$PAIR_START" \
+              --raw-pairs "${OUT}.jsonl" --raw-only \
+              --provenance "$PROVENANCE"
+          sha256sum "${OUT}.jsonl" > "${OUT}.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: root120-raw-${{ matrix.orientation }}-${{ matrix.start }}
+          path: raw
+          if-no-files-found: error
+          retention-days: 30
+
+  merge:
+    needs: evaluate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: root120-raw-*
+          path: downloads
+          merge-multiple: true
+
+      - name: Validate and merge exact pair rows
+        run: |
+          set -euo pipefail
+          mkdir -p merged
+          python3 tools/merge_arena.py block \
+            --expect-start 0 --expect-pairs 1000 \
+            --output merged/candidate-first.json \
+            downloads/candidate-first-*.jsonl
+          python3 tools/merge_arena.py block \
+            --expect-start 0 --expect-pairs 1000 \
+            --output merged/baseline-first.json \
+            downloads/baseline-first-*.jsonl
+          python3 tools/merge_arena.py reciprocal \
+            --first merged/candidate-first.json \
+            --second merged/baseline-first.json \
+            --gate-z 1.695 --require-positive-margin \
+            --output merged/reciprocal.json
+          find downloads merged -type f ! -name SHA256SUMS.txt -print0 | sort -z | \
+            xargs -0 sha256sum > merged/SHA256SUMS.txt
+          sha256sum -c merged/SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: root120-stage2-final-evidence
+          path: |
+            downloads
+            merged
+          if-no-files-found: error
+          retention-days: 30

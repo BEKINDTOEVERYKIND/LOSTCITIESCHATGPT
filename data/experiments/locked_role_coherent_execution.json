@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "precommitted_role_coherent_distributed_execution",
+  "status": "precommitted_after_parent_resolution_before_candidate_efficacy",
+  "created_utc": "2026-08-22",
+  "parent_selection": {
+    "parent_result": "data/experiments/root120_stage2/merged/reciprocal.json",
+    "parent_result_sha256": "ea9d170a007c95b43a4580ac9235a93ee52cd722feafb5706d9830b357d339e3",
+    "parent_promotion_gate_passed": false,
+    "mechanically_selected_root_symmetries": 20,
+    "selection_rule": "The locked parent failed its full-actor gate, so both actors use the predeclared root-20 specifications."
+  },
+  "locked_plan": {
+    "path": "data/experiments/locked_role_coherent_plan.json",
+    "sha256": "656ac8ca91ecc9b0b4fb901216a2a7fdb85226a3c9a049df2a6e33bfce8024b1"
+  },
+  "source": {
+    "remote_evaluation_commit": "08f9e1a5218e03c399b257b852efe20b0089c7b0",
+    "remote_evaluation_tree": "c70405a09b88919b228f96d19d84d83875d4fea4",
+    "compiler": "gcc on one pinned ubuntu-24.04 build runner",
+    "cflags": "-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11",
+    "model_sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417"
+  },
+  "actors": {
+    "candidate": "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+    "baseline": "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:2:20:0:0:20:1:0:512:1:0:0:0:0:0:0:2:1:0:0:0:0:0:0:1",
+    "only_candidate_changes": [
+      "playout_sample 2 to 4: independently stratified suit mapping per player, fixed for the complete sampled trajectory",
+      "policy_prefix_mode 2 to 3: the fresh confirmation panel uses the same role-coherent continuation family"
+    ],
+    "partial_support_limit": "The deterministic schedule covers all 20x20 ordered role mappings exactly in each complete 400-world block. The production 512-world panel adds 112 balanced repeats. Support-truncated late panels preserve distinct pairs and near-balanced marginals but are only a slice of the joint product; the strength test evaluates that exact implemented actor."
+  },
+  "execution": {
+    "rounds_per_game": 3,
+    "mirrored_deals": true,
+    "threads_per_shard": 4,
+    "pairs_per_orientation": 1000,
+    "shards_per_orientation": 10,
+    "pairs_per_shard": 100,
+    "pair_starts": [0, 100, 200, 300, 400, 500, 600, 700, 800, 900],
+    "candidate_first_seed": "202608181301",
+    "baseline_first_seed": "202608181302",
+    "single_evaluator_binary": true,
+    "efficacy_looks": 1,
+    "inspection_rule": "Do not inspect any efficacy output until all 20 shards complete, every raw sidecar hash passes, and the hardened reciprocal merge succeeds."
+  },
+  "excluded_operational_smoke": {
+    "seed": "202608229999",
+    "pairs": 1,
+    "rounds": 3,
+    "purpose": "Parser, complete-footer, and cap sanity only after freezing the actors; score and margin were discarded without inspection.",
+    "completed": true,
+    "capped_rounds": 0,
+    "use_in_gate_or_final_estimate": false
+  },
+  "promotion_gate": {
+    "critical_z": 1.645,
+    "requirements": [
+      "combined candidate match score minus 1.645 pair-clustered standard errors exceeds 0.5",
+      "candidate match-score point estimate exceeds 0.5 in each reciprocal orientation",
+      "combined candidate point margin exceeds 0",
+      "zero cap-terminated rounds, incomplete shards, gaps, overlaps, malformed rows, provenance mismatches, or operational errors"
+    ]
+  },
+  "required_provenance": [
+    "locked plan SHA-256",
+    "this execution addendum SHA-256",
+    "selected parent-result SHA-256",
+    "source commit",
+    "arena SHA-256",
+    "model SHA-256",
+    "exact actor specifications, seed, range, rounds, and thread count"
+  ],
+  "results": null
+}

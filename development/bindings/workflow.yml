@@ -1,0 +1,1129 @@
+name: Locked match-value objective-3 v2 campaign
+
+# Publishing the definition and its later definition lock consumes no efficacy
+# seed.  The only launch is a third, addendum-only push that adds the execution
+# binding.  The workflow compiles once, transports immutable bytes thereafter,
+# and never writes to the repository.
+# No repository promotion is performed; a passing terminal result is only a
+# recommendation for separate independent verification and persistence.
+on:
+  push:
+    branches:
+      - agent/correctness-and-policy-upgrade
+    paths:
+      - data/experiments/locked_match_value_objective3_v2_execution.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: locked-match-value-objective3-v2-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PLAN_PATH: data/experiments/locked_match_value_objective3_v2_plan.json
+  LOCK_PATH: data/experiments/locked_match_value_objective3_v2_definition_lock.json
+  EXECUTION_PATH: data/experiments/locked_match_value_objective3_v2_execution.json
+  FINAL_ACTOR_RESULT_PATH: data/experiments/final_actor_result.json
+  WORKFLOW_PATH: .github/workflows/match-value-objective3-v2.yml
+  HELPER_PATH: tools/match_value_objective3_v2.py
+  COMPILER_EXECUTABLE: gcc
+  COMPILER_SEMANTIC_VERSION_COMMAND: 'gcc -dumpfullversion -dumpversion'
+  REQUIRED_COMPILER_SEMANTIC_VERSION: '13.3.0'
+  BUILD_CFLAGS: '-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11'
+  BUILD_LDFLAGS: '-lm -pthread'
+  BUILD_PROFILE_HEX: '0030d23b'
+  DEFINITION_PARENT_COMMIT: 42c89f554a92269ce6051a2808d4fb495530c37e
+  MODEL_SHA: af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417
+  MODEL_SIZE: '2823748'
+  RAW_TABLE_PATH: data/models/match_value_objective3_v2_raw.lcmv
+  PROJECTED_TABLE_PATH: data/models/match_value_objective3_v2_projected.lcmv
+  TABLE_SEED: '202610200001'
+  DEVELOPMENT_CANDIDATE_SEED: '202610200101'
+  DEVELOPMENT_BASELINE_SEED: '202610200102'
+  SAFETY_CANDIDATE_SEED: '202610210101'
+  SAFETY_BASELINE_SEED: '202610210102'
+  FINAL_CANDIDATE_SEED: '202610220101'
+  FINAL_BASELINE_SEED: '202610220102'
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    outputs:
+      execution_sha: ${{ steps.guard.outputs.execution_sha }}
+      plan_sha: ${{ steps.guard.outputs.plan_sha }}
+      definition_lock_sha: ${{ steps.guard.outputs.definition_lock_sha }}
+      definition_lock_commit: ${{ steps.guard.outputs.definition_lock_commit }}
+      definition_commit: ${{ steps.guard.outputs.definition_commit }}
+      definition_tree: ${{ steps.guard.outputs.definition_tree }}
+      source_commit: ${{ steps.guard.outputs.source_commit }}
+      source_tree: ${{ steps.guard.outputs.source_tree }}
+      final_actor_result_sha: ${{ steps.guard.outputs.final_actor_result_sha }}
+      baseline: ${{ steps.guard.outputs.winner_actor }}
+      world_cap: ${{ steps.guard.outputs.world_cap }}
+      transport_manifest_sha: ${{ steps.bind.outputs.transport_manifest_sha }}
+      post_build_manifest_sha: ${{ steps.bind.outputs.post_build_manifest_sha }}
+      arena_sha: ${{ steps.bind.outputs.arena_sha }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          path: campaign
+
+      - name: Fail closed on the unique definition-lock-execution topology
+        id: guard
+        working-directory: campaign
+        env:
+          EVENT_BEFORE: ${{ github.event.before }}
+          EVENT_AFTER: ${{ github.event.after }}
+          EVENT_FORCED: ${{ github.event.forced }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = push
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$GITHUB_REF" = refs/heads/agent/correctness-and-policy-upgrade
+          test "$EVENT_FORCED" = false
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$EVENT_AFTER" = "$GITHUB_SHA"
+          test "$(git rev-list --parents -n 1 HEAD | wc -w)" -eq 2
+          SOURCE_COMMIT="$(git rev-parse HEAD^)"
+          SOURCE_TREE="$(git rev-parse 'HEAD^^{tree}')"
+          DEFINITION_COMMIT="$(git rev-parse HEAD^^)"
+          DEFINITION_TREE="$(git rev-parse 'HEAD^^^{tree}')"
+          test "$(git rev-parse HEAD^^^)" = "$DEFINITION_PARENT_COMMIT"
+          test "$(git rev-list --parents -n 1 "$DEFINITION_COMMIT" | wc -w)" -eq 2
+          EXPECTED_DEFINITION_CHANGES="$(printf '%s\n' \
+            'A	.github/workflows/match-value-objective3-v2.yml' \
+            'A	MATCH_VALUE_OBJECTIVE3_V2.md' \
+            'A	data/experiments/locked_match_value_objective3_v2_plan.json' \
+            'A	tests/test_match_value_objective3_v2.py' \
+            'A	tools/match_value_objective3_v2.py' | sort)"
+          ACTUAL_DEFINITION_CHANGES="$(git diff-tree --no-commit-id \
+            --name-status -r "$DEFINITION_COMMIT" | sort)"
+          test "$ACTUAL_DEFINITION_CHANGES" = "$EXPECTED_DEFINITION_CHANGES"
+          for PATH_AT_D in \
+            .github/workflows/match-value-objective3-v2.yml \
+            MATCH_VALUE_OBJECTIVE3_V2.md \
+            data/experiments/locked_match_value_objective3_v2_plan.json \
+            tests/test_match_value_objective3_v2.py \
+            tools/match_value_objective3_v2.py; do
+            if git cat-file -e "$DEFINITION_COMMIT^:$PATH_AT_D" 2>/dev/null; then
+              echo "definition file existed before D: $PATH_AT_D" >&2
+              exit 1
+            fi
+          done
+          test "$EVENT_BEFORE" = "$SOURCE_COMMIT"
+          test "$(git diff-tree --no-commit-id --name-status -r HEAD)" = \
+            "$(printf 'A\t%s' "$EXECUTION_PATH")"
+          test "$(git diff-tree --no-commit-id --name-status -r HEAD^)" = \
+            "$(printf 'A\t%s' "$LOCK_PATH")"
+          test "$(git cat-file -t "HEAD:$EXECUTION_PATH")" = blob
+          test "$(git cat-file -t "HEAD^:$LOCK_PATH")" = blob
+          if git cat-file -e "HEAD^:$EXECUTION_PATH" 2>/dev/null; then
+            echo "execution addendum existed before the launch" >&2
+            exit 1
+          fi
+          if git cat-file -e "HEAD^^:$LOCK_PATH" 2>/dev/null; then
+            echo "definition lock existed before its lock commit" >&2
+            exit 1
+          fi
+          test "$(git rev-list --all --count -- "$EXECUTION_PATH")" = 1
+          test "$(git rev-list --all --count -- "$LOCK_PATH")" = 1
+          test "$(git cat-file -t "HEAD^:$PLAN_PATH")" = blob
+          test "$(git cat-file -t "HEAD^:$WORKFLOW_PATH")" = blob
+          test "$(git cat-file -t "HEAD^:$HELPER_PATH")" = blob
+          test "$(git cat-file -t "HEAD^:$FINAL_ACTOR_RESULT_PATH")" = blob
+          python3 "$HELPER_PATH" guard-execution \
+            --root . --execution "$EXECUTION_PATH" \
+            --source-parent-commit "$SOURCE_COMMIT" \
+            --source-parent-tree "$SOURCE_TREE" \
+            --github-output "$GITHUB_OUTPUT"
+          PLAN_SHA="$(sha256sum "$PLAN_PATH" | cut -d' ' -f1)"
+          LOCK_SHA="$(sha256sum "$LOCK_PATH" | cut -d' ' -f1)"
+          EXECUTION_SHA="$(sha256sum "$EXECUTION_PATH" | cut -d' ' -f1)"
+          FINAL_SHA="$(sha256sum "$FINAL_ACTOR_RESULT_PATH" | cut -d' ' -f1)"
+          echo "source_commit=$SOURCE_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "source_tree=$SOURCE_TREE" >> "$GITHUB_OUTPUT"
+          echo "definition_lock_commit=$SOURCE_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "definition_commit=$DEFINITION_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "definition_tree=$DEFINITION_TREE" >> "$GITHUB_OUTPUT"
+          echo "plan_sha=$PLAN_SHA" >> "$GITHUB_OUTPUT"
+          echo "definition_lock_sha=$LOCK_SHA" >> "$GITHUB_OUTPUT"
+          echo "execution_sha=$EXECUTION_SHA" >> "$GITHUB_OUTPUT"
+          echo "final_actor_result_sha=$FINAL_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Run history-dependent definition and topology tests in checkout
+        working-directory: campaign
+        run: |
+          set -euo pipefail
+          python3 -m unittest tests/test_match_value_objective3_v2.py
+          python3 "$HELPER_PATH" guard-execution \
+            --root . --execution "$EXECUTION_PATH" \
+            --source-parent-commit "${{ steps.guard.outputs.source_commit }}" \
+            --source-parent-tree "${{ steps.guard.outputs.source_tree }}"
+
+      - name: Materialize and revalidate only the bound source parent
+        run: |
+          set -euo pipefail
+          mkdir source
+          git -C campaign archive HEAD^ | tar -x -C source
+          test ! -e "source/$EXECUTION_PATH"
+          test "$(git -C campaign rev-parse HEAD^)" = \
+            "${{ steps.guard.outputs.source_commit }}"
+          test "$(git -C campaign rev-parse 'HEAD^^{tree}')" = \
+            "${{ steps.guard.outputs.source_tree }}"
+          test "$(sha256sum "source/$PLAN_PATH" | cut -d' ' -f1)" = \
+            "${{ steps.guard.outputs.plan_sha }}"
+          test "$(sha256sum "source/$LOCK_PATH" | cut -d' ' -f1)" = \
+            "${{ steps.guard.outputs.definition_lock_sha }}"
+          test "$(sha256sum "source/$FINAL_ACTOR_RESULT_PATH" | cut -d' ' -f1)" = \
+            "${{ steps.guard.outputs.final_actor_result_sha }}"
+          test "$(sha256sum source/data/champion.bin | cut -d' ' -f1)" = \
+            "$MODEL_SHA"
+          test "$(stat -c %s source/data/champion.bin)" = "$MODEL_SIZE"
+          cmp "source/$WORKFLOW_PATH" "campaign/$WORKFLOW_PATH"
+          cmp "source/$HELPER_PATH" "campaign/$HELPER_PATH"
+          python3 "source/$HELPER_PATH" guard-execution \
+            --root source --execution "campaign/$EXECUTION_PATH" \
+            --source-parent-commit "${{ steps.guard.outputs.source_commit }}" \
+            --source-parent-tree "${{ steps.guard.outputs.source_tree }}"
+
+      - name: Compile and test the exact bound parent source once
+        run: |
+          set -euo pipefail
+          test "$COMPILER_EXECUTABLE" = gcc
+          test "$COMPILER_SEMANTIC_VERSION_COMMAND" = \
+            "gcc -dumpfullversion -dumpversion"
+          test "$(gcc -dumpfullversion -dumpversion)" = \
+            "$REQUIRED_COMPILER_SEMANTIC_VERSION"
+          make -C source -j2 CC="$COMPILER_EXECUTABLE" \
+            CFLAGS="$BUILD_CFLAGS" LDFLAGS="$BUILD_LDFLAGS" \
+            bin/arena bin/build_match_value bin/test_match_value
+          source/bin/test_match_value
+          test -x source/bin/arena
+          test -x source/bin/build_match_value
+
+      - name: Build one raw/projected table pair from one transition corpus
+        run: |
+          set -euo pipefail
+          mkdir -p transport/bin transport/data/models transport/tools \
+            transport/bindings
+          cp source/bin/arena transport/bin/arena
+          cp source/bin/build_match_value transport/bin/build_match_value
+          cp source/data/champion.bin transport/data/champion.bin
+          (cd transport && /usr/bin/time \
+            -f 'wall_s=%e user_s=%U sys_s=%S max_rss_kb=%M exit=%x' \
+            -o table-build.time \
+            ./bin/build_match_value \
+              --model data/champion.bin \
+              --out data/models/match_value_objective3_v2_projected.lcmv \
+              --raw-out data/models/match_value_objective3_v2_raw.lcmv \
+              --samples 16000 --threads 8 --seed "$TABLE_SEED" \
+              --playout-symmetries 20 \
+              2>&1 | tee table-build.log)
+          test "$(grep -c '^match-value table:' transport/table-build.log)" = 2
+          test "$(grep -c "samples=16000 seed=$TABLE_SEED" transport/table-build.log)" = 2
+          test "$(grep -c 'abi=1 build=0030d23b' transport/table-build.log)" = 2
+          test "$(grep -c 'role_cycle=400 role_balance=complete' transport/table-build.log)" = 2
+          test "$(grep -c 'variant=isotonic' transport/table-build.log)" = 1
+          test "$(grep -c 'variant=raw' transport/table-build.log)" = 1
+
+      - name: Validate and freeze table and actor manifests before efficacy
+        id: actors
+        run: |
+          set -euo pipefail
+          (cd transport && python3 "../source/$HELPER_PATH" table-manifest \
+            --raw "$RAW_TABLE_PATH" \
+            --projected "$PROJECTED_TABLE_PATH" \
+            --output bindings/table-manifest.json)
+          python3 "source/$HELPER_PATH" actors \
+            --baseline '${{ steps.guard.outputs.winner_actor }}' \
+            --world-cap '${{ steps.guard.outputs.world_cap }}' \
+            --raw-path "$RAW_TABLE_PATH" \
+            --projected-path "$PROJECTED_TABLE_PATH" \
+            --output transport/bindings/actors.json
+          test "$(python3 - <<'PY'
+          import json
+          value = json.load(open('transport/bindings/table-manifest.json'))
+          print(value['raw']['controller']['build_profile_hex'])
+          PY
+          )" = "$BUILD_PROFILE_HEX"
+          test "$(python3 - <<'PY'
+          import json
+          value = json.load(open('transport/bindings/actors.json'))
+          print(','.join(sorted(value['actors'])))
+          PY
+          )" = "PROJECTED_ALL_PLY,RAW_ALL_PLY,legacy"
+
+      - name: Bind the immutable compile-once source-free transport
+        id: bind
+        run: |
+          set -euo pipefail
+          test -n "${ImageOS:-}"
+          test -n "${ImageVersion:-}"
+          test -n "${RUNNER_OS:-}"
+          test -n "${RUNNER_ARCH:-}"
+          cp source/tools/merge_arena.py transport/tools/merge_arena.py
+          cp source/tools/validate_actor_shards.py \
+            transport/tools/validate_actor_shards.py
+          cp source/tools/gate_actor_panel.py \
+            transport/tools/gate_actor_panel.py
+          cp source/tools/flagged_ply_execution.py \
+            transport/tools/flagged_ply_execution.py
+          cp "source/$HELPER_PATH" \
+            transport/tools/match_value_objective3_v2.py
+          cp "source/$PLAN_PATH" transport/bindings/plan.json
+          cp "source/$LOCK_PATH" transport/bindings/definition-lock.json
+          cp "source/$WORKFLOW_PATH" transport/bindings/workflow.yml
+          cp source/MATCH_VALUE_OBJECTIVE3_V2.md \
+            transport/bindings/MATCH_VALUE_OBJECTIVE3_V2.md
+          cp source/tests/test_match_value_objective3_v2.py \
+            transport/bindings/test_match_value_objective3_v2.py
+          cp "source/$FINAL_ACTOR_RESULT_PATH" \
+            transport/bindings/final-actor-result.json
+          mkdir -p transport/bindings/audit
+          cp source/data/experiments/commented_ply_audit_v3_result.json \
+            transport/bindings/audit/
+          cp source/data/experiments/commented_ply_audit_v3.json \
+            transport/bindings/audit/
+          cp source/data/experiments/commented_ply_audit_v3.md \
+            transport/bindings/audit/
+          cp source/data/experiments/commented_ply_audit_v3_evidence.zip \
+            transport/bindings/audit/
+          cp source/data/experiments/world800_result.json \
+            transport/bindings/world800-result.json
+          cp "campaign/$EXECUTION_PATH" transport/bindings/execution.json
+          chmod 755 transport/bin/* transport/tools/*.py
+          (cd /tmp && PYTHONDONTWRITEBYTECODE=1 python3 \
+            "$GITHUB_WORKSPACE/transport/tools/match_value_objective3_v2.py" \
+            --help > /dev/null)
+          test -z "$(find transport -type d -name __pycache__ -print -quit)"
+          mkdir binding-copy-smoke
+          cp -a transport/bindings/. binding-copy-smoke/
+          cmp transport/bindings/audit/commented_ply_audit_v3_result.json \
+            binding-copy-smoke/audit/commented_ply_audit_v3_result.json
+          test -z "$(find transport -type l -print -quit)"
+          {
+            echo "launch_commit=$GITHUB_SHA"
+            echo "source_parent_commit=${{ steps.guard.outputs.source_commit }}"
+            echo "source_parent_tree=${{ steps.guard.outputs.source_tree }}"
+            echo "definition_lock_commit=${{ steps.guard.outputs.definition_lock_commit }}"
+            echo "definition_commit=${{ steps.guard.outputs.definition_commit }}"
+            echo "definition_tree=${{ steps.guard.outputs.definition_tree }}"
+            echo "plan_sha=${{ steps.guard.outputs.plan_sha }}"
+            echo "definition_lock_sha=${{ steps.guard.outputs.definition_lock_sha }}"
+            echo "execution_sha=${{ steps.guard.outputs.execution_sha }}"
+            echo "final_actor_result_sha=${{ steps.guard.outputs.final_actor_result_sha }}"
+            echo "baseline=${{ steps.guard.outputs.winner_actor }}"
+            echo "world_cap=${{ steps.guard.outputs.world_cap }}"
+            echo "compiler_executable=$COMPILER_EXECUTABLE"
+            echo "compiler_semantic_version_command=$COMPILER_SEMANTIC_VERSION_COMMAND"
+            echo "compiler_semantic_version=$(gcc -dumpfullversion -dumpversion)"
+            echo "compiler_banner=$(gcc --version | head -1)"
+            echo "runner_image_os=$ImageOS"
+            echo "runner_image_version=$ImageVersion"
+            echo "runner_os=$RUNNER_OS"
+            echo "runner_arch=$RUNNER_ARCH"
+            echo "uname=$(uname -a)"
+            echo "cflags=$BUILD_CFLAGS"
+            echo "ldflags=$BUILD_LDFLAGS"
+            echo "build_profile=$BUILD_PROFILE_HEX"
+            echo "table_seed=$TABLE_SEED"
+            echo "table_samples_per_policy_lead=16000"
+            echo "table_total_controller_simulations=9632000"
+            echo "table_playout_symmetries=20"
+            sha256sum transport/bin/arena \
+              transport/bin/build_match_value transport/data/champion.bin \
+              transport/data/models/*.lcmv
+          } > transport/BUILD_INFO.txt
+          python3 "source/$HELPER_PATH" post-build-manifest \
+            --root source --execution "campaign/$EXECUTION_PATH" \
+            --tables transport/bindings/table-manifest.json \
+            --actors transport/bindings/actors.json \
+            --builder-log transport/table-build.log \
+            --build-info transport/BUILD_INFO.txt \
+            --source-commit "${{ steps.guard.outputs.source_commit }}" \
+            --source-tree "${{ steps.guard.outputs.source_tree }}" \
+            --output transport/bindings/pre-efficacy-manifest.json
+          (cd transport && { find bin data tools bindings -type f -print0; \
+            printf '%s\0' BUILD_INFO.txt table-build.log table-build.time; } | \
+            sort -z | xargs -0 sha256sum > SHA256SUMS.txt)
+          (cd transport && sha256sum -c SHA256SUMS.txt)
+          POST_SHA="$(sha256sum transport/bindings/pre-efficacy-manifest.json | cut -d' ' -f1)"
+          ARENA_SHA="$(sha256sum transport/bin/arena | cut -d' ' -f1)"
+          TRANSPORT_SHA="$(sha256sum transport/SHA256SUMS.txt | cut -d' ' -f1)"
+          echo "post_build_manifest_sha=$POST_SHA" >> "$GITHUB_OUTPUT"
+          echo "arena_sha=$ARENA_SHA" >> "$GITHUB_OUTPUT"
+          echo "transport_manifest_sha=$TRANSPORT_SHA" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: match-value-objective3-v2-transport
+          path: transport
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 90
+
+  development_evaluate:
+    if: ${{ github.run_attempt == 1 && needs.preflight.result == 'success' }}
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        variant: [RAW_ALL_PLY, PROJECTED_ALL_PLY]
+        orientation: [candidate-first, baseline-first]
+        start: [0, 100, 200, 300, 400, 500, 600, 700, 800, 900]
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: match-value-objective3-v2-transport
+          path: transport
+
+      - name: Verify transport and emit one opaque development shard
+        env:
+          VARIANT: ${{ matrix.variant }}
+          ORIENTATION: ${{ matrix.orientation }}
+          PAIR_START: ${{ matrix.start }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$(sha256sum transport/SHA256SUMS.txt | cut -d' ' -f1)" = \
+            "${{ needs.preflight.outputs.transport_manifest_sha }}"
+          (cd transport && sha256sum -c SHA256SUMS.txt)
+          CANDIDATE="$(python3 - "$VARIANT" <<'PY'
+          import json, sys
+          print(json.load(open('transport/bindings/actors.json'))['actors'][sys.argv[1]])
+          PY
+          )"
+          BASELINE="$(python3 - <<'PY'
+          import json
+          print(json.load(open('transport/bindings/actors.json'))['actors']['legacy'])
+          PY
+          )"
+          TABLE_SHA="$(python3 - "$VARIANT" <<'PY'
+          import json, sys
+          key = 'projected' if sys.argv[1] == 'PROJECTED_ALL_PLY' else 'raw'
+          print(json.load(open('transport/bindings/table-manifest.json'))[key]['sha256'])
+          PY
+          )"
+          PROVENANCE="stage=match_value_objective3_v2_development;variant=$VARIANT;plan=${{ needs.preflight.outputs.plan_sha }};lock=${{ needs.preflight.outputs.definition_lock_sha }};execution=${{ needs.preflight.outputs.execution_sha }};post_build=${{ needs.preflight.outputs.post_build_manifest_sha }};source=${{ needs.preflight.outputs.source_commit }};arena=${{ needs.preflight.outputs.arena_sha }};model=$MODEL_SHA;table=$TABLE_SHA;worlds=${{ needs.preflight.outputs.world_cap }};threads=4"
+          mkdir -p run/bin run/data/models raw
+          cp transport/bin/arena run/bin/arena
+          cp transport/data/champion.bin run/data/champion.bin
+          cp transport/data/models/*.lcmv run/data/models/
+          chmod 755 run/bin/arena
+          test "$(sha256sum run/bin/arena | cut -d' ' -f1)" = \
+            "${{ needs.preflight.outputs.arena_sha }}"
+          test "$(sha256sum run/data/champion.bin | cut -d' ' -f1)" = \
+            "$MODEL_SHA"
+          cmp "transport/$RAW_TABLE_PATH" "run/$RAW_TABLE_PATH"
+          cmp "transport/$PROJECTED_TABLE_PATH" \
+            "run/$PROJECTED_TABLE_PATH"
+          if test "$ORIENTATION" = candidate-first; then
+            AGENT_A="$CANDIDATE"; AGENT_B="$BASELINE"
+            SEED="$DEVELOPMENT_CANDIDATE_SEED"
+          elif test "$ORIENTATION" = baseline-first; then
+            AGENT_A="$BASELINE"; AGENT_B="$CANDIDATE"
+            SEED="$DEVELOPMENT_BASELINE_SEED"
+          else
+            exit 2
+          fi
+          STEM="$ORIENTATION-$PAIR_START"
+          (cd run && /usr/bin/time \
+            -f 'wall_s=%e user_s=%U sys_s=%S max_rss_kb=%M exit=%x' \
+            -o "../raw/$STEM.time" \
+            ./bin/arena -a "$AGENT_A" -b "$AGENT_B" \
+              -n 100 -t 4 -s "$SEED" -r 3 --pair-start "$PAIR_START" \
+              --raw-pairs "../raw/$STEM.jsonl" --raw-only \
+              --provenance "$PROVENANCE")
+          sha256sum "raw/$STEM.jsonl" > "raw/$STEM.sha256"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: match-value-objective3-v2-development-${{ matrix.variant }}-${{ matrix.orientation }}-${{ matrix.start }}
+          path: raw
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 90
+
+  development_select:
+    if: ${{ github.run_attempt == 1 && needs.preflight.result == 'success' && needs.development_evaluate.result == 'success' }}
+    needs: [preflight, development_evaluate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      eligible: ${{ steps.select.outputs.eligible }}
+      selected_variant: ${{ steps.select.outputs.selected_variant }}
+      selected_actor: ${{ steps.select.outputs.selected_actor }}
+      decision_sha: ${{ steps.select.outputs.decision_sha }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: match-value-objective3-v2-transport
+          path: transport
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: match-value-objective3-v2-development-*
+          path: downloads
+
+      - name: Structurally validate every development shard before any merge
+        run: |
+          set -euo pipefail
+          test "$(sha256sum transport/SHA256SUMS.txt | cut -d' ' -f1)" = \
+            "${{ needs.preflight.outputs.transport_manifest_sha }}"
+          (cd transport && sha256sum -c SHA256SUMS.txt)
+          mkdir -p panels merged bindings
+          for VARIANT in RAW_ALL_PLY PROJECTED_ALL_PLY; do
+            mkdir -p "panels/$VARIANT"
+            for ORIENTATION in candidate-first baseline-first; do
+              for START in 0 100 200 300 400 500 600 700 800 900; do
+                STEM="$ORIENTATION-$START"
+                SOURCE="downloads/match-value-objective3-v2-development-$VARIANT-$ORIENTATION-$START"
+                test -d "$SOURCE"
+                for SUFFIX in jsonl sha256 time; do
+                  MATCHES="$(find "$SOURCE" -type f -name "$STEM.$SUFFIX" -print)"
+                  test "$(printf '%s\n' "$MATCHES" | grep -c .)" = 1
+                  cp "$MATCHES" "panels/$VARIANT/$STEM.$SUFFIX"
+                done
+              done
+            done
+          done
+          for VARIANT in RAW_ALL_PLY PROJECTED_ALL_PLY; do
+            CANDIDATE="$(python3 - "$VARIANT" <<'PY'
+          import json, sys
+          print(json.load(open('transport/bindings/actors.json'))['actors'][sys.argv[1]])
+          PY
+            )"
+            BASELINE="$(python3 - <<'PY'
+          import json
+          print(json.load(open('transport/bindings/actors.json'))['actors']['legacy'])
+          PY
+            )"
+            TABLE_SHA="$(python3 - "$VARIANT" <<'PY'
+          import json, sys
+          key = 'projected' if sys.argv[1] == 'PROJECTED_ALL_PLY' else 'raw'
+          print(json.load(open('transport/bindings/table-manifest.json'))[key]['sha256'])
+          PY
+            )"
+            PROVENANCE="stage=match_value_objective3_v2_development;variant=$VARIANT;plan=${{ needs.preflight.outputs.plan_sha }};lock=${{ needs.preflight.outputs.definition_lock_sha }};execution=${{ needs.preflight.outputs.execution_sha }};post_build=${{ needs.preflight.outputs.post_build_manifest_sha }};source=${{ needs.preflight.outputs.source_commit }};arena=${{ needs.preflight.outputs.arena_sha }};model=$MODEL_SHA;table=$TABLE_SHA;worlds=${{ needs.preflight.outputs.world_cap }};threads=4"
+            python3 transport/tools/validate_actor_shards.py \
+              --directory "panels/$VARIANT" --candidate "$CANDIDATE" \
+              --baseline "$BASELINE" --provenance "$PROVENANCE" \
+              --candidate-first-seed "$DEVELOPMENT_CANDIDATE_SEED" \
+              --baseline-first-seed "$DEVELOPMENT_BASELINE_SEED" \
+              --starts 0,100,200,300,400,500,600,700,800,900 \
+              --pairs-per-shard 100 --rounds 3 \
+              --output "merged/$VARIANT-structural-validation.json"
+          done
+
+      - name: Merge both full panels then select once by the locked rule
+        id: select
+        run: |
+          set -euo pipefail
+          ARGS=()
+          for VARIANT in RAW_ALL_PLY PROJECTED_ALL_PLY; do
+            CANDIDATE="$(python3 - "$VARIANT" <<'PY'
+          import json, sys
+          print(json.load(open('transport/bindings/actors.json'))['actors'][sys.argv[1]])
+          PY
+            )"
+            TABLE_SHA="$(python3 - "$VARIANT" <<'PY'
+          import json, sys
+          key = 'projected' if sys.argv[1] == 'PROJECTED_ALL_PLY' else 'raw'
+          print(json.load(open('transport/bindings/table-manifest.json'))[key]['sha256'])
+          PY
+            )"
+            PROVENANCE="stage=match_value_objective3_v2_development;variant=$VARIANT;plan=${{ needs.preflight.outputs.plan_sha }};lock=${{ needs.preflight.outputs.definition_lock_sha }};execution=${{ needs.preflight.outputs.execution_sha }};post_build=${{ needs.preflight.outputs.post_build_manifest_sha }};source=${{ needs.preflight.outputs.source_commit }};arena=${{ needs.preflight.outputs.arena_sha }};model=$MODEL_SHA;table=$TABLE_SHA;worlds=${{ needs.preflight.outputs.world_cap }};threads=4"
+            python3 transport/tools/merge_arena.py block \
+              --expect-start 0 --expect-pairs 1000 \
+              --output "merged/$VARIANT-candidate-first.json" \
+              panels/$VARIANT/candidate-first-*.jsonl
+            python3 transport/tools/merge_arena.py block \
+              --expect-start 0 --expect-pairs 1000 \
+              --output "merged/$VARIANT-baseline-first.json" \
+              panels/$VARIANT/baseline-first-*.jsonl
+            python3 transport/tools/merge_arena.py reciprocal \
+              --first "merged/$VARIANT-candidate-first.json" \
+              --second "merged/$VARIANT-baseline-first.json" \
+              --gate-z 1.645 --require-positive-margin \
+              --output "merged/$VARIANT-reciprocal.json"
+            ARGS+=(--panel "$VARIANT=merged/$VARIANT-reciprocal.json")
+            ARGS+=(--actor "$VARIANT=$CANDIDATE")
+            ARGS+=(--provenance "$VARIANT=$PROVENANCE")
+          done
+          BASELINE="$(python3 - <<'PY'
+          import json
+          print(json.load(open('transport/bindings/actors.json'))['actors']['legacy'])
+          PY
+          )"
+          python3 transport/tools/match_value_objective3_v2.py \
+            select-development "${ARGS[@]}" --baseline "$BASELINE" \
+            --candidate-first-seed "$DEVELOPMENT_CANDIDATE_SEED" \
+            --baseline-first-seed "$DEVELOPMENT_BASELINE_SEED" \
+            --output merged/development-selection.json \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Bind the complete opaque development evidence
+        run: |
+          set -euo pipefail
+          cp -a transport/bindings/. bindings/
+          find downloads panels merged bindings -type f \
+            ! -name SHA256SUMS.txt -print0 | sort -z | \
+            xargs -0 sha256sum > merged/SHA256SUMS.txt
+          sha256sum -c merged/SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: match-value-objective3-v2-development-complete-evidence
+          path: |
+            downloads
+            panels
+            merged
+            bindings
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 90
+
+  safety_evaluate:
+    if: ${{ github.run_attempt == 1 && needs.preflight.result == 'success' && needs.development_select.result == 'success' && needs.development_select.outputs.eligible == 'true' }}
+    needs: [preflight, development_select]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        orientation: [candidate-first, baseline-first]
+        start: [0, 20, 40, 60, 80, 100, 120, 140, 160, 180]
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: match-value-objective3-v2-transport
+          path: transport
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: match-value-objective3-v2-development-complete-evidence
+          path: development
+
+      - name: Verify the frozen development choice and emit one safety shard
+        env:
+          ORIENTATION: ${{ matrix.orientation }}
+          PAIR_START: ${{ matrix.start }}
+          CANDIDATE: ${{ needs.development_select.outputs.selected_actor }}
+          VARIANT: ${{ needs.development_select.outputs.selected_variant }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$(sha256sum transport/SHA256SUMS.txt | cut -d' ' -f1)" = \
+            "${{ needs.preflight.outputs.transport_manifest_sha }}"
+          (cd transport && sha256sum -c SHA256SUMS.txt)
+          test "$(sha256sum development/merged/development-selection.json | cut -d' ' -f1)" = \
+            "${{ needs.development_select.outputs.decision_sha }}"
+          test "$(python3 -c 'import json; print(str(json.load(open("development/merged/development-selection.json"))["challenge_exists"]).lower())')" = true
+          test "$(python3 -c 'import json; print(json.load(open("development/merged/development-selection.json"))["selected_actor"])')" = \
+            "$CANDIDATE"
+          BASELINE='${{ needs.preflight.outputs.baseline }}'
+          TABLE_SHA="$(python3 - "$VARIANT" <<'PY'
+          import json, sys
+          key = 'projected' if sys.argv[1] == 'PROJECTED_ALL_PLY' else 'raw'
+          print(json.load(open('transport/bindings/table-manifest.json'))[key]['sha256'])
+          PY
+          )"
+          PROVENANCE="stage=match_value_objective3_v2_safety;variant=$VARIANT;development=${{ needs.development_select.outputs.decision_sha }};plan=${{ needs.preflight.outputs.plan_sha }};lock=${{ needs.preflight.outputs.definition_lock_sha }};execution=${{ needs.preflight.outputs.execution_sha }};post_build=${{ needs.preflight.outputs.post_build_manifest_sha }};source=${{ needs.preflight.outputs.source_commit }};arena=${{ needs.preflight.outputs.arena_sha }};model=$MODEL_SHA;table=$TABLE_SHA;worlds=${{ needs.preflight.outputs.world_cap }};threads=4"
+          mkdir -p run/bin run/data/models raw
+          cp transport/bin/arena run/bin/arena
+          cp transport/data/champion.bin run/data/champion.bin
+          cp transport/data/models/*.lcmv run/data/models/
+          chmod 755 run/bin/arena
+          test "$(sha256sum run/bin/arena | cut -d' ' -f1)" = \
+            "${{ needs.preflight.outputs.arena_sha }}"
+          test "$(sha256sum run/data/champion.bin | cut -d' ' -f1)" = \
+            "$MODEL_SHA"
+          cmp "transport/$RAW_TABLE_PATH" "run/$RAW_TABLE_PATH"
+          cmp "transport/$PROJECTED_TABLE_PATH" \
+            "run/$PROJECTED_TABLE_PATH"
+          if test "$ORIENTATION" = candidate-first; then
+            AGENT_A="$CANDIDATE"; AGENT_B="$BASELINE"
+            SEED="$SAFETY_CANDIDATE_SEED"
+          elif test "$ORIENTATION" = baseline-first; then
+            AGENT_A="$BASELINE"; AGENT_B="$CANDIDATE"
+            SEED="$SAFETY_BASELINE_SEED"
+          else
+            exit 2
+          fi
+          STEM="$ORIENTATION-$PAIR_START"
+          (cd run && /usr/bin/time \
+            -f 'wall_s=%e user_s=%U sys_s=%S max_rss_kb=%M exit=%x' \
+            -o "../raw/$STEM.time" \
+            ./bin/arena -a "$AGENT_A" -b "$AGENT_B" \
+              -n 20 -t 4 -s "$SEED" -r 3 --pair-start "$PAIR_START" \
+              --raw-pairs "../raw/$STEM.jsonl" --raw-only \
+              --provenance "$PROVENANCE")
+          sha256sum "raw/$STEM.jsonl" > "raw/$STEM.sha256"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: match-value-objective3-v2-safety-${{ matrix.orientation }}-${{ matrix.start }}
+          path: raw
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 90
+
+  safety_merge:
+    if: ${{ github.run_attempt == 1 && needs.preflight.result == 'success' && needs.development_select.result == 'success' && needs.development_select.outputs.eligible == 'true' && needs.safety_evaluate.result == 'success' }}
+    needs: [preflight, development_select, safety_evaluate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      passed: ${{ steps.gate.outputs.passed }}
+      decision_sha: ${{ steps.gate.outputs.decision_sha }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: match-value-objective3-v2-transport
+          path: transport
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: match-value-objective3-v2-development-complete-evidence
+          path: development
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: match-value-objective3-v2-safety-*
+          path: downloads
+          merge-multiple: true
+
+      - name: Validate the complete safety set before its only efficacy merge
+        run: |
+          set -euo pipefail
+          test "$(sha256sum transport/SHA256SUMS.txt | cut -d' ' -f1)" = \
+            "${{ needs.preflight.outputs.transport_manifest_sha }}"
+          (cd transport && sha256sum -c SHA256SUMS.txt)
+          test "$(sha256sum development/merged/development-selection.json | cut -d' ' -f1)" = \
+            "${{ needs.development_select.outputs.decision_sha }}"
+          mkdir -p merged bindings
+          CANDIDATE='${{ needs.development_select.outputs.selected_actor }}'
+          BASELINE='${{ needs.preflight.outputs.baseline }}'
+          VARIANT='${{ needs.development_select.outputs.selected_variant }}'
+          TABLE_SHA="$(python3 - "$VARIANT" <<'PY'
+          import json, sys
+          key = 'projected' if sys.argv[1] == 'PROJECTED_ALL_PLY' else 'raw'
+          print(json.load(open('transport/bindings/table-manifest.json'))[key]['sha256'])
+          PY
+          )"
+          PROVENANCE="stage=match_value_objective3_v2_safety;variant=$VARIANT;development=${{ needs.development_select.outputs.decision_sha }};plan=${{ needs.preflight.outputs.plan_sha }};lock=${{ needs.preflight.outputs.definition_lock_sha }};execution=${{ needs.preflight.outputs.execution_sha }};post_build=${{ needs.preflight.outputs.post_build_manifest_sha }};source=${{ needs.preflight.outputs.source_commit }};arena=${{ needs.preflight.outputs.arena_sha }};model=$MODEL_SHA;table=$TABLE_SHA;worlds=${{ needs.preflight.outputs.world_cap }};threads=4"
+          python3 transport/tools/validate_actor_shards.py \
+            --directory downloads --candidate "$CANDIDATE" \
+            --baseline "$BASELINE" --provenance "$PROVENANCE" \
+            --candidate-first-seed "$SAFETY_CANDIDATE_SEED" \
+            --baseline-first-seed "$SAFETY_BASELINE_SEED" \
+            --starts 0,20,40,60,80,100,120,140,160,180 \
+            --pairs-per-shard 20 --rounds 3 \
+            --output merged/structural-validation.json
+          python3 transport/tools/merge_arena.py block \
+            --expect-start 0 --expect-pairs 200 \
+            --output merged/candidate-first.json \
+            downloads/candidate-first-*.jsonl
+          python3 transport/tools/merge_arena.py block \
+            --expect-start 0 --expect-pairs 200 \
+            --output merged/baseline-first.json \
+            downloads/baseline-first-*.jsonl
+          python3 transport/tools/merge_arena.py reciprocal \
+            --first merged/candidate-first.json \
+            --second merged/baseline-first.json \
+            --gate-z 1.645 --require-positive-margin \
+            --output merged/reciprocal.json
+
+      - name: Apply the exact unchanged safety gate once
+        id: gate
+        run: |
+          set -euo pipefail
+          CANDIDATE='${{ needs.development_select.outputs.selected_actor }}'
+          BASELINE='${{ needs.preflight.outputs.baseline }}'
+          VARIANT='${{ needs.development_select.outputs.selected_variant }}'
+          TABLE_SHA="$(python3 - "$VARIANT" <<'PY'
+          import json, sys
+          key = 'projected' if sys.argv[1] == 'PROJECTED_ALL_PLY' else 'raw'
+          print(json.load(open('transport/bindings/table-manifest.json'))[key]['sha256'])
+          PY
+          )"
+          PROVENANCE="stage=match_value_objective3_v2_safety;variant=$VARIANT;development=${{ needs.development_select.outputs.decision_sha }};plan=${{ needs.preflight.outputs.plan_sha }};lock=${{ needs.preflight.outputs.definition_lock_sha }};execution=${{ needs.preflight.outputs.execution_sha }};post_build=${{ needs.preflight.outputs.post_build_manifest_sha }};source=${{ needs.preflight.outputs.source_commit }};arena=${{ needs.preflight.outputs.arena_sha }};model=$MODEL_SHA;table=$TABLE_SHA;worlds=${{ needs.preflight.outputs.world_cap }};threads=4"
+          python3 transport/tools/match_value_objective3_v2.py gate-safety \
+            --reciprocal merged/reciprocal.json \
+            --candidate "$CANDIDATE" --baseline "$BASELINE" \
+            --provenance "$PROVENANCE" \
+            --candidate-first-seed "$SAFETY_CANDIDATE_SEED" \
+            --baseline-first-seed "$SAFETY_BASELINE_SEED" \
+            --output merged/safety-decision.json \
+            --github-output "$GITHUB_OUTPUT"
+          cp development/merged/development-selection.json bindings/
+          cp -a transport/bindings/. bindings/
+          find downloads merged bindings -type f ! -name SHA256SUMS.txt -print0 | \
+            sort -z | xargs -0 sha256sum > merged/SHA256SUMS.txt
+          sha256sum -c merged/SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: match-value-objective3-v2-safety-complete-evidence
+          path: |
+            downloads
+            merged
+            bindings
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 90
+
+  final_evaluate:
+    if: ${{ github.run_attempt == 1 && needs.preflight.result == 'success' && needs.development_select.result == 'success' && needs.safety_merge.result == 'success' && needs.safety_merge.outputs.passed == 'true' }}
+    needs: [preflight, development_select, safety_merge]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        orientation: [candidate-first, baseline-first]
+        start: [0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000, 2100, 2200, 2300, 2400]
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: match-value-objective3-v2-transport
+          path: transport
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: match-value-objective3-v2-safety-complete-evidence
+          path: safety
+
+      - name: Verify the passing safety decision and emit one final shard
+        env:
+          ORIENTATION: ${{ matrix.orientation }}
+          PAIR_START: ${{ matrix.start }}
+          CANDIDATE: ${{ needs.development_select.outputs.selected_actor }}
+          VARIANT: ${{ needs.development_select.outputs.selected_variant }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$(sha256sum transport/SHA256SUMS.txt | cut -d' ' -f1)" = \
+            "${{ needs.preflight.outputs.transport_manifest_sha }}"
+          (cd transport && sha256sum -c SHA256SUMS.txt)
+          test "$(sha256sum safety/merged/safety-decision.json | cut -d' ' -f1)" = \
+            "${{ needs.safety_merge.outputs.decision_sha }}"
+          test "$(python3 -c 'import json; print(str(json.load(open("safety/merged/safety-decision.json"))["passed"]).lower())')" = true
+          BASELINE='${{ needs.preflight.outputs.baseline }}'
+          TABLE_SHA="$(python3 - "$VARIANT" <<'PY'
+          import json, sys
+          key = 'projected' if sys.argv[1] == 'PROJECTED_ALL_PLY' else 'raw'
+          print(json.load(open('transport/bindings/table-manifest.json'))[key]['sha256'])
+          PY
+          )"
+          PROVENANCE="stage=match_value_objective3_v2_final;variant=$VARIANT;development=${{ needs.development_select.outputs.decision_sha }};safety=${{ needs.safety_merge.outputs.decision_sha }};plan=${{ needs.preflight.outputs.plan_sha }};lock=${{ needs.preflight.outputs.definition_lock_sha }};execution=${{ needs.preflight.outputs.execution_sha }};post_build=${{ needs.preflight.outputs.post_build_manifest_sha }};source=${{ needs.preflight.outputs.source_commit }};arena=${{ needs.preflight.outputs.arena_sha }};model=$MODEL_SHA;table=$TABLE_SHA;worlds=${{ needs.preflight.outputs.world_cap }};threads=4"
+          mkdir -p run/bin run/data/models raw
+          cp transport/bin/arena run/bin/arena
+          cp transport/data/champion.bin run/data/champion.bin
+          cp transport/data/models/*.lcmv run/data/models/
+          chmod 755 run/bin/arena
+          test "$(sha256sum run/bin/arena | cut -d' ' -f1)" = \
+            "${{ needs.preflight.outputs.arena_sha }}"
+          test "$(sha256sum run/data/champion.bin | cut -d' ' -f1)" = \
+            "$MODEL_SHA"
+          cmp "transport/$RAW_TABLE_PATH" "run/$RAW_TABLE_PATH"
+          cmp "transport/$PROJECTED_TABLE_PATH" \
+            "run/$PROJECTED_TABLE_PATH"
+          if test "$ORIENTATION" = candidate-first; then
+            AGENT_A="$CANDIDATE"; AGENT_B="$BASELINE"
+            SEED="$FINAL_CANDIDATE_SEED"
+          elif test "$ORIENTATION" = baseline-first; then
+            AGENT_A="$BASELINE"; AGENT_B="$CANDIDATE"
+            SEED="$FINAL_BASELINE_SEED"
+          else
+            exit 2
+          fi
+          STEM="$ORIENTATION-$PAIR_START"
+          (cd run && /usr/bin/time \
+            -f 'wall_s=%e user_s=%U sys_s=%S max_rss_kb=%M exit=%x' \
+            -o "../raw/$STEM.time" \
+            ./bin/arena -a "$AGENT_A" -b "$AGENT_B" \
+              -n 100 -t 4 -s "$SEED" -r 3 --pair-start "$PAIR_START" \
+              --raw-pairs "../raw/$STEM.jsonl" --raw-only \
+              --provenance "$PROVENANCE")
+          sha256sum "raw/$STEM.jsonl" > "raw/$STEM.sha256"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: match-value-objective3-v2-final-${{ matrix.orientation }}-${{ matrix.start }}
+          path: raw
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 90
+
+  final_merge:
+    if: ${{ github.run_attempt == 1 && needs.preflight.result == 'success' && needs.development_select.result == 'success' && needs.safety_merge.result == 'success' && needs.safety_merge.outputs.passed == 'true' && needs.final_evaluate.result == 'success' }}
+    needs: [preflight, development_select, safety_merge, final_evaluate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      passed: ${{ steps.gate.outputs.passed }}
+      decision_sha: ${{ steps.gate.outputs.decision_sha }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: match-value-objective3-v2-transport
+          path: transport
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: match-value-objective3-v2-safety-complete-evidence
+          path: safety
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: match-value-objective3-v2-final-*
+          path: downloads
+          merge-multiple: true
+
+      - name: Validate every final shard before the single reserved look
+        run: |
+          set -euo pipefail
+          test "$(sha256sum transport/SHA256SUMS.txt | cut -d' ' -f1)" = \
+            "${{ needs.preflight.outputs.transport_manifest_sha }}"
+          (cd transport && sha256sum -c SHA256SUMS.txt)
+          test "$(sha256sum safety/merged/safety-decision.json | cut -d' ' -f1)" = \
+            "${{ needs.safety_merge.outputs.decision_sha }}"
+          mkdir -p merged bindings
+          CANDIDATE='${{ needs.development_select.outputs.selected_actor }}'
+          BASELINE='${{ needs.preflight.outputs.baseline }}'
+          VARIANT='${{ needs.development_select.outputs.selected_variant }}'
+          TABLE_SHA="$(python3 - "$VARIANT" <<'PY'
+          import json, sys
+          key = 'projected' if sys.argv[1] == 'PROJECTED_ALL_PLY' else 'raw'
+          print(json.load(open('transport/bindings/table-manifest.json'))[key]['sha256'])
+          PY
+          )"
+          PROVENANCE="stage=match_value_objective3_v2_final;variant=$VARIANT;development=${{ needs.development_select.outputs.decision_sha }};safety=${{ needs.safety_merge.outputs.decision_sha }};plan=${{ needs.preflight.outputs.plan_sha }};lock=${{ needs.preflight.outputs.definition_lock_sha }};execution=${{ needs.preflight.outputs.execution_sha }};post_build=${{ needs.preflight.outputs.post_build_manifest_sha }};source=${{ needs.preflight.outputs.source_commit }};arena=${{ needs.preflight.outputs.arena_sha }};model=$MODEL_SHA;table=$TABLE_SHA;worlds=${{ needs.preflight.outputs.world_cap }};threads=4"
+          python3 transport/tools/validate_actor_shards.py \
+            --directory downloads --candidate "$CANDIDATE" \
+            --baseline "$BASELINE" --provenance "$PROVENANCE" \
+            --candidate-first-seed "$FINAL_CANDIDATE_SEED" \
+            --baseline-first-seed "$FINAL_BASELINE_SEED" \
+            --starts 0,100,200,300,400,500,600,700,800,900,1000,1100,1200,1300,1400,1500,1600,1700,1800,1900,2000,2100,2200,2300,2400 \
+            --pairs-per-shard 100 --rounds 3 \
+            --output merged/structural-validation.json
+          python3 transport/tools/merge_arena.py block \
+            --expect-start 0 --expect-pairs 2500 \
+            --output merged/candidate-first.json \
+            downloads/candidate-first-*.jsonl
+          python3 transport/tools/merge_arena.py block \
+            --expect-start 0 --expect-pairs 2500 \
+            --output merged/baseline-first.json \
+            downloads/baseline-first-*.jsonl
+          python3 transport/tools/merge_arena.py reciprocal \
+            --first merged/candidate-first.json \
+            --second merged/baseline-first.json \
+            --gate-z 1.645 --require-positive-margin \
+            --output merged/reciprocal.json
+
+      - name: Apply both locked one-sided final bounds once
+        id: gate
+        run: |
+          set -euo pipefail
+          CANDIDATE='${{ needs.development_select.outputs.selected_actor }}'
+          BASELINE='${{ needs.preflight.outputs.baseline }}'
+          VARIANT='${{ needs.development_select.outputs.selected_variant }}'
+          TABLE_SHA="$(python3 - "$VARIANT" <<'PY'
+          import json, sys
+          key = 'projected' if sys.argv[1] == 'PROJECTED_ALL_PLY' else 'raw'
+          print(json.load(open('transport/bindings/table-manifest.json'))[key]['sha256'])
+          PY
+          )"
+          PROVENANCE="stage=match_value_objective3_v2_final;variant=$VARIANT;development=${{ needs.development_select.outputs.decision_sha }};safety=${{ needs.safety_merge.outputs.decision_sha }};plan=${{ needs.preflight.outputs.plan_sha }};lock=${{ needs.preflight.outputs.definition_lock_sha }};execution=${{ needs.preflight.outputs.execution_sha }};post_build=${{ needs.preflight.outputs.post_build_manifest_sha }};source=${{ needs.preflight.outputs.source_commit }};arena=${{ needs.preflight.outputs.arena_sha }};model=$MODEL_SHA;table=$TABLE_SHA;worlds=${{ needs.preflight.outputs.world_cap }};threads=4"
+          python3 transport/tools/match_value_objective3_v2.py gate-final \
+            --reciprocal merged/reciprocal.json \
+            --candidate "$CANDIDATE" --baseline "$BASELINE" \
+            --provenance "$PROVENANCE" \
+            --candidate-first-seed "$FINAL_CANDIDATE_SEED" \
+            --baseline-first-seed "$FINAL_BASELINE_SEED" \
+            --output merged/final-decision.json \
+            --github-output "$GITHUB_OUTPUT"
+          cp safety/merged/safety-decision.json bindings/
+          cp safety/bindings/development-selection.json bindings/
+          cp -a transport/bindings/. bindings/
+          find downloads merged bindings -type f ! -name SHA256SUMS.txt -print0 | \
+            sort -z | xargs -0 sha256sum > merged/SHA256SUMS.txt
+          sha256sum -c merged/SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: match-value-objective3-v2-final-complete-evidence
+          path: |
+            downloads
+            merged
+            bindings
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 90
+
+  terminal_no_challenge:
+    if: ${{ github.run_attempt == 1 && needs.preflight.result == 'success' && needs.development_select.result == 'success' && needs.development_select.outputs.eligible == 'false' }}
+    needs: [preflight, development_select]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: match-value-objective3-v2-transport
+          path: evidence/transport
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: match-value-objective3-v2-development-complete-evidence
+          path: evidence/development
+      - name: Produce the no-candidate terminal disposition
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/stages
+          cp evidence/transport/bindings/pre-efficacy-manifest.json \
+            evidence/pre-efficacy-manifest.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path("evidence")
+          selection = json.loads((
+              root / "development/merged/development-selection.json"
+          ).read_text())
+          if selection.get('challenge_exists') is not False:
+              raise SystemExit('terminal path does not match selection')
+          for stage, reason in (
+              ("safety", "no eligible development challenger"),
+              ("final", "no eligible development challenger"),
+          ):
+              value = {
+                  "schema": "lc-match-value-objective3-v2-skipped-stage-v1",
+                  "stage": stage,
+                  "status": "not_run",
+                  "reason": reason,
+              }
+              (root / f"stages/{stage}-skipped.json").write_text(
+                  json.dumps(value, indent=2, sort_keys=True) + "\n")
+          PY
+          python3 evidence/transport/tools/match_value_objective3_v2.py \
+            terminal-result \
+            --execution evidence/transport/bindings/execution.json \
+            --development evidence/development/merged/development-selection.json \
+            --evidence-root evidence --output evidence/result.json
+          (cd evidence && find . -type f ! -name SHA256SUMS.txt -print0 | \
+            sort -z | xargs -0 sha256sum > SHA256SUMS.txt)
+          (cd evidence && sha256sum -c SHA256SUMS.txt)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: match-value-objective3-v2-complete-evidence
+          path: evidence
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 90
+
+  terminal_safety_rejected:
+    if: ${{ github.run_attempt == 1 && needs.preflight.result == 'success' && needs.development_select.result == 'success' && needs.development_select.outputs.eligible == 'true' && needs.safety_merge.result == 'success' && needs.safety_merge.outputs.passed == 'false' }}
+    needs: [preflight, development_select, safety_merge]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: match-value-objective3-v2-transport
+          path: evidence/transport
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: match-value-objective3-v2-development-complete-evidence
+          path: evidence/development
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: match-value-objective3-v2-safety-complete-evidence
+          path: evidence/safety
+      - name: Produce the safety-rejected terminal disposition
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/stages
+          cp evidence/transport/bindings/pre-efficacy-manifest.json \
+            evidence/pre-efficacy-manifest.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path("evidence")
+          selection = json.loads((
+              root / "development/merged/development-selection.json"
+          ).read_text())
+          safety = json.loads((
+              root / "safety/merged/safety-decision.json"
+          ).read_text())
+          if selection.get('challenge_exists') is not True or safety.get('passed') is not False:
+              raise SystemExit('terminal path does not match safety decision')
+          value = {
+              "schema": "lc-match-value-objective3-v2-skipped-stage-v1",
+              "stage": "final",
+              "status": "not_run",
+              "reason": "locked safety gate failed",
+          }
+          (root / "stages/final-skipped.json").write_text(
+              json.dumps(value, indent=2, sort_keys=True) + "\n")
+          PY
+          python3 evidence/transport/tools/match_value_objective3_v2.py \
+            terminal-result \
+            --execution evidence/transport/bindings/execution.json \
+            --development evidence/development/merged/development-selection.json \
+            --safety evidence/safety/merged/safety-decision.json \
+            --evidence-root evidence --output evidence/result.json
+          (cd evidence && find . -type f ! -name SHA256SUMS.txt -print0 | \
+            sort -z | xargs -0 sha256sum > SHA256SUMS.txt)
+          (cd evidence && sha256sum -c SHA256SUMS.txt)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: match-value-objective3-v2-complete-evidence
+          path: evidence
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 90
+
+  terminal_final_disposition:
+    if: ${{ github.run_attempt == 1 && needs.preflight.result == 'success' && needs.development_select.result == 'success' && needs.development_select.outputs.eligible == 'true' && needs.safety_merge.result == 'success' && needs.safety_merge.outputs.passed == 'true' && needs.final_merge.result == 'success' }}
+    needs: [preflight, development_select, safety_merge, final_merge]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: match-value-objective3-v2-transport
+          path: evidence/transport
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: match-value-objective3-v2-development-complete-evidence
+          path: evidence/development
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: match-value-objective3-v2-safety-complete-evidence
+          path: evidence/safety
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: match-value-objective3-v2-final-complete-evidence
+          path: evidence/final
+      - name: Produce the reserved-final terminal disposition
+        run: |
+          set -euo pipefail
+          cp evidence/transport/bindings/pre-efficacy-manifest.json \
+            evidence/pre-efficacy-manifest.json
+          python3 evidence/transport/tools/match_value_objective3_v2.py \
+            terminal-result \
+            --execution evidence/transport/bindings/execution.json \
+            --development evidence/development/merged/development-selection.json \
+            --safety evidence/safety/merged/safety-decision.json \
+            --final evidence/final/merged/final-decision.json \
+            --evidence-root evidence --output evidence/result.json
+          (cd evidence && find . -type f ! -name SHA256SUMS.txt -print0 | \
+            sort -z | xargs -0 sha256sum > SHA256SUMS.txt)
+          (cd evidence && sha256sum -c SHA256SUMS.txt)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: match-value-objective3-v2-complete-evidence
+          path: evidence
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 90

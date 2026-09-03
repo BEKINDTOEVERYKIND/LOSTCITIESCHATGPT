@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "locked_action_core_shortlist_execution",
+  "status": "TEMPLATE_ONLY_DOES_NOT_LAUNCH",
+  "source_parent_commit": "__SOLE_PARENT_COMMIT__",
+  "source_parent_tree": "__SOLE_PARENT_TREE__",
+  "source_files_sha256": "__EXACT_MAP_FROM_SOLE_PARENT__",
+  "workflow": {
+    "path": ".github/workflows/action-core-shortlist.yml",
+    "sha256": "__SHA256_FROM_SOLE_PARENT__"
+  },
+  "plan": {
+    "path": "data/experiments/locked_action_core_shortlist_plan.json",
+    "sha256": "__SHA256_FROM_SOLE_PARENT__"
+  },
+  "authoritative_world800_result": {
+    "path": "data/experiments/world800_result.json",
+    "sha256": "__SHA256_OF_COMMITTED_EXACT_ARCHIVE__",
+    "promotion_gate_passed": "__EXACT_RECOMPUTED_BOOLEAN__",
+    "selected_world_cap": "__800_ON_PASS_ELSE_512__",
+    "selected_actor": "__MECHANICALLY_SELECTED_ACTOR__"
+  },
+  "actors": "__OUTPUT_OF_ACTION_CORE_CAMPAIGN_HELPER__",
+  "build": "__EXACT_BUILD_BINDING__",
+  "safety": "__EXACT_LOCKED_SCHEDULE__",
+  "final": "__EXACT_LOCKED_SCHEDULE__",
+  "inspection_rule": "do not parse any stage efficacy until every expected immutable raw shard and sidecar for that stage validates",
+  "results": null
+}

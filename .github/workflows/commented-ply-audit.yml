@@ -1,0 +1,560 @@
+name: Locked exact-17 commented-ply audit
+
+# This diagnostic launches once, after the maintained actor is authoritatively
+# selected, through a sole addendum-only push. It never dispatches manually,
+# trains an actor, or participates in promotion.
+on:
+  push:
+    branches:
+      - agent/correctness-and-policy-upgrade
+    paths:
+      - data/experiments/locked_commented_ply_audit_execution.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: locked-commented-ply-audit-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  EXECUTION_PATH: data/experiments/locked_commented_ply_audit_execution.json
+  FINAL_RESULT_PATH: data/experiments/final_actor_result.json
+  PLAN_PATH: data/experiments/locked_commented_ply_audit_plan.json
+  LOCK_PATH: data/experiments/locked_commented_ply_audit_definition_lock_v2.json
+  WORKFLOW_PATH: .github/workflows/commented-ply-audit.yml
+  COMPILER_EXECUTABLE: gcc
+  COMPILER_SEMANTIC_VERSION_COMMAND: 'gcc -dumpfullversion -dumpversion'
+  REQUIRED_COMPILER_SEMANTIC_VERSION: '13.3.0'
+  BUILD_CFLAGS: '-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11'
+  BUILD_LDFLAGS: '-lm -pthread'
+  DEFAULT_WORLDS: '1024'
+  EXACT_SYMMETRIES: '20'
+  BELIEF_ALPHA: '1.15'
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      execution_sha: ${{ steps.guard.outputs.execution_sha }}
+      source_commit: ${{ steps.guard.outputs.source_commit }}
+      source_tree: ${{ steps.guard.outputs.source_tree }}
+      winner_actor: ${{ steps.guard.outputs.winner_actor }}
+      final_result_sha: ${{ steps.guard.outputs.final_result_sha }}
+      selection_mode: ${{ steps.guard.outputs.selection_mode }}
+      final_gate_passed: ${{ steps.guard.outputs.final_gate_passed }}
+      plan_sha: ${{ steps.guard.outputs.plan_sha }}
+      workflow_sha: ${{ steps.guard.outputs.workflow_sha }}
+      definition_sha: ${{ steps.guard.outputs.definition_sha }}
+      teacher_sha: ${{ steps.guard.outputs.teacher_sha }}
+      evaluator_manifest_sha: ${{ steps.bind.outputs.evaluator_manifest_sha }}
+      definition_lock_sha: ${{ steps.guard.outputs.definition_lock_sha }}
+      definition_lock_commit: ${{ steps.guard.outputs.definition_lock_commit }}
+      definition_commit: ${{ steps.guard.outputs.definition_commit }}
+      definition_tree: ${{ steps.guard.outputs.definition_tree }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          path: campaign
+
+      - name: Fail closed unless this is the sole addendum-only launch
+        id: guard
+        working-directory: campaign
+        env:
+          EVENT_BEFORE: ${{ github.event.before }}
+          EVENT_AFTER: ${{ github.event.after }}
+          EVENT_FORCED: ${{ github.event.forced }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = push
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$GITHUB_REF" = refs/heads/agent/correctness-and-policy-upgrade
+          test "$EVENT_FORCED" = false
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$EVENT_AFTER" = "$GITHUB_SHA"
+          test "$(git rev-list --parents -n 1 HEAD | wc -w)" -eq 2
+          SOURCE_COMMIT="$(git rev-parse HEAD^)"
+          SOURCE_TREE="$(git rev-parse 'HEAD^^{tree}')"
+          test "$EVENT_BEFORE" = "$SOURCE_COMMIT"
+          test "$(git diff-tree --no-commit-id --name-status -r HEAD)" = \
+            "$(printf 'A\t%s' "$EXECUTION_PATH")"
+          if git cat-file -e "HEAD^:$EXECUTION_PATH" 2>/dev/null; then
+            echo "execution addendum existed before launch" >&2
+            exit 1
+          fi
+          test "$(git rev-list --all --count -- "$EXECUTION_PATH")" = 1
+          test "$(git cat-file -t "HEAD:$EXECUTION_PATH")" = blob
+          test "$(git cat-file -t "HEAD^:$FINAL_RESULT_PATH")" = blob
+          python3 tools/commented_ply_execution.py guard-execution \
+            --root . --execution "$EXECUTION_PATH" \
+            --source-parent-commit "$SOURCE_COMMIT" \
+            --source-parent-tree "$SOURCE_TREE" \
+            --github-output "$GITHUB_OUTPUT"
+          EXECUTION_SHA="$(sha256sum "$EXECUTION_PATH" | cut -d' ' -f1)"
+          echo "execution_sha=$EXECUTION_SHA" >> "$GITHUB_OUTPUT"
+          echo "source_commit=$SOURCE_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "source_tree=$SOURCE_TREE" >> "$GITHUB_OUTPUT"
+
+      - name: Materialize and revalidate the exact source parent
+        run: |
+          set -euo pipefail
+          mkdir source
+          git -C campaign archive HEAD^ | tar -x -C source
+          test ! -e "source/$EXECUTION_PATH"
+          test "$(sha256sum "source/$PLAN_PATH" | cut -d' ' -f1)" = \
+            "${{ steps.guard.outputs.plan_sha }}"
+          test "$(sha256sum "source/$LOCK_PATH" | cut -d' ' -f1)" = \
+            "${{ steps.guard.outputs.definition_lock_sha }}"
+          test "$(sha256sum "source/$WORKFLOW_PATH" | cut -d' ' -f1)" = \
+            "${{ steps.guard.outputs.workflow_sha }}"
+          test "$(sha256sum "source/$FINAL_RESULT_PATH" | cut -d' ' -f1)" = \
+            "${{ steps.guard.outputs.final_result_sha }}"
+          test "$(sha256sum source/data/champion.bin | cut -d' ' -f1)" = \
+            "${{ steps.guard.outputs.teacher_sha }}"
+          python3 source/tools/commented_ply_execution.py guard-execution \
+            --root source --execution "campaign/$EXECUTION_PATH" \
+            --source-parent-commit "${{ steps.guard.outputs.source_commit }}" \
+            --source-parent-tree "${{ steps.guard.outputs.source_tree }}"
+
+      - name: Compile and test the exact evaluator once
+        run: |
+          set -euo pipefail
+          test "$COMPILER_EXECUTABLE" = gcc
+          test "$COMPILER_SEMANTIC_VERSION_COMMAND" = \
+            "gcc -dumpfullversion -dumpversion"
+          test "$(gcc -dumpfullversion -dumpversion)" = \
+            "$REQUIRED_COMPILER_SEMANTIC_VERSION"
+          make -C source -j2 CC="$COMPILER_EXECUTABLE" \
+            CFLAGS="$BUILD_CFLAGS" LDFLAGS="$BUILD_LDFLAGS" \
+            bin/commented_ply_eval data/champion.bin
+          (cd source && python3 -m unittest \
+            tests/test_commented_ply_audit.py \
+            tests/test_commented_ply_execution.py)
+          python3 source/tools/commented_ply_execution.py guard-execution \
+            --root source --execution "campaign/$EXECUTION_PATH" \
+            --source-parent-commit "${{ steps.guard.outputs.source_commit }}" \
+            --source-parent-tree "${{ steps.guard.outputs.source_tree }}"
+
+      - name: Bind the immutable evaluator transport
+        id: bind
+        run: |
+          set -euo pipefail
+          test -n "${ImageOS:-}"
+          test -n "${ImageVersion:-}"
+          test -n "${RUNNER_OS:-}"
+          test -n "${RUNNER_ARCH:-}"
+          mv source evaluator
+          test -z "$(find evaluator -type l -print -quit)"
+          mkdir -p evaluator/bindings
+          cp "campaign/$EXECUTION_PATH" evaluator/bindings/execution.json
+          cp "evaluator/$PLAN_PATH" evaluator/bindings/plan.json
+          cp "evaluator/$LOCK_PATH" evaluator/bindings/definition-lock.json
+          cp "evaluator/$WORKFLOW_PATH" evaluator/bindings/workflow.yml
+          cp "evaluator/$FINAL_RESULT_PATH" \
+            evaluator/bindings/final-actor-result.json
+          python3 - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+          import shutil
+
+          root = Path("evaluator")
+          execution = json.loads((root / "bindings/execution.json").read_text())
+          final = execution["authoritative_final_actor_result"]
+          files = {
+              row["path"]: row["sha256"]
+              for row in execution["corpus_artifacts"]
+          }
+          files[execution["continuation"]["checkpoint"]["path"]] = \
+              execution["continuation"]["checkpoint"]["sha256"]
+          for row in final["authoritative_results"]:
+              files[row["path"]] = row["sha256"]
+          for rows in final["actor_assets"].values():
+              for row in rows:
+                  files[row["path"]] = row["sha256"]
+          for name, expected in sorted(files.items()):
+              source = root / name
+              actual = hashlib.sha256(source.read_bytes()).hexdigest()
+              if actual != expected:
+                  raise SystemExit(f"bound repository artifact drift: {name}")
+              destination = root / "bindings/repository" / name
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copyfile(source, destination)
+          PY
+          {
+            echo "launch_commit=$GITHUB_SHA"
+            echo "source_parent_commit=${{ steps.guard.outputs.source_commit }}"
+            echo "source_parent_tree=${{ steps.guard.outputs.source_tree }}"
+            echo "execution_sha=${{ steps.guard.outputs.execution_sha }}"
+            echo "plan_sha=${{ steps.guard.outputs.plan_sha }}"
+            echo "workflow_sha=${{ steps.guard.outputs.workflow_sha }}"
+            echo "definition_sha=${{ steps.guard.outputs.definition_sha }}"
+            echo "definition_lock_sha=${{ steps.guard.outputs.definition_lock_sha }}"
+            echo "definition_lock_commit=${{ steps.guard.outputs.definition_lock_commit }}"
+            echo "definition_commit=${{ steps.guard.outputs.definition_commit }}"
+            echo "definition_tree=${{ steps.guard.outputs.definition_tree }}"
+            echo "final_result_sha=${{ steps.guard.outputs.final_result_sha }}"
+            echo "selection_mode=${{ steps.guard.outputs.selection_mode }}"
+            echo "final_gate_passed=${{ steps.guard.outputs.final_gate_passed }}"
+            echo "winner_actor=${{ steps.guard.outputs.winner_actor }}"
+            echo "teacher_actor=policy:data/champion.bin:0:20"
+            echo "teacher_sha=${{ steps.guard.outputs.teacher_sha }}"
+            echo "compiler_executable=$COMPILER_EXECUTABLE"
+            echo "compiler_semantic_version_command=$COMPILER_SEMANTIC_VERSION_COMMAND"
+            echo "compiler_semantic_version=$(gcc -dumpfullversion -dumpversion)"
+            echo "compiler_banner=$(gcc --version | head -1)"
+            echo "runner_image_os=$ImageOS"
+            echo "runner_image_version=$ImageVersion"
+            echo "runner_os=$RUNNER_OS"
+            echo "runner_arch=$RUNNER_ARCH"
+            echo "uname=$(uname -a)"
+            echo "cflags=$BUILD_CFLAGS"
+            echo "ldflags=$BUILD_LDFLAGS"
+          } > evaluator/BUILD_INFO.base.txt
+          (cd evaluator && find . -type f \
+            ! -name SHA256SUMS.txt \
+            ! -name PAYLOAD_SHA256SUMS.txt \
+            ! -name BUILD_INFO.txt \
+            ! -name BUILD_INFO.base.txt -print0 | \
+            sort -z | xargs -0 sha256sum > PAYLOAD_SHA256SUMS.txt)
+          EVALUATOR_SHA="$(sha256sum evaluator/PAYLOAD_SHA256SUMS.txt | cut -d' ' -f1)"
+          cat evaluator/BUILD_INFO.base.txt > evaluator/BUILD_INFO.txt
+          echo "evaluator_manifest_sha=$EVALUATOR_SHA" >> evaluator/BUILD_INFO.txt
+          rm evaluator/BUILD_INFO.base.txt
+          (cd evaluator && find . -type f ! -name SHA256SUMS.txt -print0 | \
+            sort -z | xargs -0 sha256sum > SHA256SUMS.txt)
+          (cd evaluator && sha256sum -c PAYLOAD_SHA256SUMS.txt)
+          (cd evaluator && sha256sum -c SHA256SUMS.txt)
+          echo "evaluator_manifest_sha=$EVALUATOR_SHA" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: commented-ply-audit-evaluator
+          path: evaluator
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 90
+
+  audit:
+    name: exact commented ply ${{ matrix.case_id }}
+    if: ${{ github.run_attempt == 1 && needs.preflight.result == 'success' }}
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 17
+      matrix:
+        case_id:
+          - ui-221-p3
+          - ui-221-p4
+          - ui-221-p8
+          - ui-221-p10
+          - ui-221-p12
+          - ui-221-p13
+          - ui-221-p16
+          - ui-221-p20
+          - showcase-572-p14
+          - showcase-572-p15
+          - showcase-572-p17
+          - showcase-572-p32
+          - ui-725-p21
+          - ui-725-p22
+          - ui-725-p23
+          - ui-725-p25
+          - ui-956-p44
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: commented-ply-audit-evaluator
+          path: evaluator
+
+      - name: Verify transport and run exactly one frozen case
+        env:
+          CASE_ID: ${{ matrix.case_id }}
+          WINNER_ACTOR: ${{ needs.preflight.outputs.winner_actor }}
+        run: |
+          set -euo pipefail
+          test "$(sha256sum evaluator/PAYLOAD_SHA256SUMS.txt | cut -d' ' -f1)" = \
+            "${{ needs.preflight.outputs.evaluator_manifest_sha }}"
+          grep -Fx "evaluator_manifest_sha=${{ needs.preflight.outputs.evaluator_manifest_sha }}" \
+            evaluator/BUILD_INFO.txt
+          (cd evaluator && sha256sum -c PAYLOAD_SHA256SUMS.txt)
+          (cd evaluator && sha256sum -c SHA256SUMS.txt)
+          chmod 755 evaluator/bin/commented_ply_eval
+          mkdir artifact
+          cd evaluator
+          /usr/bin/time \
+            -f 'wall_s=%e user_s=%U sys_s=%S max_rss_kb=%M exit=%x' \
+            -o "../artifact/${CASE_ID}.time" \
+            python3 tools/audit_commented_plies.py \
+              --case "$CASE_ID" \
+              --actor "$WINNER_ACTOR" \
+              --net data/champion.bin \
+              --helper bin/commented_ply_eval \
+              --worlds "$DEFAULT_WORLDS" \
+              --symmetries "$EXACT_SYMMETRIES" \
+              --belief-alpha "$BELIEF_ALPHA" \
+              --source-commit "${{ needs.preflight.outputs.source_commit }}" \
+              --output-json "../artifact/${CASE_ID}.json"
+          cd ..
+          (cd artifact && sha256sum "${CASE_ID}.json" > \
+            "${CASE_ID}.sha256")
+          python3 - "$CASE_ID" "artifact/${CASE_ID}.json" <<'PY'
+          import json
+          from pathlib import Path
+          import sys
+
+          case_id, path = sys.argv[1], Path(sys.argv[2])
+          value = json.loads(path.read_text())
+          if value.get("schema") != "lc-commented-ply-audit-v2":
+              raise SystemExit("one-case shard schema drift")
+          if value.get("selection", {}).get("case_ids") != [case_id]:
+              raise SystemExit("one-case shard selected a different case")
+          if value.get("summary", {}).get("completed_cases") != 1 or \
+                  len(value.get("cases", [])) != 1:
+              raise SystemExit("one-case shard did not complete exactly once")
+          PY
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: commented-ply-audit-case-${{ matrix.case_id }}
+          path: artifact
+          if-no-files-found: error
+          retention-days: 90
+
+  merge:
+    if: ${{ github.run_attempt == 1 && needs.preflight.result == 'success' && needs.audit.result == 'success' }}
+    needs: [preflight, audit]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: commented-ply-audit-evaluator
+          path: evaluator
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: commented-ply-audit-case-*
+          path: shards
+          merge-multiple: true
+
+      - name: Verify complete coverage and merge losslessly
+        env:
+          WINNER_ACTOR: ${{ needs.preflight.outputs.winner_actor }}
+        run: |
+          set -euo pipefail
+          test "$(sha256sum evaluator/PAYLOAD_SHA256SUMS.txt | cut -d' ' -f1)" = \
+            "${{ needs.preflight.outputs.evaluator_manifest_sha }}"
+          grep -Fx "evaluator_manifest_sha=${{ needs.preflight.outputs.evaluator_manifest_sha }}" \
+            evaluator/BUILD_INFO.txt
+          (cd evaluator && sha256sum -c PAYLOAD_SHA256SUMS.txt)
+          (cd evaluator && sha256sum -c SHA256SUMS.txt)
+          python3 - <<'PY'
+          from pathlib import Path
+
+          ids = (
+              "ui-221-p3", "ui-221-p4", "ui-221-p8", "ui-221-p10",
+              "ui-221-p12", "ui-221-p13", "ui-221-p16", "ui-221-p20",
+              "showcase-572-p14", "showcase-572-p15", "showcase-572-p17",
+              "showcase-572-p32", "ui-725-p21", "ui-725-p22", "ui-725-p23",
+              "ui-725-p25", "ui-956-p44",
+          )
+          expected = {
+              f"{case_id}{suffix}"
+              for case_id in ids for suffix in (".json", ".sha256", ".time")
+          }
+          actual = {path.name for path in Path("shards").iterdir() if path.is_file()}
+          if actual != expected or any(not path.is_file() for path in Path("shards").iterdir()):
+              raise SystemExit(
+                  f"exact-17 shard file mismatch; missing={sorted(expected-actual)!r}; "
+                  f"extra={sorted(actual-expected)!r}")
+          PY
+          (cd shards && for sidecar in *.sha256; do
+            sha256sum -c "$sidecar"
+          done)
+          mkdir -p final-evidence
+          python3 evaluator/tools/audit_commented_plies.py \
+            --merge shards/*.json \
+            --output-json final-evidence/commented-ply-audit.json \
+            --output-md final-evidence/commented-ply-audit.md
+          python3 evaluator/tools/audit_commented_plies.py \
+            --from-json final-evidence/commented-ply-audit.json \
+            --output-md /tmp/commented-ply-rerendered.md
+          cmp final-evidence/commented-ply-audit.md \
+            /tmp/commented-ply-rerendered.md
+
+      - name: Seal canonical JSON Markdown shards and bindings
+        env:
+          WINNER_ACTOR: ${{ needs.preflight.outputs.winner_actor }}
+        run: |
+          set -euo pipefail
+          python3 - "$WINNER_ACTOR" \
+            "${{ needs.preflight.outputs.definition_sha }}" \
+            "${{ needs.preflight.outputs.source_commit }}" <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+          import re
+          import sys
+
+          actor, definition, source = sys.argv[1:]
+          audit_path = Path("final-evidence/commented-ply-audit.json")
+          raw = audit_path.read_text()
+          value = json.loads(raw)
+          if raw != json.dumps(value, indent=2, sort_keys=True) + "\n":
+              raise SystemExit("merged audit JSON is not canonical")
+          ids = [
+              "ui-221-p3", "ui-221-p4", "ui-221-p8", "ui-221-p10",
+              "ui-221-p12", "ui-221-p13", "ui-221-p16", "ui-221-p20",
+              "showcase-572-p14", "showcase-572-p15", "showcase-572-p17",
+              "showcase-572-p32", "ui-725-p21", "ui-725-p22", "ui-725-p23",
+              "ui-725-p25", "ui-956-p44",
+          ]
+          if value.get("schema") != "lc-commented-ply-audit-v2" or \
+                  value.get("audit_definition_sha256") != definition or \
+                  value.get("repository_head") != source or \
+                  value.get("subject", {}).get("actor_spec") != actor or \
+                  value.get("subject", {}).get("actor_spec_sha256") != \
+                  hashlib.sha256(actor.encode()).hexdigest() or \
+                  value.get("subject", {}).get("evaluation_net_path") != \
+                  "data/champion.bin" or \
+                  value.get("selection", {}).get("case_ids") != ids or \
+                  value.get("summary", {}).get("completed_cases") != 17 or \
+                  [case.get("case_id") for case in value.get("cases", [])] != ids:
+              raise SystemExit("merged exact-17 identity/coverage drift")
+          implementation = value.get("implementation", {})
+          if implementation.get("driver_path") != \
+                  "tools/audit_commented_plies.py" or \
+                  implementation.get("helper_path") != \
+                  "bin/commented_ply_eval" or \
+                  implementation.get("driver_sha256") != hashlib.sha256(Path(
+                      "evaluator/tools/audit_commented_plies.py").read_bytes()
+                  ).hexdigest() or \
+                  implementation.get("helper_sha256") != hashlib.sha256(Path(
+                      "evaluator/bin/commented_ply_eval").read_bytes()
+                  ).hexdigest():
+              raise SystemExit("merged evaluator implementation drift")
+          expected_worlds = {
+              case_id: 2048 if case_id == "ui-221-p10" else 1024
+              for case_id in ids
+          }
+          contract = value.get("contract", {})
+          if contract.get("case_count") != 17 or \
+                  contract.get("base_paired_worlds") != 1024 or \
+                  contract.get("paired_worlds_by_case") != expected_worlds or \
+                  contract.get("exact_policy_teacher") != \
+                  "policy:data/champion.bin:0:20" or \
+                  contract.get("exact_policy_symmetries") != 20 or \
+                  contract.get("continuation_scope") != \
+                  "full_remaining_three_round_match" or \
+                  contract.get("current_hidden_worlds_shared_across_actions") \
+                  is not True or \
+                  contract.get("future_deals_shared_across_actions") is not True or \
+                  contract.get("branch_rng_domains_neutral") is not True or \
+                  contract.get("policy_probability_aggregation") != \
+                  "sum_by_semantic_move" or \
+                  contract.get("actor_selected_action_graded_on_all_17") \
+                  is not True or \
+                  contract.get("counterfactual_caps") != "zero_fail_closed" or \
+                  contract.get("p13_action_panel") != \
+                  "exact_policy20_top_two_plus_actor_if_absent" or \
+                  contract.get("p13_belief_overlay") != \
+                  "fixed_k_alpha_1.15_target_Y9" or \
+                  contract.get("training_use") != "forbidden_diagnostic_only" or \
+                  contract.get("promotion_gate") is not False or \
+                  contract.get("locked_validation_criteria_changed") is not False:
+              raise SystemExit("merged exact-17 audit contract drift")
+          summary = value.get("summary", {})
+          if summary.get("action_panels") != 17 or \
+                  summary.get("belief_overlays") != 1 or \
+                  summary.get("total_paired_worlds") != 18432 or \
+                  summary.get("counterfactual_cap_hits") != 0:
+              raise SystemExit("merged exact-17 summary drift")
+          for case in value["cases"]:
+              evaluation = case.get("evaluation", {})
+              counterfactual = evaluation.get("counterfactual", {})
+              required = 2048 if case["case_id"] == "ui-221-p10" else 1024
+              if counterfactual.get("requested_worlds") != required or \
+                      counterfactual.get("completed_worlds") != required or \
+                      counterfactual.get("cap_hits") != 0 or \
+                      counterfactual.get("actor_selected_included") is not True or \
+                      counterfactual.get("root_information_view") is not True or \
+                      counterfactual.get("shared_current_hidden_worlds") is not True or \
+                      counterfactual.get("shared_future_deals") is not True or \
+                      counterfactual.get("branch_neutral_rng_domains") is not True:
+                  raise SystemExit(f"{case['case_id']}: underpowered/incomplete action panel")
+              if counterfactual.get("policy_probability_aggregation") != \
+                      "sum_by_semantic_move":
+                  raise SystemExit(f"{case['case_id']}: semantic probability drift")
+              for name in (
+                  "hidden_world_set_hash", "future_deal_set_hash",
+                  "branch_rng_domain_hash",
+              ):
+                  if not re.fullmatch(r"[0-9a-f]{16}", str(
+                          counterfactual.get(name, ""))):
+                      raise SystemExit(f"{case['case_id']}: invalid {name}")
+              continuation = counterfactual.get("continuation", {})
+              if continuation.get("kind") != "exact_policy_argmax" or \
+                      continuation.get("checkpoint") != "data/champion.bin" or \
+                      continuation.get("scope") != "full_remaining_three_round_match" or \
+                      continuation.get("temperature") != 0 or \
+                      continuation.get("epsilon") != 0 or \
+                      continuation.get("symmetries") != 20 or \
+                      continuation.get("exact_group_average") is not True or \
+                      continuation.get("fresh_information_view_each_node") is not True or \
+                      continuation.get("recursive_actor") is not False:
+                  raise SystemExit(f"{case['case_id']}: continuation drift")
+              candidates = counterfactual.get("candidates", [])
+              if len(candidates) < 2 or any(
+                  row.get("completed_worlds") != required or
+                  row.get("cap_hits") != 0 for row in candidates
+              ) or evaluation.get("actor", {}).get("selected") not in {
+                  row.get("move") for row in candidates
+              }:
+                  raise SystemExit(f"{case['case_id']}: incomplete candidate branches")
+              if case["case_id"] == "ui-221-p13":
+                  belief = evaluation.get("belief", {})
+                  if belief.get("valid") is not True or \
+                          belief.get("kind") != "fixed_k" or \
+                          belief.get("information_view") is not True or \
+                          belief.get("complete_state_used_only_as_truth_label") \
+                          is not True or \
+                          belief.get("symmetries") != 20 or \
+                          abs(belief.get("alpha", -1) - 1.15) > 1e-6 or \
+                          counterfactual.get("nominated_candidates") != 0 or \
+                          counterfactual.get("policy_reference_candidates") != 2 or \
+                          belief.get("target", {}).get("card") != "Y9" or \
+                          abs(belief.get("marginal_sum", -1) - belief.get("need", -2)) > 2e-4:
+                      raise SystemExit("ui-221-p13: invalid fixed-K belief")
+              elif evaluation.get("belief") is not None or \
+                      counterfactual.get("policy_reference_candidates") != 0:
+                  raise SystemExit(f"{case['case_id']}: unexpected belief/policy panel")
+          PY
+          mkdir -p final-evidence/shards final-evidence/bindings
+          cp shards/* final-evidence/shards/
+          cp evaluator/BUILD_INFO.txt final-evidence/BUILD_INFO.txt
+          cp evaluator/SHA256SUMS.txt final-evidence/EVALUATOR_SHA256SUMS.txt
+          cp evaluator/PAYLOAD_SHA256SUMS.txt \
+            final-evidence/EVALUATOR_PAYLOAD_SHA256SUMS.txt
+          printf '%s\n' "${{ needs.preflight.outputs.evaluator_manifest_sha }}" > \
+            final-evidence/EVALUATOR_MANIFEST_SHA256.txt
+          cp -R evaluator/bindings/. final-evidence/bindings/
+          cp -R evaluator final-evidence/evaluator
+          test "$(sha256sum final-evidence/evaluator/PAYLOAD_SHA256SUMS.txt | \
+            cut -d' ' -f1)" = "${{ needs.preflight.outputs.evaluator_manifest_sha }}"
+          (cd final-evidence/evaluator && sha256sum -c PAYLOAD_SHA256SUMS.txt)
+          (cd final-evidence/evaluator && sha256sum -c SHA256SUMS.txt)
+          (cd final-evidence && find . -type f ! -name SHA256SUMS.txt -print0 | \
+            sort -z | xargs -0 sha256sum > SHA256SUMS.txt)
+          (cd final-evidence && sha256sum -c SHA256SUMS.txt)
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: commented-ply-audit-complete-evidence
+          path: final-evidence
+          if-no-files-found: error
+          retention-days: 90

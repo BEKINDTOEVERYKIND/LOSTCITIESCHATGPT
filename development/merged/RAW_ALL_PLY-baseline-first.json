@@ -1,0 +1,106 @@
+{
+  "artifact_kind": "merged_arena_pair_evidence",
+  "canonical_pair_rows_sha256": "2dc35469b1186afaabefb230b32af9e2b7bdd6c166a3819d9f597f85546ed982",
+  "inputs": [
+    {
+      "pair_count": 100,
+      "pair_start": 0,
+      "path": "panels/RAW_ALL_PLY/baseline-first-0.jsonl",
+      "sha256": "fa827fd2176b2e1d63c106f32bff9fc5b74ae45180fcc26c67ffd33cffb88411"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 100,
+      "path": "panels/RAW_ALL_PLY/baseline-first-100.jsonl",
+      "sha256": "379267159350f12a3a394b12646e428602313e40134eaa9a2c71da3a911eb41c"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 200,
+      "path": "panels/RAW_ALL_PLY/baseline-first-200.jsonl",
+      "sha256": "dfc4e8c3443c28e04c098c6f9d170b980f074e40413c52779f59cda7b456fdbb"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 300,
+      "path": "panels/RAW_ALL_PLY/baseline-first-300.jsonl",
+      "sha256": "e504fb5903ab5a2bd087a141fc967811b31db96fa75ed2458460edf75f114ca4"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 400,
+      "path": "panels/RAW_ALL_PLY/baseline-first-400.jsonl",
+      "sha256": "e3841e57625b378046a21b255b83801378bd26aaef5959609fed3413b8d8b240"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 500,
+      "path": "panels/RAW_ALL_PLY/baseline-first-500.jsonl",
+      "sha256": "dfe27b674b54925f29c161754b62d7b0abd58ba8fe1607cb7ff8a64e99408109"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 600,
+      "path": "panels/RAW_ALL_PLY/baseline-first-600.jsonl",
+      "sha256": "d75b2f0ace8f4124061d0b7006f5a7e7b2da118217862f9b8b6caaedf9e40b5e"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 700,
+      "path": "panels/RAW_ALL_PLY/baseline-first-700.jsonl",
+      "sha256": "86075adf998b10927baa7ad8b22810bab10563400c6524a6a81dd6051c8292cf"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 800,
+      "path": "panels/RAW_ALL_PLY/baseline-first-800.jsonl",
+      "sha256": "58b3bbfbe38d8e1e077ed996e13c47b5883dc16c8b91eb7096e3bc66ef8e7963"
+    },
+    {
+      "pair_count": 100,
+      "pair_start": 900,
+      "path": "panels/RAW_ALL_PLY/baseline-first-900.jsonl",
+      "sha256": "fa7b5a79d101df0716dcbbeeaa8d6e053c773e0d6aab428df28a9b7b5930160b"
+    }
+  ],
+  "metadata": {
+    "agent_a": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+    "agent_b": "rolloutu2:data/champion.bin:data/champion.bin:800:5:0.02:0:1:0:0:0:3:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1:0:0:0:1:0:data/models/match_value_objective3_v2_raw.lcmv",
+    "provenance": "stage=match_value_objective3_v2_development;variant=RAW_ALL_PLY;plan=72587805f9a22bd981b537572e9c847cc5765123aa502caedea6a6894a722f24;lock=6f40e7579e3ba5157c2750c6540d8688af630298f2338d1ad4617a87532fffbd;execution=7fa8b2de912466c9affd0ff8188cc8403dd1b085f02de6acf10d8df0284db75a;post_build=fcd12297707986c3eabc5d5551dac2b30ee8f12bebcb662f2c76bb8cf5d3a0b5;source=0eb2a90a66f1297d2191547da8e41fcc80b64d61;arena=b54eefb0bb17e75361ebee6faa004eb0062cae17a2543d9fe5a62f213a94201e;model=af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417;table=de7786c592f2fdbde7287bb10610c1065e605528eef6914041b4c6000216408b;worlds=800;threads=4",
+    "rounds": 3,
+    "schema": 1,
+    "seed": "202610200102"
+  },
+  "pair_count": 1000,
+  "pair_start": "0",
+  "result": {
+    "capped_rounds": 0,
+    "draws": 14,
+    "games": 2000,
+    "losses": 1073,
+    "margin_pair_clustered_se": 1.3078336395844958,
+    "margin_per_game": -4.61,
+    "match_score": 0.46,
+    "match_score_pair_clustered_se": 0.009855055663065639,
+    "pairs": 1000,
+    "plies_per_game": 140.706,
+    "points_per_game_a": 118.3675,
+    "points_per_game_b": 122.9775,
+    "wins": 913
+  },
+  "schema_version": 1,
+  "sufficient_statistics": {
+    "capped_rounds": 0,
+    "draws": 14,
+    "losses": 1073,
+    "margin_sum": -9220,
+    "margin_sumsq": 6919882,
+    "pairs": 1000,
+    "plies_sum": 281412,
+    "points_a_sum": 236735,
+    "points_b_sum": 245955,
+    "score_quarters_sum": 1840,
+    "score_quarters_sumsq": 4938,
+    "wins": 913
+  }
+}

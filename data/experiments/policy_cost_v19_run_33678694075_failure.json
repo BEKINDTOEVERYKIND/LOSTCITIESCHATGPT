@@ -1,0 +1,58 @@
+{
+  "cause": {
+    "class": "sealed_calibration_binary64_round_trip_exact_equality_mismatch",
+    "detail": "All 54 TRAIN evaluation batches and the frozen calibration gate succeeded. Every SELECT shard then failed closed before evaluation because the transport verifier required byte-exact equality between the sealed derived threshold table and a table recomputed after JSON deserialization. Seventeen finite binary64 values differed by at most one ULP; the first witness was beta_search at ply 19 (0.863224838051126 versus 0.8632248380511262).",
+    "failed_job_family": "select_evaluate",
+    "failed_step": "Verify the sealed calibration handoff before SELECT evaluation",
+    "maximum_absolute_difference": 1.1102230246251565e-16,
+    "mismatched_finite_value_count": 17,
+    "not_ai_result": true
+  },
+  "execution": {
+    "launch_commit": "5afc8225a6c9dc70f834d0a1ae92a780aa052552",
+    "launch_tree": "4eaa9d10b490ac553e6a72cfd69a07a0c9f8309f",
+    "path": "data/experiments/locked_policy_cost_v19_execution.json",
+    "sha256": "188145a5d70720d5d6b63d5f0f5fa74cfb8232876bf776af1d1e5536507df571"
+  },
+  "fixed_seed_execution": {
+    "all_policy_cost_v19_fixed_roots_retired": true,
+    "campaign_seed_or_truth_use_began": true,
+    "declared_fixed_root_count": 21,
+    "retry_forbidden": true
+  },
+  "github_run": {
+    "attempt": 1,
+    "conclusion": "failure",
+    "event": "push",
+    "id": 33678694075,
+    "job_disposition": {
+      "failure": 52,
+      "select_evaluate_failure": 48,
+      "skipped": 5,
+      "success": 63,
+      "total": 120,
+      "train_evaluate_success": 54
+    },
+    "url": "https://github.com/BEKINDTOEVERYKIND/LOSTCITIESCHATGPT/actions/runs/33678694075"
+  },
+  "immutable_calibration_artifact": {
+    "artifact_digest": "sha256:deb70ece52afbbc41b4ddf562c81d6753c7a62b915134dc03131fffb81cd33b5",
+    "artifact_id": 9877207713,
+    "calibration_gate_passed": true,
+    "calibration_gate_sha256": "a8833ee45a03b36817e8f69dc15f63a11bc636cdd2c4edfb891a9d514b91cd76",
+    "calibration_sha256": "f3f0b53642da193a9dd2cad66068be704f4b01d0e7332cfe226544ecfc6a6ef2",
+    "train_evaluation_batch_count": 54,
+    "train_logical_slice_count": 216
+  },
+  "locked_validation_relaxed": false,
+  "maintained_actor_changed": false,
+  "partial_efficacy_inspected": false,
+  "promotion_efficacy_data_observed": false,
+  "repair_scope": "Accept only structurally identical sealed derived-threshold tables whose corresponding finite binary64 leaves are equal or adjacent by one ULP. Preserve the original sealed bytes and every actor, source, sample, budget, seed-domain, exact-17 exclusion, and promotion gate. Repair infrastructure evidence retention independently.",
+  "schema": "lc-policy-cost-v19-select-calibration-binary64-round-trip-failure-v1",
+  "status": "complete_terminal_non_promotable_before_select_efficacy",
+  "workflow": {
+    "path": ".github/workflows/policy-cost-v19.yml",
+    "sha256": "5d3487c9c581f2e331a8189df5d14ce73747c891a0c1d07c345d2d33401c1991"
+  }
+}

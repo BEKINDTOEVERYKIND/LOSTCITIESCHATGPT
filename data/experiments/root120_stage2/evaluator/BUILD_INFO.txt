@@ -1,0 +1,5 @@
+source=0b8c65f91fe1f844b8dbfcda5df8cc92806c839d
+cflags=-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11
+gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+a63463d9521d3d1e7639174dd105ce2c751492410f447c604c74a94d1d556e7c  evaluator/arena
+af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417  evaluator/champion.bin

@@ -1,0 +1,598 @@
+name: Locked controller-veto-v3 actor panels
+
+# Publishing this workflow, plan, evaluator, or veto checkpoint consumes no
+# efficacy seed. Exactly one future addendum-only push launches the campaign.
+# Evaluation runners transport and hash-check the frozen binary and models;
+# they never rebuild or relink the evaluator.
+on:
+  push:
+    branches:
+      - agent/correctness-and-policy-upgrade
+    paths:
+      - data/experiments/locked_controller_veto_v3_execution.json
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_COMMIT: cda70a217d776bdfb2c1457bfe8c0f5f0dbfed22
+  SOURCE_TREE: d006e7b0c1030f30ac135cdc489e2ea64e934ac0
+  PLAN_PATH: data/experiments/locked_controller_veto_v3_plan.json
+  PLAN_SHA: 4d534886202b331d00ce7e35ac8326e9cc13a67fe2d28e36ec5fa5f9194ccd20
+  EXECUTION_PATH: data/experiments/locked_controller_veto_v3_execution.json
+  ARENA_PATH: data/evaluators/controller-veto-v3/arena
+  ARENA_SHA: 2612e14a3e3b5c4e32333b8949261061797153b26e7501a37ad306f73889c768
+  ARENA_SIZE: '366704'
+  ROOT_PATH: data/champion.bin
+  ROOT_SHA: af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417
+  ROOT_SIZE: '2823748'
+  VETO_PATH: data/models/continuation_v2_o0_shared_soup.bin
+  VETO_SHA: 2d06a78eb9f088d36787fa559c529e5f6c6c674c45a8d067063deb8e06b15f3a
+  VETO_SIZE: '2823748'
+  CONTINUATION_V2_EXECUTION_SHA: 8ada5982e633daee3a5c9a2828484edddcf4ffe83c10e654a92560a30ace5c65
+  CONTINUATION_V2_SCREEN_A_SHA: 4e1861488f89a13d0589cb6850781df52808cf9bb7e6eac02d5174fa8f9af1ce
+  CONTINUATION_V2_SCREEN_B_SHA: 1b7c93c383c35049ea14e58ee05f26a8c9fd552a831c467a6e9643aaa22d8d0f
+  COMPILER_ID: 'gcc (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0'
+  EVAL_CFLAGS: '-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11'
+  EVAL_LDFLAGS: '-lm -pthread'
+  MERGER_SHA: 9cad23c9e6550ea36d7721acf8e64144a44058083ad4aeb5bb5613a3a79139fb
+  GATE_SHA: 50ae52c66698d04cd4cc13af35c3d0eaed72e37bd76657dae12aa10f09dcc2ed
+  SHARD_VALIDATOR_SHA: bca430a94af64180436c7fb60d29b2e86ec4b3567ab3aabb09984aabee054855
+  CANDIDATE: 'rolloutu3:data/champion.bin:data/champion.bin:data/models/continuation_v2_o0_shared_soup.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1:0:0:0:1'
+  BASELINE: 'rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1'
+  SAFETY_PROVENANCE: 'stage=controller_veto_v3_safety;plan=4d534886202b331d00ce7e35ac8326e9cc13a67fe2d28e36ec5fa5f9194ccd20;source=cda70a217d776bdfb2c1457bfe8c0f5f0dbfed22;tree=d006e7b0c1030f30ac135cdc489e2ea64e934ac0;arena=2612e14a3e3b5c4e32333b8949261061797153b26e7501a37ad306f73889c768;root=af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417;veto=2d06a78eb9f088d36787fa559c529e5f6c6c674c45a8d067063deb8e06b15f3a;threads=4'
+  FINAL_PROVENANCE: 'stage=controller_veto_v3_final;plan=4d534886202b331d00ce7e35ac8326e9cc13a67fe2d28e36ec5fa5f9194ccd20;source=cda70a217d776bdfb2c1457bfe8c0f5f0dbfed22;tree=d006e7b0c1030f30ac135cdc489e2ea64e934ac0;arena=2612e14a3e3b5c4e32333b8949261061797153b26e7501a37ad306f73889c768;root=af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417;veto=2d06a78eb9f088d36787fa559c529e5f6c6c674c45a8d067063deb8e06b15f3a;threads=4'
+  SAFETY_CANDIDATE_SEED: '202608280301'
+  SAFETY_BASELINE_SEED: '202608280302'
+  FINAL_CANDIDATE_SEED: '202608280401'
+  FINAL_BASELINE_SEED: '202608280402'
+
+jobs:
+  build_evaluator:
+    if: ${{ github.run_attempt == 1 }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    outputs:
+      run_final: ${{ steps.guard.outputs.run_final }}
+      execution_sha: ${{ steps.guard.outputs.execution_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          path: campaign
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_COMMIT }}
+          path: source
+
+      - name: Fail closed unless this is the one addendum-only launch
+        id: guard
+        working-directory: campaign
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = push
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$GITHUB_REF" = refs/heads/agent/correctness-and-policy-upgrade
+          test -f "$EXECUTION_PATH"
+          test "$(git diff-tree --no-commit-id --name-only -r HEAD)" = "$EXECUTION_PATH"
+          test "$(git diff-tree --no-commit-id --name-status -r HEAD)" = \
+            "$(printf 'A\t%s' "$EXECUTION_PATH")"
+          if git cat-file -e "HEAD^:$EXECUTION_PATH" 2>/dev/null; then
+            echo "execution addendum already existed before this launch" >&2
+            exit 1
+          fi
+          test "$(git rev-list --all --count -- "$EXECUTION_PATH")" = 1
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          import subprocess
+          from pathlib import Path
+
+          def reject_constant(token):
+              raise ValueError(f"non-standard JSON constant {token}")
+
+          def unique(items):
+              result = {}
+              for key, value in items:
+                  if key in result:
+                      raise ValueError(f"duplicate JSON key {key}")
+                  result[key] = value
+              return result
+
+          path = Path(os.environ["EXECUTION_PATH"])
+          value = json.loads(
+              path.read_text(encoding="utf-8"),
+              object_pairs_hook=unique,
+              parse_constant=reject_constant,
+          )
+          parent = subprocess.check_output(
+              ["git", "rev-parse", "HEAD^"], text=True
+          ).strip()
+          workflow = Path(".github/workflows/controller-veto-v3.yml")
+          workflow_sha = hashlib.sha256(workflow.read_bytes()).hexdigest()
+          expected = {
+              "schema_version": 1,
+              "artifact_kind": "locked_controller_veto_v3_execution",
+              "status": "launch_bound_before_actor_efficacy",
+              "source_parent_commit": parent,
+              "workflow": {
+                  "path": str(workflow),
+                  "sha256": workflow_sha,
+              },
+              "plan": {
+                  "path": os.environ["PLAN_PATH"],
+                  "sha256": os.environ["PLAN_SHA"],
+              },
+              "source": {
+                  "commit": os.environ["SOURCE_COMMIT"],
+                  "tree": os.environ["SOURCE_TREE"],
+              },
+              "transport": {
+                  "binding": (
+                      "transport exact prebuilt artifacts; compile nothing "
+                      "on evaluation runners"
+                  ),
+                  "arena": {
+                      "path": os.environ["ARENA_PATH"],
+                      "sha256": os.environ["ARENA_SHA"],
+                      "size_bytes": int(os.environ["ARENA_SIZE"]),
+                      "mode": "0755",
+                  },
+                  "root": {
+                      "path": os.environ["ROOT_PATH"],
+                      "sha256": os.environ["ROOT_SHA"],
+                      "size_bytes": int(os.environ["ROOT_SIZE"]),
+                  },
+                  "veto": {
+                      "path": os.environ["VETO_PATH"],
+                      "sha256": os.environ["VETO_SHA"],
+                      "size_bytes": int(os.environ["VETO_SIZE"]),
+                  },
+              },
+              "upstream_provenance": {
+                  "continuation_v2_execution_result_sha256": os.environ[
+                      "CONTINUATION_V2_EXECUTION_SHA"
+                  ],
+                  "continuation_v2_screen_a_result_sha256": os.environ[
+                      "CONTINUATION_V2_SCREEN_A_SHA"
+                  ],
+                  "continuation_v2_screen_b_result_sha256": os.environ[
+                      "CONTINUATION_V2_SCREEN_B_SHA"
+                  ],
+              },
+              "evidence_tools": {
+                  "merge_arena_sha256": os.environ["MERGER_SHA"],
+                  "gate_actor_panel_sha256": os.environ["GATE_SHA"],
+                  "validate_actor_shards_sha256": os.environ[
+                      "SHARD_VALIDATOR_SHA"
+                  ],
+              },
+              "evaluator": {
+                  "compiler": os.environ["COMPILER_ID"],
+                  "cflags": os.environ["EVAL_CFLAGS"],
+                  "ldflags": os.environ["EVAL_LDFLAGS"],
+                  "threads_per_shard": 4,
+              },
+              "actors": {
+                  "candidate": os.environ["CANDIDATE"],
+                  "baseline": os.environ["BASELINE"],
+                  "candidate_tail_fields": 40,
+                  "baseline_literal_lc_champion_tail_fields": 36,
+                  "safety_provenance": os.environ["SAFETY_PROVENANCE"],
+                  "final_provenance": os.environ["FINAL_PROVENANCE"],
+              },
+              "seed_firewall": {
+                  "excluded_development_namespace": "20260827",
+                  "eligible_namespace": "20260828",
+              },
+              "safety": {
+                  "pairs_per_orientation": 200,
+                  "pairs_per_shard": 20,
+                  "starts": list(range(0, 200, 20)),
+                  "candidate_first_seed": os.environ[
+                      "SAFETY_CANDIDATE_SEED"
+                  ],
+                  "baseline_first_seed": os.environ[
+                      "SAFETY_BASELINE_SEED"
+                  ],
+                  "gate": (
+                      "score>=0.5; margin>0; each orientation candidate "
+                      "score>=0.475; zero caps; exact validity"
+                  ),
+              },
+              "final": {
+                  "execute_if_safety_passes": True,
+                  "pairs_per_orientation": 2500,
+                  "pairs_per_shard": 100,
+                  "starts": list(range(0, 2500, 100)),
+                  "candidate_first_seed": os.environ[
+                      "FINAL_CANDIDATE_SEED"
+                  ],
+                  "baseline_first_seed": os.environ[
+                      "FINAL_BASELINE_SEED"
+                  ],
+                  "gate_z": 1.645,
+                  "gate": (
+                      "score-z*SE>0.5; margin-z*SE>0; each orientation "
+                      "candidate score>0.5; zero caps; exact validity"
+                  ),
+              },
+              "inspection_rule": (
+                  "No automated efficacy parse, merge, gate, or selection "
+                  "occurs until every immutable raw shard and sidecar expected "
+                  "for that stage has been uploaded and the complete shard "
+                  "set validates. Shard artifacts are transport only and must "
+                  "not be used for optional stopping."
+              ),
+              "results": None,
+          }
+          if value != expected:
+              raise SystemExit(
+                  "execution addendum does not exactly match the locked campaign"
+              )
+          if not re.fullmatch(r"[0-9a-f]{40}", parent):
+              raise SystemExit("noncanonical source-parent commit")
+          PY
+          EXECUTION_SHA="$(sha256sum "$EXECUTION_PATH" | cut -d' ' -f1)"
+          echo "execution_sha=$EXECUTION_SHA" >> "$GITHUB_OUTPUT"
+          echo "run_final=true" >> "$GITHUB_OUTPUT"
+
+      - name: Verify every frozen source, model, evaluator, and tool binding
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$(git -C source rev-parse HEAD)" = "$SOURCE_COMMIT"
+          test "$(git -C source rev-parse 'HEAD^{tree}')" = "$SOURCE_TREE"
+          test "$(sha256sum campaign/$PLAN_PATH | cut -d' ' -f1)" = "$PLAN_SHA"
+          test "$(sha256sum source/data/experiments/continuation_v2_execution_result.json | cut -d' ' -f1)" = "$CONTINUATION_V2_EXECUTION_SHA"
+          test "$(sha256sum source/data/experiments/continuation_v2_screen_a_result.json | cut -d' ' -f1)" = "$CONTINUATION_V2_SCREEN_A_SHA"
+          test "$(sha256sum source/data/experiments/continuation_v2_result.json | cut -d' ' -f1)" = "$CONTINUATION_V2_SCREEN_B_SHA"
+          test "$(sha256sum source/tools/merge_arena.py | cut -d' ' -f1)" = "$MERGER_SHA"
+          test "$(sha256sum source/tools/gate_actor_panel.py | cut -d' ' -f1)" = "$GATE_SHA"
+          test "$(sha256sum source/tools/validate_actor_shards.py | cut -d' ' -f1)" = "$SHARD_VALIDATOR_SHA"
+          test "$(stat -c %s source/$ARENA_PATH)" = "$ARENA_SIZE"
+          test "$(stat -c %a source/$ARENA_PATH)" = 755
+          test "$(sha256sum source/$ARENA_PATH | cut -d' ' -f1)" = "$ARENA_SHA"
+          test "$(stat -c %s source/$ROOT_PATH)" = "$ROOT_SIZE"
+          test "$(sha256sum source/$ROOT_PATH | cut -d' ' -f1)" = "$ROOT_SHA"
+          test "$(stat -c %s source/$VETO_PATH)" = "$VETO_SIZE"
+          test "$(sha256sum source/$VETO_PATH | cut -d' ' -f1)" = "$VETO_SHA"
+
+      - name: Bind one immutable transported evaluator artifact
+        run: |
+          set -euo pipefail
+          mkdir -p evaluator
+          cp "source/$ARENA_PATH" evaluator/arena
+          cp "source/$ROOT_PATH" evaluator/champion.bin
+          cp "source/$VETO_PATH" evaluator/veto.bin
+          chmod 755 evaluator/arena
+          {
+            echo "launch_commit=$GITHUB_SHA"
+            echo "source_parent_commit=$(git -C campaign rev-parse HEAD^)"
+            echo "execution_sha=${{ steps.guard.outputs.execution_sha }}"
+            echo "source_commit=$SOURCE_COMMIT"
+            echo "source_tree=$SOURCE_TREE"
+            echo "plan_sha=$PLAN_SHA"
+            echo "compiler=$COMPILER_ID"
+            echo "cflags=$EVAL_CFLAGS"
+            echo "ldflags=$EVAL_LDFLAGS"
+            echo "threads_per_shard=4"
+            uname -a
+            sha256sum evaluator/arena evaluator/champion.bin evaluator/veto.bin
+          } > evaluator/BUILD_INFO.txt
+          test "$(stat -c %s evaluator/arena)" = "$ARENA_SIZE"
+          test "$(sha256sum evaluator/arena | cut -d' ' -f1)" = "$ARENA_SHA"
+          test "$(stat -c %s evaluator/champion.bin)" = "$ROOT_SIZE"
+          test "$(sha256sum evaluator/champion.bin | cut -d' ' -f1)" = "$ROOT_SHA"
+          test "$(stat -c %s evaluator/veto.bin)" = "$VETO_SIZE"
+          test "$(sha256sum evaluator/veto.bin | cut -d' ' -f1)" = "$VETO_SHA"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: controller-veto-v3-evaluator
+          path: evaluator
+          if-no-files-found: error
+          retention-days: 30
+
+  safety_evaluate:
+    if: ${{ github.run_attempt == 1 }}
+    needs: build_evaluator
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        orientation: [candidate-first, baseline-first]
+        start: [0, 20, 40, 60, 80, 100, 120, 140, 160, 180]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: controller-veto-v3-evaluator
+          path: evaluator
+
+      - name: Run one immutable 20-pair safety shard
+        env:
+          ORIENTATION: ${{ matrix.orientation }}
+          PAIR_START: ${{ matrix.start }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          mkdir -p bin data/models raw
+          cp evaluator/arena bin/arena
+          cp evaluator/champion.bin data/champion.bin
+          cp evaluator/veto.bin data/models/continuation_v2_o0_shared_soup.bin
+          chmod 755 bin/arena
+          test "$(stat -c %s bin/arena)" = "$ARENA_SIZE"
+          test "$(sha256sum bin/arena | cut -d' ' -f1)" = "$ARENA_SHA"
+          test "$(stat -c %s data/champion.bin)" = "$ROOT_SIZE"
+          test "$(sha256sum data/champion.bin | cut -d' ' -f1)" = "$ROOT_SHA"
+          test "$(stat -c %s data/models/continuation_v2_o0_shared_soup.bin)" = "$VETO_SIZE"
+          test "$(sha256sum data/models/continuation_v2_o0_shared_soup.bin | cut -d' ' -f1)" = "$VETO_SHA"
+          if [ "$ORIENTATION" = candidate-first ]; then
+            AGENT_A="$CANDIDATE"
+            AGENT_B="$BASELINE"
+            SEED="$SAFETY_CANDIDATE_SEED"
+          elif [ "$ORIENTATION" = baseline-first ]; then
+            AGENT_A="$BASELINE"
+            AGENT_B="$CANDIDATE"
+            SEED="$SAFETY_BASELINE_SEED"
+          else
+            exit 1
+          fi
+          OUT="raw/${ORIENTATION}-${PAIR_START}"
+          /usr/bin/time \
+            -f 'wall_s=%e user_s=%U sys_s=%S max_rss_kb=%M exit=%x' \
+            -o "${OUT}.time" \
+            ./bin/arena -a "$AGENT_A" -b "$AGENT_B" \
+              -n 20 -t 4 -s "$SEED" -r 3 --pair-start "$PAIR_START" \
+              --raw-pairs "${OUT}.jsonl" --raw-only \
+              --provenance "$SAFETY_PROVENANCE"
+          sha256sum "${OUT}.jsonl" > "${OUT}.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: controller-veto-v3-safety-${{ matrix.orientation }}-${{ matrix.start }}
+          path: raw
+          if-no-files-found: error
+          retention-days: 30
+
+  safety_merge:
+    if: ${{ github.run_attempt == 1 }}
+    needs: safety_evaluate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    outputs:
+      passed: ${{ steps.decision.outputs.passed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: campaign
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_COMMIT }}
+          path: source
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: controller-veto-v3-safety-*
+          path: downloads
+          merge-multiple: true
+
+      - name: Validate every safety shard before any efficacy merge
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$(sha256sum campaign/$PLAN_PATH | cut -d' ' -f1)" = "$PLAN_SHA"
+          test "$(sha256sum source/tools/merge_arena.py | cut -d' ' -f1)" = "$MERGER_SHA"
+          test "$(sha256sum source/tools/gate_actor_panel.py | cut -d' ' -f1)" = "$GATE_SHA"
+          test "$(sha256sum source/tools/validate_actor_shards.py | cut -d' ' -f1)" = "$SHARD_VALIDATOR_SHA"
+          mkdir -p merged bindings
+          python3 source/tools/validate_actor_shards.py \
+            --directory downloads --candidate "$CANDIDATE" --baseline "$BASELINE" \
+            --provenance "$SAFETY_PROVENANCE" \
+            --candidate-first-seed "$SAFETY_CANDIDATE_SEED" \
+            --baseline-first-seed "$SAFETY_BASELINE_SEED" \
+            --starts 0,20,40,60,80,100,120,140,160,180 \
+            --pairs-per-shard 20 --rounds 3 \
+            --output merged/structural-validation.json
+          python3 source/tools/merge_arena.py block \
+            --expect-start 0 --expect-pairs 200 \
+            --output merged/candidate-first.json \
+            downloads/candidate-first-*.jsonl
+          python3 source/tools/merge_arena.py block \
+            --expect-start 0 --expect-pairs 200 \
+            --output merged/baseline-first.json \
+            downloads/baseline-first-*.jsonl
+          python3 source/tools/merge_arena.py reciprocal \
+            --first merged/candidate-first.json \
+            --second merged/baseline-first.json \
+            --gate-z 1.645 --require-positive-margin \
+            --output merged/reciprocal.json
+
+      - name: Apply the separate locked safety gate
+        id: decision
+        run: |
+          set -euo pipefail
+          python3 source/tools/gate_actor_panel.py \
+            --reciprocal merged/reciprocal.json --mode safety \
+            --candidate "$CANDIDATE" --baseline "$BASELINE" \
+            --provenance "$SAFETY_PROVENANCE" \
+            --pairs-per-orientation 200 \
+            --candidate-first-seed "$SAFETY_CANDIDATE_SEED" \
+            --baseline-first-seed "$SAFETY_BASELINE_SEED" \
+            --gate-z 1.645 --output merged/safety-decision.json \
+            --github-output "$GITHUB_OUTPUT"
+          cp "campaign/$PLAN_PATH" bindings/locked_controller_veto_v3_plan.json
+          cp "campaign/$EXECUTION_PATH" bindings/locked_controller_veto_v3_execution.json
+          cp campaign/.github/workflows/controller-veto-v3.yml bindings/controller-veto-v3.yml
+          cp source/tools/merge_arena.py bindings/merge_arena.py
+          cp source/tools/gate_actor_panel.py bindings/gate_actor_panel.py
+          cp source/tools/validate_actor_shards.py bindings/validate_actor_shards.py
+          find downloads merged bindings -type f ! -name SHA256SUMS.txt -print0 | \
+            sort -z | xargs -0 sha256sum > merged/SHA256SUMS.txt
+          sha256sum -c merged/SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: controller-veto-v3-safety-final-evidence
+          path: |
+            downloads
+            merged
+            bindings
+          if-no-files-found: error
+          retention-days: 30
+
+  final_evaluate:
+    if: ${{ github.run_attempt == 1 && needs.safety_merge.outputs.passed == 'true' && needs.build_evaluator.outputs.run_final == 'true' }}
+    needs: [build_evaluator, safety_merge]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        orientation: [candidate-first, baseline-first]
+        start: [0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000, 2100, 2200, 2300, 2400]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: controller-veto-v3-evaluator
+          path: evaluator
+
+      - name: Run one immutable 100-pair final shard
+        env:
+          ORIENTATION: ${{ matrix.orientation }}
+          PAIR_START: ${{ matrix.start }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          mkdir -p bin data/models raw
+          cp evaluator/arena bin/arena
+          cp evaluator/champion.bin data/champion.bin
+          cp evaluator/veto.bin data/models/continuation_v2_o0_shared_soup.bin
+          chmod 755 bin/arena
+          test "$(stat -c %s bin/arena)" = "$ARENA_SIZE"
+          test "$(sha256sum bin/arena | cut -d' ' -f1)" = "$ARENA_SHA"
+          test "$(stat -c %s data/champion.bin)" = "$ROOT_SIZE"
+          test "$(sha256sum data/champion.bin | cut -d' ' -f1)" = "$ROOT_SHA"
+          test "$(stat -c %s data/models/continuation_v2_o0_shared_soup.bin)" = "$VETO_SIZE"
+          test "$(sha256sum data/models/continuation_v2_o0_shared_soup.bin | cut -d' ' -f1)" = "$VETO_SHA"
+          if [ "$ORIENTATION" = candidate-first ]; then
+            AGENT_A="$CANDIDATE"
+            AGENT_B="$BASELINE"
+            SEED="$FINAL_CANDIDATE_SEED"
+          elif [ "$ORIENTATION" = baseline-first ]; then
+            AGENT_A="$BASELINE"
+            AGENT_B="$CANDIDATE"
+            SEED="$FINAL_BASELINE_SEED"
+          else
+            exit 1
+          fi
+          OUT="raw/${ORIENTATION}-${PAIR_START}"
+          /usr/bin/time \
+            -f 'wall_s=%e user_s=%U sys_s=%S max_rss_kb=%M exit=%x' \
+            -o "${OUT}.time" \
+            ./bin/arena -a "$AGENT_A" -b "$AGENT_B" \
+              -n 100 -t 4 -s "$SEED" -r 3 --pair-start "$PAIR_START" \
+              --raw-pairs "${OUT}.jsonl" --raw-only \
+              --provenance "$FINAL_PROVENANCE"
+          sha256sum "${OUT}.jsonl" > "${OUT}.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: controller-veto-v3-final-${{ matrix.orientation }}-${{ matrix.start }}
+          path: raw
+          if-no-files-found: error
+          retention-days: 30
+
+  final_merge:
+    if: ${{ github.run_attempt == 1 }}
+    needs: final_evaluate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    outputs:
+      passed: ${{ steps.decision.outputs.passed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: campaign
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_COMMIT }}
+          path: source
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: controller-veto-v3-final-*
+          path: downloads
+          merge-multiple: true
+
+      - name: Validate every final shard before any efficacy merge
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$(sha256sum campaign/$PLAN_PATH | cut -d' ' -f1)" = "$PLAN_SHA"
+          test "$(sha256sum source/tools/merge_arena.py | cut -d' ' -f1)" = "$MERGER_SHA"
+          test "$(sha256sum source/tools/gate_actor_panel.py | cut -d' ' -f1)" = "$GATE_SHA"
+          test "$(sha256sum source/tools/validate_actor_shards.py | cut -d' ' -f1)" = "$SHARD_VALIDATOR_SHA"
+          mkdir -p merged bindings
+          python3 source/tools/validate_actor_shards.py \
+            --directory downloads --candidate "$CANDIDATE" --baseline "$BASELINE" \
+            --provenance "$FINAL_PROVENANCE" \
+            --candidate-first-seed "$FINAL_CANDIDATE_SEED" \
+            --baseline-first-seed "$FINAL_BASELINE_SEED" \
+            --starts 0,100,200,300,400,500,600,700,800,900,1000,1100,1200,1300,1400,1500,1600,1700,1800,1900,2000,2100,2200,2300,2400 \
+            --pairs-per-shard 100 --rounds 3 \
+            --output merged/structural-validation.json
+          python3 source/tools/merge_arena.py block \
+            --expect-start 0 --expect-pairs 2500 \
+            --output merged/candidate-first.json \
+            downloads/candidate-first-*.jsonl
+          python3 source/tools/merge_arena.py block \
+            --expect-start 0 --expect-pairs 2500 \
+            --output merged/baseline-first.json \
+            downloads/baseline-first-*.jsonl
+          python3 source/tools/merge_arena.py reciprocal \
+            --first merged/candidate-first.json \
+            --second merged/baseline-first.json \
+            --gate-z 1.645 --require-positive-margin \
+            --output merged/reciprocal.json
+
+      - name: Apply both locked one-sided final bounds
+        id: decision
+        run: |
+          set -euo pipefail
+          python3 source/tools/gate_actor_panel.py \
+            --reciprocal merged/reciprocal.json --mode final \
+            --candidate "$CANDIDATE" --baseline "$BASELINE" \
+            --provenance "$FINAL_PROVENANCE" \
+            --pairs-per-orientation 2500 \
+            --candidate-first-seed "$FINAL_CANDIDATE_SEED" \
+            --baseline-first-seed "$FINAL_BASELINE_SEED" \
+            --gate-z 1.645 --output merged/final-decision.json \
+            --github-output "$GITHUB_OUTPUT"
+          cp "campaign/$PLAN_PATH" bindings/locked_controller_veto_v3_plan.json
+          cp "campaign/$EXECUTION_PATH" bindings/locked_controller_veto_v3_execution.json
+          cp campaign/.github/workflows/controller-veto-v3.yml bindings/controller-veto-v3.yml
+          cp source/tools/merge_arena.py bindings/merge_arena.py
+          cp source/tools/gate_actor_panel.py bindings/gate_actor_panel.py
+          cp source/tools/validate_actor_shards.py bindings/validate_actor_shards.py
+          find downloads merged bindings -type f ! -name SHA256SUMS.txt -print0 | \
+            sort -z | xargs -0 sha256sum > merged/SHA256SUMS.txt
+          sha256sum -c merged/SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: controller-veto-v3-promotion-final-evidence
+          path: |
+            downloads
+            merged
+            bindings
+          if-no-files-found: error
+          retention-days: 30

@@ -1,0 +1,400 @@
+{
+  "actors": {
+    "artifact_kind": "locked_action_core_shortlist_actor_pair",
+    "baseline": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+    "candidate": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:3:1",
+    "candidate_limit": {
+      "action_core_count": 3,
+      "all_legal_moves_evaluated": false,
+      "maximum_complete_moves_evaluated": 5,
+      "policy_floor": 0.02,
+      "root_width": 5
+    },
+    "changed_fields": [
+      "action_core_count"
+    ],
+    "family": "rolloutu",
+    "field_comparison": [
+      {
+        "baseline": "800",
+        "candidate": "800",
+        "index": 1,
+        "name": "worlds"
+      },
+      {
+        "baseline": "5",
+        "candidate": "5",
+        "index": 2,
+        "name": "root_width"
+      },
+      {
+        "baseline": "0.02",
+        "candidate": "0.02",
+        "index": 3,
+        "name": "candidate_floor"
+      },
+      {
+        "baseline": "0",
+        "candidate": "0",
+        "index": 4,
+        "name": "gate"
+      },
+      {
+        "baseline": "1",
+        "candidate": "1",
+        "index": 5,
+        "name": "min_candidates"
+      },
+      {
+        "baseline": "14",
+        "candidate": "14",
+        "index": 6,
+        "name": "ply_lo"
+      },
+      {
+        "baseline": "0",
+        "candidate": "0",
+        "index": 7,
+        "name": "ply_hi"
+      },
+      {
+        "baseline": "0",
+        "candidate": "0",
+        "index": 8,
+        "name": "eval_candidates"
+      },
+      {
+        "baseline": "0",
+        "candidate": "0",
+        "index": 9,
+        "name": "objective"
+      },
+      {
+        "baseline": "0",
+        "candidate": "0",
+        "index": 10,
+        "name": "root_prune"
+      },
+      {
+        "baseline": "3.5",
+        "candidate": "3.5",
+        "index": 11,
+        "name": "override_k"
+      },
+      {
+        "baseline": "2",
+        "candidate": "2",
+        "index": 12,
+        "name": "override_min"
+      },
+      {
+        "baseline": "4",
+        "candidate": "4",
+        "index": 13,
+        "name": "playout_sample"
+      },
+      {
+        "baseline": "20",
+        "candidate": "20",
+        "index": 14,
+        "name": "root_symmetries"
+      },
+      {
+        "baseline": "0",
+        "candidate": "0",
+        "index": 15,
+        "name": "policy_mass"
+      },
+      {
+        "baseline": "0",
+        "candidate": "0",
+        "index": 16,
+        "name": "batch_worlds"
+      },
+      {
+        "baseline": "20",
+        "candidate": "20",
+        "index": 17,
+        "name": "playout_symmetries"
+      },
+      {
+        "baseline": "1",
+        "candidate": "1",
+        "index": 18,
+        "name": "discard_guard"
+      },
+      {
+        "baseline": "0",
+        "candidate": "0",
+        "index": 19,
+        "name": "deck_max"
+      },
+      {
+        "baseline": "800",
+        "candidate": "800",
+        "index": 20,
+        "name": "confirm_worlds"
+      },
+      {
+        "baseline": "1",
+        "candidate": "1",
+        "index": 21,
+        "name": "playout_prune"
+      },
+      {
+        "baseline": "0",
+        "candidate": "0",
+        "index": 22,
+        "name": "plan_deck_max"
+      },
+      {
+        "baseline": "0",
+        "candidate": "0",
+        "index": 23,
+        "name": "plan_block_gap"
+      },
+      {
+        "baseline": "0",
+        "candidate": "0",
+        "index": 24,
+        "name": "semantic_candidates"
+      },
+      {
+        "baseline": "0",
+        "candidate": "0",
+        "index": 25,
+        "name": "confirm_exact5"
+      },
+      {
+        "baseline": "0",
+        "candidate": "0",
+        "index": 26,
+        "name": "draw_variant_cores"
+      },
+      {
+        "baseline": "0",
+        "candidate": "0",
+        "index": 27,
+        "name": "draw_variant_deck_max"
+      },
+      {
+        "baseline": "3",
+        "candidate": "3",
+        "index": 28,
+        "name": "policy_prefix_mode"
+      },
+      {
+        "baseline": "1",
+        "candidate": "1",
+        "index": 29,
+        "name": "belief_alpha"
+      },
+      {
+        "baseline": "0",
+        "candidate": "0",
+        "index": 30,
+        "name": "draw_root_deck_max"
+      },
+      {
+        "baseline": "0",
+        "candidate": "0",
+        "index": 31,
+        "name": "draw_playout_deck_max"
+      },
+      {
+        "baseline": "0",
+        "candidate": "0",
+        "index": 32,
+        "name": "prefix_confirm_k"
+      },
+      {
+        "baseline": "0",
+        "candidate": "0",
+        "index": 33,
+        "name": "prefix_confirm_min"
+      },
+      {
+        "baseline": "0",
+        "candidate": "0",
+        "index": 34,
+        "name": "confirm_temp"
+      },
+      {
+        "baseline": "0",
+        "candidate": "3",
+        "index": 35,
+        "name": "action_core_count"
+      },
+      {
+        "baseline": "1",
+        "candidate": "1",
+        "index": 36,
+        "name": "exact_terminal"
+      },
+      {
+        "baseline": "0",
+        "candidate": "0",
+        "index": 37,
+        "name": "deck2_replan_worlds"
+      },
+      {
+        "baseline": "0",
+        "candidate": "0",
+        "index": 38,
+        "name": "deck2_replan_cores"
+      },
+      {
+        "baseline": "0",
+        "candidate": "0",
+        "index": 39,
+        "name": "bounded_late_root"
+      },
+      {
+        "baseline": "1",
+        "candidate": "1",
+        "index": 40,
+        "name": "bounded_late_min"
+      },
+      {
+        "baseline": "0",
+        "candidate": "0",
+        "index": 41,
+        "name": "action_ranker_min"
+      },
+      {
+        "baseline": null,
+        "candidate": null,
+        "index": 42,
+        "name": "match_value_path"
+      }
+    ],
+    "model_path": "data/champion.bin",
+    "rollout_field_count": 42,
+    "schema_version": 1,
+    "world_cap": 800
+  },
+  "artifact_kind": "locked_action_core_shortlist_execution",
+  "authoritative_world800_result": {
+    "path": "data/experiments/world800_result.json",
+    "promotion_gate_passed": true,
+    "selected_actor": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+    "selected_world_cap": 800,
+    "sha256": "798a4f0948295445d25dd34cb1a8e3f96794e24f032a76a82df7c92485da4db8"
+  },
+  "build": {
+    "cflags": "-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11",
+    "compile_once": [
+      "bin/arena"
+    ],
+    "compiler": "gcc",
+    "compiler_semantic_version_command": "gcc -dumpfullversion -dumpversion",
+    "ldflags": "-lm -pthread",
+    "model": {
+      "path": "data/champion.bin",
+      "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+      "size": 2823748
+    },
+    "required_compiler_semantic_version": "13.3.0",
+    "runner": "ubuntu-24.04"
+  },
+  "final": {
+    "baseline_first_seed": "202609040202",
+    "candidate_first_seed": "202609040201",
+    "execute_if_safety_passes": true,
+    "gate": "score-z*SE>0.5; margin-z*SE>0; each orientation>0.5; zero caps; exact validity",
+    "gate_z": 1.645,
+    "pairs_per_orientation": 2500,
+    "pairs_per_shard": 100,
+    "starts": [
+      0,
+      100,
+      200,
+      300,
+      400,
+      500,
+      600,
+      700,
+      800,
+      900,
+      1000,
+      1100,
+      1200,
+      1300,
+      1400,
+      1500,
+      1600,
+      1700,
+      1800,
+      1900,
+      2000,
+      2100,
+      2200,
+      2300,
+      2400
+    ]
+  },
+  "inspection_rule": "do not parse any stage efficacy until every expected immutable raw shard and sidecar for that stage validates",
+  "plan": {
+    "path": "data/experiments/locked_action_core_shortlist_plan.json",
+    "sha256": "cfb1308516b859077fcb1b463aecf89df91987b400f4f2c28c45f1c3180a805f"
+  },
+  "results": null,
+  "safety": {
+    "baseline_first_seed": "202609040102",
+    "candidate_first_seed": "202609040101",
+    "gate": "score>=0.5; margin>0; each orientation>=0.475; zero caps; exact validity",
+    "pairs_per_orientation": 200,
+    "pairs_per_shard": 20,
+    "starts": [
+      0,
+      20,
+      40,
+      60,
+      80,
+      100,
+      120,
+      140,
+      160,
+      180
+    ]
+  },
+  "schema_version": 1,
+  "source_files_sha256": {
+    "Makefile": "53d81a9a8603d87698a16191b01172744cd32067fb4c9bcba6e31f4b902e8101",
+    "src/agent.c": "96908266979086e7e457b780ab00d5100b0bd2d78a45654a91213aedd63cc0a8",
+    "src/agent.h": "9eac4faf04c6cd6fdd595407a133206fa18cffa051229e4715d8ef878c4d3194",
+    "src/features.c": "6db470ca045abd5f06a5f9657e25e1a1220c1a25bd54830b7ac52d834ab901f3",
+    "src/features.h": "eff2f2958dbf7045e313f44fcc9c44051667b0b0bafe971ebeeb5641db71ee99",
+    "src/heuristic.c": "c4f544d8495b548ad7c25ef2551064f4bfcb60eb63b0e96d7391713cf577c9d4",
+    "src/heuristic.h": "afe303f8253e84fb6320821ccf905b97e4969473d8be80d65ef9b6b20a7bdf42",
+    "src/late_resolver.c": "f61467779975ffcaba986078ebdc275b0d8cd7bc4774045b704a02013d54142b",
+    "src/late_resolver.h": "979a9915919e5fdfa4c323ed5b9da576e82731a1ad88a0930c8347742720e64b",
+    "src/lc.c": "7ed33651a77651e73b70eba7d90f6e7a8de2d4d491c1c176aadf48889c889de3",
+    "src/lc.h": "1d5227abf42a1c2f2a883b35015e69836f7467b60791ce32d9ca21cb7bfb09a7",
+    "src/match.c": "0f7b4bad13631da876d7379af61e4d61d91c59c546cf92790cbeba7b1230b14d",
+    "src/match.h": "9e1c44370b383b2875d04ad96e9b3e46b6e37e9e93eb104a91fe9d041b2bed79",
+    "src/match_value.c": "400bc1f3d5ae419e1226671bb52e4458d823ede6b31620abcf98e6c7c8d97f24",
+    "src/match_value.h": "ca80f267eb2ec4187b518aae31f7546adaf698dbd82ea3e00792c52efe9e54a2",
+    "src/net.c": "f932f3b679b238238ab409bf1f4eac1315cc5beff0efeff24f2fe7204175a551",
+    "src/net.h": "d29623943ba6411496da270285d26451f402e1b709056718527f49916a0f2a49",
+    "src/planner.c": "a3359632ccf9d9b1fec0efe069a988167713d88abbc29d6581e9f93142364636",
+    "src/planner.h": "08894bc723d4f9ab6475a3faf4fd264d283bad13d0807db27f989e314c52af75",
+    "src/rollout.c": "0567ab06dc10f1c51acdb3254001c1db43359ec27afae9d97b311391b781cad3",
+    "src/search.c": "41cfd853bab77e1252339608134db851df266af01c09daaa1fccf34b0fe11d70",
+    "src/search.h": "42921a8501b4d67b42f6ceacff029688bba967c4483dba326cf98625c1822acc",
+    "src/spec.c": "d603cbaf206848cfdfb830493816463d19c97d3b2805e4e07843e0478eede631",
+    "src/spec.h": "8fb7c1034981796735ba0265496221a25e6e657d5d42735d5d0d3b790fe6c8aa",
+    "tools/action_core_campaign.py": "2c4967ea53d927e246736fce817f3e729d4491a5e9c7b91c88e0220d4a2623d6",
+    "tools/arena.c": "069b3c24b5e6565b7650aa24173de50e18ca14bffd4512e7bc282d5440283e20",
+    "tools/gate_actor_panel.py": "50ae52c66698d04cd4cc13af35c3d0eaed72e37bd76657dae12aa10f09dcc2ed",
+    "tools/merge_arena.py": "9cad23c9e6550ea36d7721acf8e64144a44058083ad4aeb5bb5613a3a79139fb",
+    "tools/validate_actor_shards.py": "bca430a94af64180436c7fb60d29b2e86ec4b3567ab3aabb09984aabee054855"
+  },
+  "source_parent_commit": "22b3897a1524af5713cac3b6d0ea3a830ea753f3",
+  "source_parent_tree": "99435be4cce231a4af387ff6ef55ec5ec5488140",
+  "status": "launch_bound_before_any_action_core_efficacy",
+  "workflow": {
+    "path": ".github/workflows/action-core-shortlist.yml",
+    "sha256": "1da25ab6dae95867a108f3686b3f11e07a5026e2206f10d621dcd596044dcc50"
+  }
+}

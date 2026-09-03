@@ -1,0 +1,67 @@
+{
+  "artifact_kind": "match_value_objective3_v2_development_selection",
+  "challenge_exists": true,
+  "eligible": true,
+  "eligible_variants": [
+    "RAW_ALL_PLY",
+    "PROJECTED_ALL_PLY"
+  ],
+  "evidence": {
+    "PROJECTED_ALL_PLY": {
+      "actor": "rolloutu2:data/champion.bin:data/champion.bin:800:5:0.02:0:1:0:0:0:3:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1:0:0:0:1:0:data/models/match_value_objective3_v2_projected.lcmv",
+      "eligible": true,
+      "exact_statistics": {
+        "baseline_first_score_quarters": 1840,
+        "candidate_first_score_quarters": 2152,
+        "capped_rounds": 0,
+        "combined_margin_denominator": 4000,
+        "combined_margin_numerator": 15069,
+        "combined_score_denominator": 8000,
+        "combined_score_numerator": 4312,
+        "pairs_per_orientation": 1000
+      },
+      "margin_per_game": 3.76725,
+      "match_score": 0.539,
+      "reciprocal_sha256": "8c3904aff4a1e63d01712515b01c381eb3def7dfbdb4dfaf7d9cfee586566ffe",
+      "requirements": {
+        "combined_margin_strictly_positive": true,
+        "combined_match_score_at_least_half": true,
+        "complete_equal_reciprocal_blocks": true,
+        "each_orientation_match_score_at_least_0_475": true,
+        "raw_inputs_validated": true,
+        "zero_capped_rounds": true
+      }
+    },
+    "RAW_ALL_PLY": {
+      "actor": "rolloutu2:data/champion.bin:data/champion.bin:800:5:0.02:0:1:0:0:0:3:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1:0:0:0:1:0:data/models/match_value_objective3_v2_raw.lcmv",
+      "eligible": true,
+      "exact_statistics": {
+        "baseline_first_score_quarters": 1840,
+        "candidate_first_score_quarters": 2152,
+        "capped_rounds": 0,
+        "combined_margin_denominator": 4000,
+        "combined_margin_numerator": 15069,
+        "combined_score_denominator": 8000,
+        "combined_score_numerator": 4312,
+        "pairs_per_orientation": 1000
+      },
+      "margin_per_game": 3.76725,
+      "match_score": 0.539,
+      "reciprocal_sha256": "0234541273142a6d161befc7bbfd88e6ea7821bc640a736dbd654977325dbffe",
+      "requirements": {
+        "combined_margin_strictly_positive": true,
+        "combined_match_score_at_least_half": true,
+        "complete_equal_reciprocal_blocks": true,
+        "each_orientation_match_score_at_least_0_475": true,
+        "raw_inputs_validated": true,
+        "zero_capped_rounds": true
+      }
+    }
+  },
+  "promotion_claim": false,
+  "schema": "lc-match-value-objective3-v2-development-selection-v1",
+  "selected_actor": "rolloutu2:data/champion.bin:data/champion.bin:800:5:0.02:0:1:0:0:0:3:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1:0:0:0:1:0:data/models/match_value_objective3_v2_projected.lcmv",
+  "selected_variant": "PROJECTED_ALL_PLY",
+  "selection_rule": "eligible only after exact development gate; maximize exact combined score numerator, then exact margin numerator, then PROJECTED_ALL_PLY",
+  "status": "complete_two_variant_reciprocal_development"
+}

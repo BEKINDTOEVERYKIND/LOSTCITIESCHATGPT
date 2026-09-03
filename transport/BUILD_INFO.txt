@@ -1,0 +1,33 @@
+launch_commit=4f2a230500566a71db723d77b5c4eac2ee15e648
+source_parent_commit=0eb2a90a66f1297d2191547da8e41fcc80b64d61
+source_parent_tree=3b134d1f43ac39a088d50e6cff5e27f4678f453a
+definition_lock_commit=0eb2a90a66f1297d2191547da8e41fcc80b64d61
+definition_commit=6dc8114e1332aadd4374384465279255ec2c437e
+definition_tree=dfe2fc7dbbc8ec246eaa2b6c2eb5d56067d99003
+plan_sha=72587805f9a22bd981b537572e9c847cc5765123aa502caedea6a6894a722f24
+definition_lock_sha=6f40e7579e3ba5157c2750c6540d8688af630298f2338d1ad4617a87532fffbd
+execution_sha=7fa8b2de912466c9affd0ff8188cc8403dd1b085f02de6acf10d8df0284db75a
+final_actor_result_sha=5ad3566c5fb66aa45efa0c3b45eff6bde83eacece2eefd13a6794eb57530e476
+baseline=rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1
+world_cap=800
+compiler_executable=gcc
+compiler_semantic_version_command=gcc -dumpfullversion -dumpversion
+compiler_semantic_version=13.3.0
+compiler_banner=gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+runner_image_os=ubuntu24
+runner_image_version=20260816.277.1
+runner_os=Linux
+runner_arch=X64
+uname=Linux runnervm76f27 6.17.0-1022-azure #22-Ubuntu SMP Mon Jul 27 17:24:03 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
+cflags=-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11
+ldflags=-lm -pthread
+build_profile=0030d23b
+table_seed=202610200001
+table_samples_per_policy_lead=16000
+table_total_controller_simulations=9632000
+table_playout_symmetries=20
+b54eefb0bb17e75361ebee6faa004eb0062cae17a2543d9fe5a62f213a94201e  transport/bin/arena
+9fc12beeaa2a065f302185a5a73aad82bc0234637a7187f58d8e8f05676c61ad  transport/bin/build_match_value
+af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417  transport/data/champion.bin
+e3eac1b6fecf314a3db45ef9fd7563db1f18e02ca09a7e63aac00bc8fd4cb28e  transport/data/models/match_value_objective3_v2_projected.lcmv
+de7786c592f2fdbde7287bb10610c1065e605528eef6914041b4c6000216408b  transport/data/models/match_value_objective3_v2_raw.lcmv

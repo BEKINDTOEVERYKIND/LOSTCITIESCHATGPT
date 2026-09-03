@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "authoritative_root120_stage2_result",
+  "status": "complete_not_promoted",
+  "completed_utc": "2026-08-17T16:03:26Z",
+  "hypothesis": "Increasing only real-root suit averaging from 20 to all 120 suit permutations improves the maintained rollout actor.",
+  "candidate": "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:2:120:0:0:20:1:0:512:1:0:0:0:0:0:0:2:1:0:0:0:0:0:0:1",
+  "baseline": "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:2:20:0:0:20:1:0:512:1:0:0:0:0:0:0:2:1:0:0:0:0:0:0:1",
+  "locked_inputs": {
+    "parent_plan": "data/experiments/locked_root120_plan.json",
+    "parent_plan_sha256": "166e66b23e6c7f0676b8dfda88a48425380ec562890118ee6700c2bc83c37458",
+    "distributed_addendum": "data/experiments/locked_root120_distributed_execution.json",
+    "distributed_addendum_sha256": "d4db81351c57a5847dee279bc1fe7514e0943411edcaa107139388c7d8c1c230",
+    "evaluation_source_commit": "0b8c65f91fe1f844b8dbfcda5df8cc92806c839d",
+    "evaluation_source_tree": "60a08f7af9a80278cd87740e2c1407572bf1ae31",
+    "arena_sha256": "a63463d9521d3d1e7639174dd105ce2c751492410f447c604c74a94d1d556e7c",
+    "model_sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417"
+  },
+  "execution": {
+    "workflow_run_id": 32024226824,
+    "workflow_url": "https://github.com/BEKINDTOEVERYKIND/LOSTCITIESCHATGPT/actions/runs/32024226824",
+    "workflow_definition_commit": "3e2e4060556e4f2ed12faaebbec01e237d5f16bf",
+    "workflow_definition_path": ".github/workflows/root120-stage2.yml",
+    "evaluator_artifact_id": 9286461716,
+    "evaluator_artifact_sha256": "79b1d76d0be28809772a8fe881be278dd237febeb6d6da0c2757d00568c6e695",
+    "final_artifact_id": 9292492100,
+    "final_artifact_sha256": "c5bb9e1a0c09e9691af34c433ba2ab3785d4cb17d5cdbce68ae193c2cf8748d7",
+    "rounds_per_game": 3,
+    "mirrored_pairs_per_orientation": 1000,
+    "total_pairs": 2000,
+    "total_games": 4000,
+    "shards_per_orientation": 10,
+    "pairs_per_shard": 100,
+    "threads_per_shard": 4,
+    "candidate_first_seed": "202608171211",
+    "baseline_first_seed": "202608171212",
+    "workflow_elapsed_seconds": 17163,
+    "aggregate_runner_wall_seconds": 169587.35,
+    "median_shard_wall_seconds": 8582.52,
+    "aggregate_runner_user_seconds": 669454.96,
+    "peak_shard_rss_kb": 11508
+  },
+  "candidate_perspective_results": {
+    "candidate_first": {
+      "match_score": 0.4895,
+      "match_score_pair_clustered_se": 0.009046910886960068,
+      "margin_per_game": -2.121,
+      "margin_pair_clustered_se": 1.148385234861389,
+      "wins": 974,
+      "losses": 1016,
+      "draws": 10
+    },
+    "baseline_first": {
+      "match_score": 0.50475,
+      "match_score_pair_clustered_se": 0.009447443659090627,
+      "margin_per_game": 1.33,
+      "margin_pair_clustered_se": 1.1401287179496418,
+      "wins": 1004,
+      "losses": 985,
+      "draws": 11
+    },
+    "combined_equal_weight": {
+      "match_score": 0.497125,
+      "match_score_pair_clustered_se": 0.006540274999728381,
+      "one_sided_95_lower_bound_z_1_645": 0.4863662476254468,
+      "promotion_lower_bound_z_1_695": 0.4860392338754604,
+      "margin_per_game": -0.3955,
+      "margin_pair_clustered_se": 0.8091171332293522,
+      "wins": 1978,
+      "losses": 2001,
+      "draws": 21,
+      "capped_rounds": 0
+    }
+  },
+  "promotion_gate": {
+    "passed": false,
+    "failed_conditions": [
+      "combined candidate match score minus 1.695 standard errors did not exceed 0.5",
+      "candidate match score did not exceed 0.5 in the candidate-first orientation",
+      "combined candidate point margin did not exceed 0"
+    ],
+    "decision": "Retain 20 real-root suit symmetries in the maintained actor. Do not pool this actor result with the positive policy-only qualification stage."
+  },
+  "integrity": {
+    "raw_shards_reopened": 20,
+    "raw_shard_hash_failures": 0,
+    "gaps": 0,
+    "overlaps": 0,
+    "malformed_rows": 0,
+    "metadata_or_provenance_mismatches": 0,
+    "canonical_candidate_first_pair_rows_sha256": "4f6a92461a652a0cc87e72a5a62a9a8e246ca0761647529869443c00f84ec0a2",
+    "canonical_baseline_first_pair_rows_sha256": "4ef1dc80bc1f1264d032f8d38fd7370128bb143889a9c82f4c82cb0e8b66acd9",
+    "hardened_reciprocal_result": "data/experiments/root120_stage2/merged/reciprocal.json",
+    "hardened_reciprocal_sha256": "ea9d170a007c95b43a4580ac9235a93ee52cd722feafb5706d9830b357d339e3",
+    "archived_manifest_sha256": "f87f1b8b8f0564243f6b5542241fa73af2dfbf5e8803ae046318dc4be4abc6b9",
+    "archived_evaluator": "data/experiments/root120_stage2/evaluator/arena",
+    "archived_evaluator_sha256": "a63463d9521d3d1e7639174dd105ce2c751492410f447c604c74a94d1d556e7c",
+    "archived_build_info": "data/experiments/root120_stage2/evaluator/BUILD_INFO.txt",
+    "thread_count_attestation": "The immutable workflow invokes every shard with -t 4 and every job completed successfully. The raw schema records seed, range, rounds, actors, and provenance but does not redundantly serialize the thread count; exact pair RNG is independently deterministic across thread counts.",
+    "original_artifact_manifest_note": "The workflow-generated manifest contained one invalid self-entry because SHA256SUMS.txt was discovered while it was being written. Every raw sidecar hash and every non-self artifact entry passed. The archived manifest excludes itself, is immediately rechecked, and passes in full."
+  },
+  "claim_limit": "The fixed panel does not validate the candidate. Its confidence interval also does not establish that exhaustive root averaging is intrinsically weaker; it establishes that this candidate must not replace the maintained root-20 actor."
+}

@@ -1,0 +1,233 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "locked_continuation_role_ppo_campaign",
+  "status": "precommitted_before_candidate_generation_or_efficacy_inspection",
+  "created_utc": "2026-08-22",
+  "hypothesis": "A policy trained only for the post-root continuation role, on the deployed pruned action support and completed-round margin, will reduce the continuation bias seen in reviewed rollout decisions while preserving the proven root policy, value, belief, and shortlist.",
+  "claim_boundary": "A continuation checkpoint is not a new general champion. It can be promoted only as the second checkpoint of a dual-network rollout actor after the locked full-match gate.",
+  "source": {
+    "repository": "BEKINDTOEVERYKIND/LOSTCITIESCHATGPT",
+    "branch": "agent/correctness-and-policy-upgrade",
+    "remote_commit": "4badfaa7d3c1c396f7bcab107cabbaaf32b89bb1",
+    "tree": "a1d8d48160d5ae26ddd2c55ec0393e389011f546",
+    "compiler": "gcc (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0",
+    "cflags": "-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11",
+    "ldflags": "-lm -pthread",
+    "platform": "Linux x86_64, AMD EPYC 9V74, 9 visible CPUs",
+    "fixed_training_threads": 4,
+    "thread_rule": "All training families run serially on this build and use four threads. A thread-count change creates a different campaign and is ineligible."
+  },
+  "artifacts": {
+    "root_and_anchor": {
+      "path": "data/champion.bin",
+      "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+      "size_bytes": 2823748,
+      "role": "Immutable root policy, value, belief, shortlist, and PPO anchor"
+    },
+    "rl_binary": {
+      "path": "bin/rl",
+      "sha256": "764a9ecdb32aa7f8325c8c3e31e9d7f0b131ea1f87b0d543daf035672117fc1b",
+      "size_bytes": 428464
+    },
+    "continuation_screen_binary": {
+      "path": "bin/continuation_arena",
+      "sha256": "3c3f5d3b905a46de53c915234a3474d1b0e15c52e4447ceb6ba2269f90f982c9",
+      "size_bytes": 370880
+    },
+    "full_arena_binary": {
+      "path": "bin/arena",
+      "sha256": "a65f73871e04ed0e21f2bc9920a235cbb5d29950b35bb91df37ae9dcc8801efa",
+      "size_bytes": 362592
+    }
+  },
+  "preflight": {
+    "required_passes": [
+      "warning-free optimized build",
+      "make test",
+      "make audit-test",
+      "history-belief and belief-evaluation tests",
+      "C/Python feature-policy self-test",
+      "independent transcript replay",
+      "GCC AddressSanitizer and UndefinedBehaviorSanitizer on the runtime and continuation-PPO support tests"
+    ],
+    "legacy_compatibility": "The one-network actor and the explicit dual actor with identical root/continuation checkpoints must remain byte-identical in move, value, diagnostics, and RNG behavior.",
+    "root_safety": "Before and after every command, verify the root SHA-256. Any direct-path, relative-path, symlink, hard-link, or generated .itN alias failure invalidates the campaign."
+  },
+  "families": [
+    {
+      "name": "A",
+      "warm_seed": "202608230101",
+      "full_seed": "202608231101",
+      "directory": "results/continuation-v1/a"
+    },
+    {
+      "name": "B",
+      "warm_seed": "202608230102",
+      "full_seed": "202608231102",
+      "directory": "results/continuation-v1/b"
+    },
+    {
+      "name": "C",
+      "warm_seed": "202608230103",
+      "full_seed": "202608231103",
+      "directory": "results/continuation-v1/c"
+    }
+  ],
+  "training": {
+    "shared": {
+      "continuation_start_ply": 14,
+      "matches_per_iteration": 1366,
+      "rounds_per_match": 3,
+      "continuation_tails_per_iteration": 4098,
+      "threads": 4,
+      "batch": 512,
+      "epochs": 1,
+      "ppo_clip": 0.1,
+      "lambda": 1.0,
+      "temperature": 0.7,
+      "entropy_coefficient": 0.001,
+      "value_coefficient": 1.0,
+      "weight_decay": 1e-7,
+      "trajectory_suit_group": 20,
+      "belief_weight": 0,
+      "standalone_evaluation_pairs": 0
+    },
+    "warmup": {
+      "iterations": 2,
+      "learning_rate": 0.0001,
+      "anchor_kl": 0.5,
+      "v6_only": true,
+      "init": "data/champion.bin",
+      "output": "FAMILY_DIRECTORY/warm.bin",
+      "command_template": "./bin/rl --init data/champion.bin --continuation-start 14 --continuation-root data/champion.bin --anchor data/champion.bin --kl 0.50 --lambda 1 --bw 0 --eval 0 --rounds 3 --games 1366 --threads 4 --iters 2 --batch 512 --epochs 1 --lr 1e-4 --clip 0.1 --vcoef 1 --ent 0.001 --temp 0.7 --wd 1e-7 --trajectory-symmetries 20 --v6-only --seed WARM_SEED --out FAMILY_DIRECTORY/warm.bin"
+    },
+    "full": {
+      "iterations": 10,
+      "learning_rate": 0.00005,
+      "anchor_kl": 0.25,
+      "v6_only": false,
+      "init": "FAMILY_DIRECTORY/warm.bin",
+      "output": "FAMILY_DIRECTORY/full.bin",
+      "command_template": "./bin/rl --init FAMILY_DIRECTORY/warm.bin --continuation-start 14 --continuation-root data/champion.bin --anchor data/champion.bin --kl 0.25 --lambda 1 --bw 0 --eval 0 --rounds 3 --games 1366 --threads 4 --iters 10 --batch 512 --epochs 1 --lr 5e-5 --clip 0.1 --vcoef 1 --ent 0.001 --temp 0.7 --wd 1e-7 --trajectory-symmetries 20 --seed FULL_SEED --out FAMILY_DIRECTORY/full.bin"
+    },
+    "optimizer_boundary": "Adam state is intentionally reset between the v6-only warm-up and full phase because optimizer state is not serialized.",
+    "eligible_checkpoints_per_family": [
+      "warm.bin.it2",
+      "full.bin.it2",
+      "full.bin.it4",
+      "full.bin.it6",
+      "full.bin.it8",
+      "full.bin.it10"
+    ],
+    "no_other_checkpoint_is_eligible": true,
+    "iteration_validity": [
+      "continuation roots equal 4098",
+      "baseline roots plus challenger roots equal 4098",
+      "first learned actor row is round ply 15",
+      "root actor rows equal zero",
+      "exact deck-one moves equal 4098 and receive no actor row",
+      "no unfinished continuation trajectory",
+      "losses and gradients are finite and at least one optimizer update occurs",
+      "the immutable root fingerprint and SHA-256 remain unchanged",
+      "reservoir retention and cycle/cap-reserve force counts are recorded"
+    ]
+  },
+  "selection": {
+    "operational_self_control": {
+      "seed": "202608239902",
+      "pairs": 2000,
+      "command": "./bin/continuation_arena -a data/champion.bin -r data/champion.bin -b data/champion.bin -n 2000 -t 4 -s 202608239902 -q",
+      "required": "Exactly zero margin, 0.5 score, zero SE, and zero caps"
+    },
+    "screen_a": {
+      "scope": "All 18 predeclared eligible checkpoints; model selection only",
+      "seed": "202608230201",
+      "pair_start": 0,
+      "pairs_per_checkpoint": 1500,
+      "threads": 4,
+      "raw_rows_required": true,
+      "candidate_command_template": "./bin/continuation_arena -a CHECKPOINT -r data/champion.bin -b data/champion.bin -n 1500 -t 4 -s 202608230201 --pair-start 0 --raw-pairs RAW.jsonl --provenance PLAN_SOURCE_BINARY_ROOT_AND_CANDIDATE_HASHES -q",
+      "eligibility": "Discard operationally invalid candidates and any candidate whose margin or round-score point estimate is below parity.",
+      "ranking": "Within each family maximize min(margin/margin_SE, (round_score-0.5)/score_SE); break ties by margin lower bound, then the earlier locked checkpoint. Select exactly one checkpoint per family."
+    },
+    "screen_b": {
+      "scope": "The three Screen-A family winners; model selection only",
+      "seed": "202608230202",
+      "pair_start": 0,
+      "pairs_per_checkpoint": 6000,
+      "aggregate_gate": [
+        "round_score - 1.645 * pair_clustered_score_SE > 0.5",
+        "margin - 1.645 * pair_clustered_margin_SE > 0",
+        "zero cap-terminated tails and exact provenance"
+      ],
+      "round_safety": "For each round separately, both score + 1.645*SE >= 0.5 and margin + 1.645*SE >= 0; this rules out a conclusively harmful round.",
+      "seed_robustness": "At least two of three independent training families must pass both aggregate bounds. Any failing third family must satisfy the same non-harm upper-bound rule against parity.",
+      "winner": "Among passing family winners maximize the same minimum-z statistic. No other checkpoint may be substituted."
+    },
+    "screen_c": {
+      "scope": "One selected checkpoint in the complete dual-network actor; still not promotion evidence",
+      "dependency": "Wait for the authoritative role-coherent result and mechanically select the same actor family for candidate and baseline.",
+      "reciprocal_pairs_per_orientation": 100,
+      "candidate_first_seed": "202608230301",
+      "baseline_first_seed": "202608230302",
+      "gate": [
+        "combined candidate match-score point estimate is at least 0.5",
+        "combined candidate point margin is positive",
+        "neither reciprocal orientation scores below 0.475",
+        "zero caps, malformed rows, provenance drift, or operational defects"
+      ],
+      "stop_rule": "If this screen fails, stop. Do not test the runner-up on the same deals."
+    }
+  },
+  "actor_family_dependency": {
+    "role_test_plan": "data/experiments/locked_role_coherent_plan.json",
+    "role_test_execution": "data/experiments/locked_role_coherent_execution.json",
+    "role_test_run": "https://github.com/BEKINDTOEVERYKIND/LOSTCITIESCHATGPT/actions/runs/32571592557",
+    "if_role_test_passes_tail": "512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+    "if_role_test_fails_tail": "512:5:0.02:0:1:14:0:0:0:0:3.5:2:2:20:0:0:20:1:0:512:1:0:0:0:0:0:0:2:1:0:0:0:0:0:0:1",
+    "invalid_role_result_rule": "If the role test is invalid or incomplete, do not run Screen C or the final gate.",
+    "world_800_exclusion": "Keep both actors at 512 worlds. The separate conditional 800-world experiment is neither pooled nor combined with this campaign. Any later combination requires another fresh locked test."
+  },
+  "final_promotion": {
+    "status": "Locked now; execute only after Screen C and a separately committed execution addendum bind the selected checkpoint and authoritative role result.",
+    "candidate_actor": "rolloutu2:data/champion.bin:SELECTED_CONTINUATION.bin:MECHANICALLY_SELECTED_TAIL",
+    "baseline_actor": "rolloutu2:data/champion.bin:data/champion.bin:MECHANICALLY_SELECTED_TAIL",
+    "rounds": 3,
+    "threads_per_shard": 4,
+    "pairs_per_orientation": 2500,
+    "shards_per_orientation": 25,
+    "pairs_per_shard": 100,
+    "pair_starts": [0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000, 2100, 2200, 2300, 2400],
+    "candidate_first_seed": "202608230401",
+    "baseline_first_seed": "202608230402",
+    "efficacy_looks": 1,
+    "inspection_rule": "Do not inspect efficacy until every shard, sidecar hash, and hardened reciprocal merge is complete.",
+    "promotion_gate": [
+      "combined candidate match score - 1.645 * pair-clustered SE > 0.5",
+      "candidate match-score point estimate > 0.5 in each reciprocal orientation",
+      "combined candidate point margin > 0",
+      "zero caps, incomplete shards, gaps, overlaps, malformed rows, provenance mismatches, or operational errors"
+    ],
+    "failed_panel_rule": "A failed final panel burns its seeds and cannot be used to select another checkpoint."
+  },
+  "provenance": {
+    "retain": [
+      "source commit and tree",
+      "this plan and later execution-addendum SHA-256",
+      "compiler, flags, CPU, kernel, thread count, start/end UTC, wall and user time",
+      "rl, continuation_arena, and arena binary hashes",
+      "root, anchor, every generated checkpoint, and selected checkpoint hashes",
+      "exact commands and complete stdout/stderr",
+      "all per-iteration diagnostics and raw paired rows",
+      "complete footers, sidecar hashes, canonical merges, and authoritative role-result artifact"
+    ],
+    "native_checkpoint_warning": "Checkpoint serialization is a native C struct and fast-math is enabled, so compiler and platform provenance are material."
+  },
+  "multiplicity": {
+    "training_families": 3,
+    "eligible_checkpoints_per_family": 6,
+    "hyperparameter_variants": 1,
+    "no_optional_stopping_or_unplanned_retry": true
+  },
+  "results": null
+}

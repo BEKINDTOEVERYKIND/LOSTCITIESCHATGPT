@@ -1,0 +1,24 @@
+turn 1
+round 0
+nply 39
+deck_left 5
+cum 0 0
+hand0 Y8 Wx Wx W8 G9 G10 R6 R10
+known0
+exp 0 0 Yx Yx Y4 Y5 Y7 Y9
+exp 0 1 Bx B2 B6 B9
+exp 0 2
+exp 0 3 G2 G5 G6
+exp 0 4 Rx R3 R8
+hand1 Y2 B7 W2 W10 Gx G4 G7 R2
+known1
+exp 1 0 Yx Y3 Y6 Y10
+exp 1 1 Bx B4 B5 B8 B10
+exp 1 2 W3 W4 W7
+exp 1 3
+exp 1 4 Rx Rx R4 R5 R7
+pile 0
+pile 1 B3 Bx
+pile 2 W6 Wx
+pile 3 Gx Gx
+pile 4

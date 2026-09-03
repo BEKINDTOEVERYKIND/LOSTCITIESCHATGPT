@@ -1,0 +1,15 @@
+{
+  "cum": [0, 0],
+  "events": [
+    {"actor": 0, "card": [0, 0], "discard": 0, "draw": 0},
+    {"actor": 1, "card": [2, 0], "discard": 0, "draw": 0, "own_draw": [4, 6]},
+    {"actor": 0, "card": [0, 0], "discard": 0, "draw": 0}
+  ],
+  "observer": 1,
+  "own_initial": [[1, 0], [2, 0], [2, 8], [2, 10], [3, 7], [4, 3], [4, 7], [4, 10]],
+  "round": 0,
+  "schema": "lc-perspective-history-v1",
+  "start_turn": 0,
+  "target_global_ply": 4,
+  "target_round_ply": 3
+}

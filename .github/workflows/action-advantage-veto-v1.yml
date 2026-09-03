@@ -1,0 +1,862 @@
+name: Locked action-advantage-veto-v1 campaign
+
+# This workflow and its plan consume no development or efficacy seed.  Exactly
+# one future addendum-only push launches the campaign.  Preflight is the only
+# job that compiles; every later job transports and hash-checks its artifacts.
+on:
+  push:
+    branches:
+      - agent/correctness-and-policy-upgrade
+    paths:
+      - data/experiments/locked_action_advantage_veto_v1_execution.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: locked-action-advantage-veto-v1-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PLAN_PATH: data/experiments/locked_action_advantage_veto_v1_plan.json
+  EXECUTION_PATH: data/experiments/locked_action_advantage_veto_v1_execution.json
+  WORLD_RESULT_PATH: data/experiments/world800_result.json
+  WORKFLOW_PATH: .github/workflows/action-advantage-veto-v1.yml
+  COMPILER_EXECUTABLE: gcc
+  COMPILER_SEMANTIC_VERSION_COMMAND: 'gcc -dumpfullversion -dumpversion'
+  REQUIRED_COMPILER_SEMANTIC_VERSION: '13.3.0'
+  BUILD_CFLAGS: '-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11'
+  BUILD_LDFLAGS: '-lm -pthread'
+  ROOT_SHA: af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417
+  ROOT_SIZE: '2823748'
+  TEACHER: 'policy:data/champion.bin:0:20'
+  DEVELOPMENT_SEED: '202609030101'
+  SPLIT_SEED: '202609030201'
+  SAFETY_CANDIDATE_SEED: '202609020301'
+  SAFETY_BASELINE_SEED: '202609020302'
+  FINAL_CANDIDATE_SEED: '202609020401'
+  FINAL_BASELINE_SEED: '202609020402'
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      execution_sha: ${{ steps.guard.outputs.execution_sha }}
+      plan_sha: ${{ steps.guard.outputs.plan_sha }}
+      source_commit: ${{ steps.guard.outputs.source_commit }}
+      source_tree: ${{ steps.guard.outputs.source_tree }}
+      baseline: ${{ steps.guard.outputs.baseline }}
+      candidate_prefix: ${{ steps.guard.outputs.candidate_prefix }}
+      world_cap: ${{ steps.guard.outputs.world_cap }}
+      world_result_sha: ${{ steps.guard.outputs.world_result_sha }}
+      world_passed: ${{ steps.guard.outputs.world_passed }}
+      transport_manifest_sha: ${{ steps.bind.outputs.transport_manifest_sha }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          path: campaign
+
+      - name: Fail closed unless this is the one addendum-only launch
+        id: guard
+        working-directory: campaign
+        env:
+          EVENT_BEFORE: ${{ github.event.before }}
+          EVENT_AFTER: ${{ github.event.after }}
+          EVENT_FORCED: ${{ github.event.forced }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = push
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$GITHUB_REF" = refs/heads/agent/correctness-and-policy-upgrade
+          test "$EVENT_FORCED" = false
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$EVENT_AFTER" = "$GITHUB_SHA"
+          test "$(git rev-list --parents -n 1 HEAD | wc -w)" -eq 2
+          SOURCE_COMMIT="$(git rev-parse HEAD^)"
+          SOURCE_TREE="$(git rev-parse 'HEAD^^{tree}')"
+          test "$EVENT_BEFORE" = "$SOURCE_COMMIT"
+          test -f "$EXECUTION_PATH"
+          test "$(git diff-tree --no-commit-id --name-only -r HEAD)" = "$EXECUTION_PATH"
+          test "$(git diff-tree --no-commit-id --name-status -r HEAD)" = \
+            "$(printf 'A\t%s' "$EXECUTION_PATH")"
+          if git cat-file -e "HEAD^:$EXECUTION_PATH" 2>/dev/null; then
+            echo "execution addendum existed before the launch commit" >&2
+            exit 1
+          fi
+          test "$(git rev-list --all --count -- "$EXECUTION_PATH")" = 1
+          test -f "$WORLD_RESULT_PATH"
+          git cat-file -e "HEAD^:$WORLD_RESULT_PATH"
+          python3 tools/action_advantage_campaign.py guard-execution \
+            --root . --execution "$EXECUTION_PATH" \
+            --source-parent-commit "$SOURCE_COMMIT" \
+            --source-parent-tree "$SOURCE_TREE" \
+            --github-output "$GITHUB_OUTPUT"
+          PLAN_SHA="$(sha256sum "$PLAN_PATH" | cut -d' ' -f1)"
+          EXECUTION_SHA="$(sha256sum "$EXECUTION_PATH" | cut -d' ' -f1)"
+          echo "source_commit=$SOURCE_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "source_tree=$SOURCE_TREE" >> "$GITHUB_OUTPUT"
+          echo "plan_sha=$PLAN_SHA" >> "$GITHUB_OUTPUT"
+          echo "execution_sha=$EXECUTION_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Materialize the sole parent source without the addendum
+        run: |
+          set -euo pipefail
+          mkdir source
+          git -C campaign archive HEAD^ | tar -x -C source
+          test ! -e "source/$EXECUTION_PATH"
+          test "$(git -C campaign rev-parse HEAD^)" = "${{ steps.guard.outputs.source_commit }}"
+          test "$(git -C campaign rev-parse 'HEAD^^{tree}')" = "${{ steps.guard.outputs.source_tree }}"
+          test "$(sha256sum source/$PLAN_PATH | cut -d' ' -f1)" = "${{ steps.guard.outputs.plan_sha }}"
+          test "$(sha256sum source/$WORLD_RESULT_PATH | cut -d' ' -f1)" = \
+            "${{ steps.guard.outputs.world_result_sha }}"
+          test "$(sha256sum source/data/champion.bin | cut -d' ' -f1)" = "$ROOT_SHA"
+          test "$(stat -c %s source/data/champion.bin)" = "$ROOT_SIZE"
+
+      - name: Compile the evaluator and training tools exactly once
+        run: |
+          set -euo pipefail
+          test "$COMPILER_EXECUTABLE" = gcc
+          test "$COMPILER_SEMANTIC_VERSION_COMMAND" = \
+            "gcc -dumpfullversion -dumpversion"
+          test "$(gcc -dumpfullversion -dumpversion)" = \
+            "$REQUIRED_COMPILER_SEMANTIC_VERSION"
+          make -C source -j2 \
+            CC="$COMPILER_EXECUTABLE" CFLAGS="$BUILD_CFLAGS" \
+            LDFLAGS="$BUILD_LDFLAGS" \
+            bin/arena bin/action_advantage bin/train_advantage_veto \
+            bin/test_action_ranker bin/test_action_advantage
+          (cd source && ./bin/test_action_ranker && \
+            ./bin/test_action_advantage)
+          (cd campaign && python3 -m unittest \
+            tests/test_action_advantage_campaign.py)
+          test "$(sha256sum source/data/champion.bin | cut -d' ' -f1)" = "$ROOT_SHA"
+          test "$(stat -c %s source/data/champion.bin)" = "$ROOT_SIZE"
+          ./source/bin/action_advantage --help > action-advantage-help.txt
+          grep -F "Only generated matches are accepted" action-advantage-help.txt
+          ! grep -Eq -- '--state|--probe' action-advantage-help.txt
+
+      - name: Bind the immutable transport
+        id: bind
+        run: |
+          set -euo pipefail
+          test -n "${ImageOS:-}"
+          test -n "${ImageVersion:-}"
+          test -n "${RUNNER_OS:-}"
+          test -n "${RUNNER_ARCH:-}"
+          mkdir -p transport/bin transport/data transport/tools transport/bindings
+          cp source/bin/arena transport/bin/arena
+          cp source/bin/action_advantage transport/bin/action_advantage
+          cp source/bin/train_advantage_veto transport/bin/train_advantage_veto
+          cp source/data/champion.bin transport/data/champion.bin
+          cp source/tools/merge_arena.py transport/tools/merge_arena.py
+          cp source/tools/gate_actor_panel.py transport/tools/gate_actor_panel.py
+          cp source/tools/validate_actor_shards.py transport/tools/validate_actor_shards.py
+          cp "source/$PLAN_PATH" transport/bindings/plan.json
+          cp "source/$WORKFLOW_PATH" transport/bindings/workflow.yml
+          cp "source/$WORLD_RESULT_PATH" transport/bindings/world800-result.json
+          cp "campaign/$EXECUTION_PATH" transport/bindings/execution.json
+          chmod 755 transport/bin/* transport/tools/*.py
+          {
+            echo "launch_commit=$GITHUB_SHA"
+            echo "source_parent_commit=${{ steps.guard.outputs.source_commit }}"
+            echo "source_parent_tree=${{ steps.guard.outputs.source_tree }}"
+            echo "plan_sha=${{ steps.guard.outputs.plan_sha }}"
+            echo "execution_sha=${{ steps.guard.outputs.execution_sha }}"
+            echo "world_result_sha=${{ steps.guard.outputs.world_result_sha }}"
+            echo "world_cap=${{ steps.guard.outputs.world_cap }}"
+            echo "world_passed=${{ steps.guard.outputs.world_passed }}"
+            echo "baseline=${{ steps.guard.outputs.baseline }}"
+            echo "candidate_prefix=${{ steps.guard.outputs.candidate_prefix }}"
+            echo "compiler_executable=$COMPILER_EXECUTABLE"
+            echo "compiler_semantic_version_command=$COMPILER_SEMANTIC_VERSION_COMMAND"
+            echo "compiler_semantic_version=$(gcc -dumpfullversion -dumpversion)"
+            echo "compiler_banner=$(gcc --version | head -1)"
+            echo "runner_image_os=$ImageOS"
+            echo "runner_image_version=$ImageVersion"
+            echo "runner_os=$RUNNER_OS"
+            echo "runner_arch=$RUNNER_ARCH"
+            echo "uname=$(uname -a)"
+            echo "cflags=$BUILD_CFLAGS"
+            echo "ldflags=$BUILD_LDFLAGS"
+          } > transport/BUILD_INFO.txt
+          (cd transport && { find bin data tools bindings -type f -print0; \
+            printf '%s\0' BUILD_INFO.txt; } | sort -z | \
+            xargs -0 sha256sum > SHA256SUMS.txt)
+          (cd transport && sha256sum -c SHA256SUMS.txt)
+          test "$(sha256sum transport/bindings/world800-result.json | cut -d' ' -f1)" = \
+            "${{ steps.guard.outputs.world_result_sha }}"
+          TRANSPORT_SHA="$(sha256sum transport/SHA256SUMS.txt | cut -d' ' -f1)"
+          echo "transport_manifest_sha=$TRANSPORT_SHA" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: action-advantage-v1-transport
+          path: transport
+          if-no-files-found: error
+          retention-days: 30
+
+  train_and_freeze:
+    if: ${{ github.run_attempt == 1 && needs.preflight.result == 'success' }}
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      BASELINE: ${{ needs.preflight.outputs.baseline }}
+      CANDIDATE_PREFIX: ${{ needs.preflight.outputs.candidate_prefix }}
+      WORLD_CAP: ${{ needs.preflight.outputs.world_cap }}
+      WORLD_RESULT_SHA: ${{ needs.preflight.outputs.world_result_sha }}
+    outputs:
+      candidate: ${{ steps.select.outputs.candidate }}
+      baseline: ${{ steps.select.outputs.baseline }}
+      safety_provenance: ${{ steps.select.outputs.safety_provenance }}
+      final_provenance: ${{ steps.select.outputs.final_provenance }}
+      threshold: ${{ steps.select.outputs.threshold }}
+      ranker_sha: ${{ steps.select.outputs.ranker_sha }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: action-advantage-v1-transport
+          path: transport
+
+      - name: Verify and install the compile-once transport
+        run: |
+          set -euo pipefail
+          test "$(sha256sum transport/SHA256SUMS.txt | cut -d' ' -f1)" = \
+            "${{ needs.preflight.outputs.transport_manifest_sha }}"
+          (cd transport && sha256sum -c SHA256SUMS.txt)
+          test "$(sha256sum transport/bindings/world800-result.json | cut -d' ' -f1)" = \
+            "$WORLD_RESULT_SHA"
+          mkdir -p bin data dev
+          cp transport/bin/action_advantage bin/action_advantage
+          cp transport/bin/train_advantage_veto bin/train_advantage_veto
+          cp transport/data/champion.bin data/champion.bin
+          chmod 755 bin/*
+          test "$(sha256sum data/champion.bin | cut -d' ' -f1)" = "$ROOT_SHA"
+          test ! -e data/probes
+          test "$(find . -name '*.state' -print -quit)" = ""
+
+      - name: Generate signed paired development labels from self-play only
+        run: |
+          set -euo pipefail
+          /usr/bin/time \
+            -f 'wall_s=%e user_s=%U sys_s=%S max_rss_kb=%M exit=%x' \
+            -o dev/generator.time \
+            ./bin/action_advantage \
+              --out dev/records.bin --champion data/champion.bin \
+              --actor "$BASELINE" --reroot-actor "$TEACHER" \
+              --matches 64 --worlds 256 --label-threads 4 \
+              --ply-lo 14 --anchor-stride 8 \
+              --seed "$DEVELOPMENT_SEED" 2>&1 | tee dev/generator.log
+          sha256sum dev/records.bin > dev/records.sha256
+
+      - name: Fit one frozen-head ranker and emit heldout grid
+        run: |
+          set -euo pipefail
+          /usr/bin/time \
+            -f 'wall_s=%e user_s=%U sys_s=%S max_rss_kb=%M exit=%x' \
+            -o dev/trainer.time \
+            ./bin/train_advantage_veto \
+              --records dev/records.bin --champion data/champion.bin \
+              --actor "$BASELINE" --reroot-actor "$TEACHER" \
+              --out dev/ranker.bin --metrics-json dev/heldout.json \
+              --split-seed "$SPLIT_SEED" --validation-permille 250 \
+              --epochs 24 --batch 32 --lr 0.00002 --anchor-kl 1 \
+              --pair-scale 1 --label-scale 12.5 --huber-delta 1 \
+              --max-pair-weight 4 --weight-decay 0 \
+              --max-validation-kl 0.01 --max-state-kl 0.05 \
+              2>&1 | tee dev/trainer.log
+          test "$(stat -c %s dev/ranker.bin)" = "$ROOT_SIZE"
+          sha256sum dev/ranker.bin dev/heldout.json > dev/training.sha256
+
+      - name: Select once on heldout development records and freeze actor
+        id: select
+        env:
+          SOURCE_COMMIT: ${{ needs.preflight.outputs.source_commit }}
+          SOURCE_TREE: ${{ needs.preflight.outputs.source_tree }}
+          PLAN_SHA: ${{ needs.preflight.outputs.plan_sha }}
+          EXECUTION_SHA: ${{ needs.preflight.outputs.execution_sha }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import math
+          import os
+          import struct
+          from pathlib import Path
+
+          def reject_constant(token):
+              raise ValueError(f"non-standard JSON constant {token}")
+
+          def unique(items):
+              out = {}
+              for key, value in items:
+                  if key in out:
+                      raise ValueError(f"duplicate JSON key {key}")
+                  out[key] = value
+              return out
+
+          def sha(path):
+              return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+          def fnv1a64(payload):
+              value = 14695981039346656037
+              for byte in payload:
+                  value ^= byte
+                  value = (value * 1099511628211) & ((1 << 64) - 1)
+              return f"{value:016x}"
+
+          metrics = json.loads(
+              Path("dev/heldout.json").read_text(encoding="utf-8"),
+              object_pairs_hook=unique,
+              parse_constant=reject_constant,
+          )
+          if metrics.get("schema") != "lc-action-advantage-validation-v1":
+              raise SystemExit("unexpected heldout metrics schema")
+          if metrics.get("split_seed") != int(os.environ["SPLIT_SEED"]):
+              raise SystemExit("heldout split seed drift")
+          if metrics.get("validation_permille") != 250:
+              raise SystemExit("heldout split fraction drift")
+          champion_bytes = Path("data/champion.bin").read_bytes()
+          if len(champion_bytes) != int(os.environ["ROOT_SIZE"]):
+              raise SystemExit("champion file size drift")
+          if struct.unpack("<6I", champion_bytes[:24]) != \
+                  (1279481425, 666, 512, 256, 120, 6):
+              raise SystemExit("champion serialized header drift")
+          champion_fnv = fnv1a64(champion_bytes[24:])
+          absent_fnv = fnv1a64(b"ABSENT\0")
+          expected_header = {
+              "format_version": 2,
+              "generator_seed": os.environ["DEVELOPMENT_SEED"],
+              "label_worlds": 256,
+              "ply_lo": 14,
+              "match_rounds": 3,
+              "label_threads": 4,
+              "scoring_symmetries": 20,
+              "source_matches_requested": 64,
+              "source_matches_completed": 64,
+              "proposal_cap": 0,
+              "collection_stop_reason": 0,
+              "maintained_actor_spec_hash": fnv1a64(
+                  os.environ["BASELINE"].encode()),
+              "maintained_root_net_hash": champion_fnv,
+              "maintained_continuation_net_hash": champion_fnv,
+              "maintained_controller_net_hash": absent_fnv,
+              "maintained_ranker_net_hash": absent_fnv,
+              "maintained_match_value_hash": absent_fnv,
+              "reroot_actor_spec_hash": fnv1a64(
+                  os.environ["TEACHER"].encode()),
+              "reroot_root_net_hash": champion_fnv,
+              "reroot_continuation_net_hash": champion_fnv,
+              "reroot_controller_net_hash": absent_fnv,
+              "reroot_ranker_net_hash": absent_fnv,
+              "reroot_match_value_hash": absent_fnv,
+          }
+          header = metrics.get("record_header")
+          if not isinstance(header, dict):
+              raise SystemExit("missing generated-record header")
+          for field, expected_value in expected_header.items():
+              if header.get(field) != expected_value:
+                  raise SystemExit(f"generated-record header drift: {field}")
+          for field in ("record_count", "anchor_count", "proposal_count"):
+              if type(header.get(field)) is not int or header[field] <= 0:
+                  raise SystemExit(f"invalid generated-record count: {field}")
+          if header["anchor_count"] + header["proposal_count"] != \
+                  header["record_count"]:
+              raise SystemExit("generated-record counts disagree")
+          if metrics.get("champion_hash") != champion_fnv:
+              raise SystemExit("generated-record champion hash drift")
+          validation_proposals = metrics.get("validation_proposals", 0)
+          if type(validation_proposals) is not int or validation_proposals < 20:
+              raise SystemExit("fewer than twenty heldout signed proposals")
+          if metrics.get("training_gate_passed") is not True:
+              raise SystemExit("trainer frozen-byte/loss/KL gate failed")
+          initial_loss = metrics.get("initial_pair_huber")
+          final_loss = metrics.get("final_pair_huber")
+          if any(isinstance(value, bool) or not isinstance(value, (int, float)) or
+                 not math.isfinite(value) for value in (initial_loss, final_loss)) or \
+                  not final_loss < initial_loss:
+              raise SystemExit("heldout pair loss did not strictly improve")
+          if metrics.get("frozen_nonpolicy") is not True:
+              raise SystemExit("non-policy checkpoint bytes were not frozen")
+          grid = metrics.get("threshold_grid")
+          expected = [0.0, 0.1, 0.25, 0.5, 1.0]
+          if not isinstance(grid, list) or len(grid) != len(expected):
+              raise SystemExit("threshold grid shape drift")
+          expected_runtime = [0.0, 0.10000000149011612, 0.25, 0.5, 1.0]
+          for row, threshold, runtime_threshold in zip(
+                  grid, expected, expected_runtime):
+              if not isinstance(row, dict) or row.get("threshold") != threshold:
+                  raise SystemExit("threshold grid identity/order drift")
+              if row.get("runtime_threshold") != runtime_threshold:
+                  raise SystemExit("runtime float threshold drift")
+              for field in ("runtime_threshold", "signed_hybrid_sum", "signed_hybrid_mean", "oracle_regret"):
+                  value = row.get(field)
+                  if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                      raise SystemExit(f"invalid threshold metric {field}")
+              for field in ("retained", "mistakes", "invalid_scores"):
+                  value = row.get(field)
+                  if type(value) is not int or value < 0:
+                      raise SystemExit(f"invalid threshold count {field}")
+              if row["invalid_scores"] != 0 or row["retained"] > validation_proposals or \
+                      row["mistakes"] > row["retained"]:
+                  raise SystemExit("invalid heldout threshold accounting")
+          eligible = [
+              (index, row) for index, row in enumerate(grid)
+              if row["retained"] * 5 >= validation_proposals and
+                 row["signed_hybrid_sum"] > 0.0
+          ]
+          ranker_sha = sha("dev/ranker.bin")
+          arena_sha = sha("transport/bin/arena")
+          champion_sha = sha("data/champion.bin")
+          records_sha = sha("dev/records.bin")
+          heldout_sha = sha("dev/heldout.json")
+          if not eligible:
+              failure = {
+                  "schema_version": 1,
+                  "artifact_kind": (
+                      "frozen_action_advantage_veto_v1_no_eligible_candidate"
+                  ),
+                  "status": (
+                      "no_eligible_threshold_fail_closed_before_safety"
+                  ),
+                  "source_commit": os.environ["SOURCE_COMMIT"],
+                  "source_tree": os.environ["SOURCE_TREE"],
+                  "plan_sha256": os.environ["PLAN_SHA"],
+                  "execution_sha256": os.environ["EXECUTION_SHA"],
+                  "authoritative_world800_result_sha256":
+                      os.environ["WORLD_RESULT_SHA"],
+                  "selected_world_cap": int(os.environ["WORLD_CAP"]),
+                  "arena_sha256": arena_sha,
+                  "champion_sha256": champion_sha,
+                  "records_sha256": records_sha,
+                  "heldout_metrics_sha256": heldout_sha,
+                  "ranker_sha256": ranker_sha,
+                  "validation_proposals": validation_proposals,
+                  "threshold_grid": expected,
+                  "heldout_threshold_metrics": grid,
+                  "eligibility_rule": (
+                      "retained * 5 >= heldout signed proposals and "
+                      "signed_hybrid_sum > 0"
+                  ),
+                  "eligible_thresholds": [],
+                  "candidate_count": 0,
+                  "safety_started": False,
+                  "final_started": False,
+                  "results": None,
+              }
+              Path("dev/selection-failure.json").write_text(
+                  json.dumps(failure, indent=2, sort_keys=True) + "\n",
+                  encoding="utf-8",
+              )
+              with Path(os.environ["GITHUB_OUTPUT"]).open(
+                      "a", encoding="utf-8") as stream:
+                  stream.write("eligible=false\n")
+              raise SystemExit(0)
+          selected_index, selected = min(
+              eligible,
+              key=lambda item: (
+                  item[1]["oracle_regret"],
+                  item[1]["mistakes"],
+                  -item[1]["signed_hybrid_sum"],
+                  -item[1]["threshold"],
+              ),
+          )
+          threshold_text = ["0", "0.1", "0.25", "0.5", "1"][selected_index]
+          candidate = os.environ["CANDIDATE_PREFIX"] + threshold_text
+          common = (
+              f"plan={os.environ['PLAN_SHA']};"
+              f"source={os.environ['SOURCE_COMMIT']};"
+              f"tree={os.environ['SOURCE_TREE']};"
+              f"execution={os.environ['EXECUTION_SHA']};"
+              f"world_result={os.environ['WORLD_RESULT_SHA']};"
+              f"world_cap={os.environ['WORLD_CAP']};"
+              f"arena={arena_sha};champion={champion_sha};"
+              f"ranker={ranker_sha};threshold={threshold_text};threads=4"
+          )
+          safety = "stage=action_advantage_veto_v1_safety;" + common
+          final = "stage=action_advantage_veto_v1_final;" + common
+          frozen = {
+              "schema_version": 1,
+              "artifact_kind": "frozen_action_advantage_veto_v1_candidate",
+              "status": "threshold_and_actor_frozen_before_safety",
+              "source_commit": os.environ["SOURCE_COMMIT"],
+              "source_tree": os.environ["SOURCE_TREE"],
+              "plan_sha256": os.environ["PLAN_SHA"],
+              "execution_sha256": os.environ["EXECUTION_SHA"],
+              "authoritative_world800_result_sha256":
+                  os.environ["WORLD_RESULT_SHA"],
+              "selected_world_cap": int(os.environ["WORLD_CAP"]),
+              "arena_sha256": arena_sha,
+              "champion_sha256": champion_sha,
+              "records_sha256": records_sha,
+              "heldout_metrics_sha256": heldout_sha,
+              "ranker_sha256": ranker_sha,
+              "threshold_grid": expected,
+              "eligibility_rule": "retained * 5 >= heldout signed proposals and signed_hybrid_sum > 0",
+              "selection_rule": "among eligible grid points, lexicographically minimize (oracle_regret, mistakes, negative signed_hybrid_sum, negative threshold)",
+              "selected_threshold": selected["threshold"],
+              "selected_threshold_text": threshold_text,
+              "selected_heldout_metrics": selected,
+              "candidate": candidate,
+              "baseline": os.environ["BASELINE"],
+              "safety_provenance": safety,
+              "final_provenance": final,
+              "candidate_count": 1,
+              "results": None,
+          }
+          Path("dev/selected.json").write_text(
+              json.dumps(frozen, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          outputs = Path(os.environ["GITHUB_OUTPUT"])
+          with outputs.open("a", encoding="utf-8") as stream:
+              stream.write("eligible=true\n")
+              stream.write(f"candidate={candidate}\n")
+              stream.write(f"baseline={os.environ['BASELINE']}\n")
+              stream.write(f"safety_provenance={safety}\n")
+              stream.write(f"final_provenance={final}\n")
+              stream.write(f"threshold={threshold_text}\n")
+              stream.write(f"ranker_sha={ranker_sha}\n")
+          PY
+          if test -f dev/selected.json; then
+            test ! -e dev/selection-failure.json
+            sha256sum dev/selected.json > dev/selected.sha256
+          else
+            test -f dev/selection-failure.json
+            sha256sum dev/selection-failure.json > \
+              dev/selection-failure.sha256
+          fi
+
+      - name: Package the one candidate and immutable evaluator
+        if: ${{ success() && steps.select.outputs.eligible == 'true' }}
+        run: |
+          set -euo pipefail
+          mkdir -p evaluator/bin evaluator/data/models evaluator/tools evaluator/bindings
+          cp transport/bin/arena evaluator/bin/arena
+          cp data/champion.bin evaluator/data/champion.bin
+          cp dev/ranker.bin evaluator/data/models/action_advantage_veto_v1.bin
+          cp transport/tools/*.py evaluator/tools/
+          cp transport/bindings/* evaluator/bindings/
+          cp dev/selected.json evaluator/selected.json
+          cp transport/BUILD_INFO.txt evaluator/PREFLIGHT_BUILD_INFO.txt
+          chmod 755 evaluator/bin/arena evaluator/tools/*.py
+          (cd evaluator && { find bin data tools bindings -type f -print0; \
+            printf '%s\0' selected.json PREFLIGHT_BUILD_INFO.txt; } | \
+            sort -z | xargs -0 sha256sum > SHA256SUMS.txt)
+          (cd evaluator && sha256sum -c SHA256SUMS.txt)
+          cp evaluator/SHA256SUMS.txt dev/EVALUATOR_SHA256SUMS.txt
+
+      - name: Bind the complete development evidence before upload
+        if: ${{ always() && (steps.select.outputs.eligible == 'true' || steps.select.outputs.eligible == 'false') }}
+        run: |
+          set -euo pipefail
+          (cd dev && find . -maxdepth 1 -type f \
+            ! -name DEVELOPMENT_SHA256SUMS.txt -print0 | \
+            sort -z | xargs -0 sha256sum > DEVELOPMENT_SHA256SUMS.txt)
+          (cd dev && sha256sum -c DEVELOPMENT_SHA256SUMS.txt)
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: ${{ always() }}
+        with:
+          name: action-advantage-v1-development-evidence
+          path: dev
+          if-no-files-found: error
+          retention-days: 30
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: ${{ success() && steps.select.outputs.eligible == 'true' }}
+        with:
+          name: action-advantage-v1-evaluator
+          path: evaluator
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Fail closed after preserving no-candidate development evidence
+        if: ${{ always() && steps.select.outputs.eligible == 'false' }}
+        run: |
+          set -euo pipefail
+          test -f dev/selection-failure.json
+          test -f dev/DEVELOPMENT_SHA256SUMS.txt
+          echo "no eligible action-advantage threshold; safety is forbidden" >&2
+          exit 1
+
+  safety_evaluate:
+    if: ${{ github.run_attempt == 1 && needs.train_and_freeze.result == 'success' }}
+    needs: train_and_freeze
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        orientation: [candidate-first, baseline-first]
+        start: [0, 20, 40, 60, 80, 100, 120, 140, 160, 180]
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: action-advantage-v1-evaluator
+          path: evaluator
+
+      - name: Run one immutable 20-pair safety shard
+        env:
+          ORIENTATION: ${{ matrix.orientation }}
+          PAIR_START: ${{ matrix.start }}
+          CANDIDATE: ${{ needs.train_and_freeze.outputs.candidate }}
+          LOCKED_BASELINE: ${{ needs.train_and_freeze.outputs.baseline }}
+          PROVENANCE: ${{ needs.train_and_freeze.outputs.safety_provenance }}
+          RANKER_SHA: ${{ needs.train_and_freeze.outputs.ranker_sha }}
+        run: |
+          set -euo pipefail
+          (cd evaluator && sha256sum -c SHA256SUMS.txt)
+          test "$(sha256sum evaluator/data/champion.bin | cut -d' ' -f1)" = "$ROOT_SHA"
+          test "$(sha256sum evaluator/data/models/action_advantage_veto_v1.bin | cut -d' ' -f1)" = "$RANKER_SHA"
+          mkdir -p bin data/models raw
+          cp evaluator/bin/arena bin/arena
+          cp evaluator/data/champion.bin data/champion.bin
+          cp evaluator/data/models/action_advantage_veto_v1.bin data/models/action_advantage_veto_v1.bin
+          chmod 755 bin/arena
+          if [ "$ORIENTATION" = candidate-first ]; then
+            AGENT_A="$CANDIDATE"; AGENT_B="$LOCKED_BASELINE"; SEED="$SAFETY_CANDIDATE_SEED"
+          elif [ "$ORIENTATION" = baseline-first ]; then
+            AGENT_A="$LOCKED_BASELINE"; AGENT_B="$CANDIDATE"; SEED="$SAFETY_BASELINE_SEED"
+          else
+            exit 2
+          fi
+          OUT="raw/${ORIENTATION}-${PAIR_START}"
+          /usr/bin/time \
+            -f 'wall_s=%e user_s=%U sys_s=%S max_rss_kb=%M exit=%x' \
+            -o "${OUT}.time" \
+            ./bin/arena -a "$AGENT_A" -b "$AGENT_B" \
+              -n 20 -t 4 -s "$SEED" -r 3 --pair-start "$PAIR_START" \
+              --raw-pairs "${OUT}.jsonl" --raw-only \
+              --provenance "$PROVENANCE"
+          sha256sum "${OUT}.jsonl" > "${OUT}.sha256"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: action-advantage-v1-safety-${{ matrix.orientation }}-${{ matrix.start }}
+          path: raw
+          if-no-files-found: error
+          retention-days: 30
+
+  safety_merge:
+    if: ${{ github.run_attempt == 1 && needs.train_and_freeze.result == 'success' && needs.safety_evaluate.result == 'success' }}
+    needs: [train_and_freeze, safety_evaluate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      passed: ${{ steps.decision.outputs.passed }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: action-advantage-v1-evaluator
+          path: evaluator
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: action-advantage-v1-safety-*
+          path: downloads
+          merge-multiple: true
+
+      - name: Validate the complete safety set before any efficacy merge
+        env:
+          CANDIDATE: ${{ needs.train_and_freeze.outputs.candidate }}
+          LOCKED_BASELINE: ${{ needs.train_and_freeze.outputs.baseline }}
+          PROVENANCE: ${{ needs.train_and_freeze.outputs.safety_provenance }}
+        run: |
+          set -euo pipefail
+          (cd evaluator && sha256sum -c SHA256SUMS.txt)
+          mkdir -p merged bindings
+          python3 evaluator/tools/validate_actor_shards.py \
+            --directory downloads --candidate "$CANDIDATE" --baseline "$LOCKED_BASELINE" \
+            --provenance "$PROVENANCE" \
+            --candidate-first-seed "$SAFETY_CANDIDATE_SEED" \
+            --baseline-first-seed "$SAFETY_BASELINE_SEED" \
+            --starts 0,20,40,60,80,100,120,140,160,180 \
+            --pairs-per-shard 20 --rounds 3 \
+            --output merged/structural-validation.json
+          python3 evaluator/tools/merge_arena.py block \
+            --expect-start 0 --expect-pairs 200 \
+            --output merged/candidate-first.json downloads/candidate-first-*.jsonl
+          python3 evaluator/tools/merge_arena.py block \
+            --expect-start 0 --expect-pairs 200 \
+            --output merged/baseline-first.json downloads/baseline-first-*.jsonl
+          python3 evaluator/tools/merge_arena.py reciprocal \
+            --first merged/candidate-first.json --second merged/baseline-first.json \
+            --gate-z 1.645 --require-positive-margin \
+            --output merged/reciprocal.json
+
+      - name: Apply the unchanged safety gate once
+        id: decision
+        env:
+          CANDIDATE: ${{ needs.train_and_freeze.outputs.candidate }}
+          LOCKED_BASELINE: ${{ needs.train_and_freeze.outputs.baseline }}
+          PROVENANCE: ${{ needs.train_and_freeze.outputs.safety_provenance }}
+        run: |
+          set -euo pipefail
+          python3 evaluator/tools/gate_actor_panel.py \
+            --reciprocal merged/reciprocal.json --mode safety \
+            --candidate "$CANDIDATE" --baseline "$LOCKED_BASELINE" \
+            --provenance "$PROVENANCE" --pairs-per-orientation 200 \
+            --candidate-first-seed "$SAFETY_CANDIDATE_SEED" \
+            --baseline-first-seed "$SAFETY_BASELINE_SEED" \
+            --gate-z 1.645 --output merged/safety-decision.json \
+            --github-output "$GITHUB_OUTPUT"
+          cp evaluator/selected.json bindings/selected.json
+          cp evaluator/SHA256SUMS.txt bindings/EVALUATOR_SHA256SUMS.txt
+          cp -r evaluator/bindings/. bindings/
+          find downloads merged bindings -type f ! -name SHA256SUMS.txt -print0 | \
+            sort -z | xargs -0 sha256sum > merged/SHA256SUMS.txt
+          sha256sum -c merged/SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: action-advantage-v1-safety-final-evidence
+          path: |
+            downloads
+            merged
+            bindings
+          if-no-files-found: error
+          retention-days: 30
+
+  final_evaluate:
+    if: ${{ github.run_attempt == 1 && needs.train_and_freeze.result == 'success' && needs.safety_merge.result == 'success' && needs.safety_merge.outputs.passed == 'true' }}
+    needs: [train_and_freeze, safety_merge]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        orientation: [candidate-first, baseline-first]
+        start: [0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000, 2100, 2200, 2300, 2400]
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: action-advantage-v1-evaluator
+          path: evaluator
+
+      - name: Run one immutable 100-pair final shard
+        env:
+          ORIENTATION: ${{ matrix.orientation }}
+          PAIR_START: ${{ matrix.start }}
+          CANDIDATE: ${{ needs.train_and_freeze.outputs.candidate }}
+          LOCKED_BASELINE: ${{ needs.train_and_freeze.outputs.baseline }}
+          PROVENANCE: ${{ needs.train_and_freeze.outputs.final_provenance }}
+          RANKER_SHA: ${{ needs.train_and_freeze.outputs.ranker_sha }}
+        run: |
+          set -euo pipefail
+          (cd evaluator && sha256sum -c SHA256SUMS.txt)
+          test "$(sha256sum evaluator/data/champion.bin | cut -d' ' -f1)" = "$ROOT_SHA"
+          test "$(sha256sum evaluator/data/models/action_advantage_veto_v1.bin | cut -d' ' -f1)" = "$RANKER_SHA"
+          mkdir -p bin data/models raw
+          cp evaluator/bin/arena bin/arena
+          cp evaluator/data/champion.bin data/champion.bin
+          cp evaluator/data/models/action_advantage_veto_v1.bin data/models/action_advantage_veto_v1.bin
+          chmod 755 bin/arena
+          if [ "$ORIENTATION" = candidate-first ]; then
+            AGENT_A="$CANDIDATE"; AGENT_B="$LOCKED_BASELINE"; SEED="$FINAL_CANDIDATE_SEED"
+          elif [ "$ORIENTATION" = baseline-first ]; then
+            AGENT_A="$LOCKED_BASELINE"; AGENT_B="$CANDIDATE"; SEED="$FINAL_BASELINE_SEED"
+          else
+            exit 2
+          fi
+          OUT="raw/${ORIENTATION}-${PAIR_START}"
+          /usr/bin/time \
+            -f 'wall_s=%e user_s=%U sys_s=%S max_rss_kb=%M exit=%x' \
+            -o "${OUT}.time" \
+            ./bin/arena -a "$AGENT_A" -b "$AGENT_B" \
+              -n 100 -t 4 -s "$SEED" -r 3 --pair-start "$PAIR_START" \
+              --raw-pairs "${OUT}.jsonl" --raw-only \
+              --provenance "$PROVENANCE"
+          sha256sum "${OUT}.jsonl" > "${OUT}.sha256"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: action-advantage-v1-final-${{ matrix.orientation }}-${{ matrix.start }}
+          path: raw
+          if-no-files-found: error
+          retention-days: 30
+
+  final_merge:
+    if: ${{ github.run_attempt == 1 && needs.train_and_freeze.result == 'success' && needs.final_evaluate.result == 'success' }}
+    needs: [train_and_freeze, final_evaluate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      passed: ${{ steps.decision.outputs.passed }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: action-advantage-v1-evaluator
+          path: evaluator
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: action-advantage-v1-final-*
+          path: downloads
+          merge-multiple: true
+
+      - name: Validate the complete final set before any efficacy merge
+        env:
+          CANDIDATE: ${{ needs.train_and_freeze.outputs.candidate }}
+          LOCKED_BASELINE: ${{ needs.train_and_freeze.outputs.baseline }}
+          PROVENANCE: ${{ needs.train_and_freeze.outputs.final_provenance }}
+        run: |
+          set -euo pipefail
+          (cd evaluator && sha256sum -c SHA256SUMS.txt)
+          mkdir -p merged bindings
+          python3 evaluator/tools/validate_actor_shards.py \
+            --directory downloads --candidate "$CANDIDATE" --baseline "$LOCKED_BASELINE" \
+            --provenance "$PROVENANCE" \
+            --candidate-first-seed "$FINAL_CANDIDATE_SEED" \
+            --baseline-first-seed "$FINAL_BASELINE_SEED" \
+            --starts 0,100,200,300,400,500,600,700,800,900,1000,1100,1200,1300,1400,1500,1600,1700,1800,1900,2000,2100,2200,2300,2400 \
+            --pairs-per-shard 100 --rounds 3 \
+            --output merged/structural-validation.json
+          python3 evaluator/tools/merge_arena.py block \
+            --expect-start 0 --expect-pairs 2500 \
+            --output merged/candidate-first.json downloads/candidate-first-*.jsonl
+          python3 evaluator/tools/merge_arena.py block \
+            --expect-start 0 --expect-pairs 2500 \
+            --output merged/baseline-first.json downloads/baseline-first-*.jsonl
+          python3 evaluator/tools/merge_arena.py reciprocal \
+            --first merged/candidate-first.json --second merged/baseline-first.json \
+            --gate-z 1.645 --require-positive-margin \
+            --output merged/reciprocal.json
+
+      - name: Apply both unchanged one-sided final bounds once
+        id: decision
+        env:
+          CANDIDATE: ${{ needs.train_and_freeze.outputs.candidate }}
+          LOCKED_BASELINE: ${{ needs.train_and_freeze.outputs.baseline }}
+          PROVENANCE: ${{ needs.train_and_freeze.outputs.final_provenance }}
+        run: |
+          set -euo pipefail
+          python3 evaluator/tools/gate_actor_panel.py \
+            --reciprocal merged/reciprocal.json --mode final \
+            --candidate "$CANDIDATE" --baseline "$LOCKED_BASELINE" \
+            --provenance "$PROVENANCE" --pairs-per-orientation 2500 \
+            --candidate-first-seed "$FINAL_CANDIDATE_SEED" \
+            --baseline-first-seed "$FINAL_BASELINE_SEED" \
+            --gate-z 1.645 --output merged/final-decision.json \
+            --github-output "$GITHUB_OUTPUT"
+          cp evaluator/selected.json bindings/selected.json
+          cp evaluator/SHA256SUMS.txt bindings/EVALUATOR_SHA256SUMS.txt
+          cp -r evaluator/bindings/. bindings/
+          find downloads merged bindings -type f ! -name SHA256SUMS.txt -print0 | \
+            sort -z | xargs -0 sha256sum > merged/SHA256SUMS.txt
+          sha256sum -c merged/SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: action-advantage-v1-promotion-final-evidence
+          path: |
+            downloads
+            merged
+            bindings
+          if-no-files-found: error
+          retention-days: 30

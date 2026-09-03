@@ -1,0 +1,460 @@
+{
+  "artifact_kind": "locked_exact_17_commented_ply_audit_authoritative_result",
+  "artifacts": [
+    {
+      "digest": "sha256:f38277808e1cd05a45ef345dc6e57606a1151bfa9374b674bc0cab70e3267f34",
+      "expired": false,
+      "id": 9516664848,
+      "local_zip_sha256": "f38277808e1cd05a45ef345dc6e57606a1151bfa9374b674bc0cab70e3267f34",
+      "name": "commented-ply-audit-v3-complete-evidence",
+      "size_in_bytes": 18650608
+    },
+    {
+      "digest": "sha256:493aa7f4ae15ba82032efb14f10aab3414c1694bf9b2ec583f7e6f92536fe7f1",
+      "expired": false,
+      "id": 9516659450,
+      "local_zip_sha256": "493aa7f4ae15ba82032efb14f10aab3414c1694bf9b2ec583f7e6f92536fe7f1",
+      "name": "commented-ply-audit-v3-case-ui-221-p10",
+      "size_in_bytes": 3309
+    },
+    {
+      "digest": "sha256:9d4cfa0a40c5d5a13f5ae958d5246f9d850fbb4b4737c8e1af276f9aedccc8f4",
+      "expired": false,
+      "id": 9516631311,
+      "local_zip_sha256": "9d4cfa0a40c5d5a13f5ae958d5246f9d850fbb4b4737c8e1af276f9aedccc8f4",
+      "name": "commented-ply-audit-v3-case-ui-221-p16",
+      "size_in_bytes": 3492
+    },
+    {
+      "digest": "sha256:adc4d89475b2ae39ed724e6dae3d72b00a5daff4fd65f4c8cb7567d1c60e72dc",
+      "expired": false,
+      "id": 9516620485,
+      "local_zip_sha256": "adc4d89475b2ae39ed724e6dae3d72b00a5daff4fd65f4c8cb7567d1c60e72dc",
+      "name": "commented-ply-audit-v3-case-ui-725-p21",
+      "size_in_bytes": 3498
+    },
+    {
+      "digest": "sha256:7a3f0d0d0140f3298da7ca76d549acd5e076d2796e1fe665f8a38d69e428ac52",
+      "expired": false,
+      "id": 9516606288,
+      "local_zip_sha256": "7a3f0d0d0140f3298da7ca76d549acd5e076d2796e1fe665f8a38d69e428ac52",
+      "name": "commented-ply-audit-v3-case-showcase-572-p15",
+      "size_in_bytes": 3324
+    },
+    {
+      "digest": "sha256:f4230f251d8d8ba6e546021fe68e79254d716d135ef969b6101c33744ecb7453",
+      "expired": false,
+      "id": 9516603433,
+      "local_zip_sha256": "f4230f251d8d8ba6e546021fe68e79254d716d135ef969b6101c33744ecb7453",
+      "name": "commented-ply-audit-v3-case-ui-221-p12",
+      "size_in_bytes": 3284
+    },
+    {
+      "digest": "sha256:e9388464920288ae8fa7287d1f8edf38a5a724f52b56f9c75cc077719d1f925e",
+      "expired": false,
+      "id": 9516600015,
+      "local_zip_sha256": "e9388464920288ae8fa7287d1f8edf38a5a724f52b56f9c75cc077719d1f925e",
+      "name": "commented-ply-audit-v3-case-ui-221-p20",
+      "size_in_bytes": 3692
+    },
+    {
+      "digest": "sha256:91c9e7b34af1bd353706b8cd73a9851b62c70085bf75109329e4e6b0ccee1799",
+      "expired": false,
+      "id": 9516597680,
+      "local_zip_sha256": "91c9e7b34af1bd353706b8cd73a9851b62c70085bf75109329e4e6b0ccee1799",
+      "name": "commented-ply-audit-v3-case-showcase-572-p17",
+      "size_in_bytes": 3546
+    },
+    {
+      "digest": "sha256:714dd6603e9c571df251cfad6b502b3553519c2dff7eaf016fb533e630695d4b",
+      "expired": false,
+      "id": 9516591353,
+      "local_zip_sha256": "714dd6603e9c571df251cfad6b502b3553519c2dff7eaf016fb533e630695d4b",
+      "name": "commented-ply-audit-v3-case-ui-725-p25",
+      "size_in_bytes": 3321
+    },
+    {
+      "digest": "sha256:1c13e028746f24621641424bfa51b0abd38cf10eee09f614b1dfdfc31b3f9adc",
+      "expired": false,
+      "id": 9516590342,
+      "local_zip_sha256": "1c13e028746f24621641424bfa51b0abd38cf10eee09f614b1dfdfc31b3f9adc",
+      "name": "commented-ply-audit-v3-case-ui-725-p23",
+      "size_in_bytes": 3290
+    },
+    {
+      "digest": "sha256:079913242498b3326871f636137de0bcb7ff4ce062f53b11706f5047a82e86ba",
+      "expired": false,
+      "id": 9516572998,
+      "local_zip_sha256": "079913242498b3326871f636137de0bcb7ff4ce062f53b11706f5047a82e86ba",
+      "name": "commented-ply-audit-v3-case-showcase-572-p14",
+      "size_in_bytes": 3538
+    },
+    {
+      "digest": "sha256:0d01099f87a21c5121dcb6893f55df51b898da4e8979a422ae69013cabf654ad",
+      "expired": false,
+      "id": 9516572068,
+      "local_zip_sha256": "0d01099f87a21c5121dcb6893f55df51b898da4e8979a422ae69013cabf654ad",
+      "name": "commented-ply-audit-v3-case-ui-725-p22",
+      "size_in_bytes": 3294
+    },
+    {
+      "digest": "sha256:f3019c90f0674706887d6af7802d3af376ada042314a16a25ca9e4a03232d67f",
+      "expired": false,
+      "id": 9516566233,
+      "local_zip_sha256": "f3019c90f0674706887d6af7802d3af376ada042314a16a25ca9e4a03232d67f",
+      "name": "commented-ply-audit-v3-case-showcase-572-p32",
+      "size_in_bytes": 3525
+    },
+    {
+      "digest": "sha256:a11a40fb5da7d58d856932e18b9b6270deafb5240a5681e2cf5c44c970263562",
+      "expired": false,
+      "id": 9516552763,
+      "local_zip_sha256": "a11a40fb5da7d58d856932e18b9b6270deafb5240a5681e2cf5c44c970263562",
+      "name": "commented-ply-audit-v3-case-ui-221-p3",
+      "size_in_bytes": 3265
+    },
+    {
+      "digest": "sha256:32dcbe0cdaa3a8a8b858ae5722e512baca44e4d044be276cb25b5e4ebca703e8",
+      "expired": false,
+      "id": 9516552245,
+      "local_zip_sha256": "32dcbe0cdaa3a8a8b858ae5722e512baca44e4d044be276cb25b5e4ebca703e8",
+      "name": "commented-ply-audit-v3-case-ui-956-p44",
+      "size_in_bytes": 3307
+    },
+    {
+      "digest": "sha256:cc2222ebc6aa84ad4e8f7fcdc69242507d96781a8b38a83e8a2ae56a401e57a6",
+      "expired": false,
+      "id": 9516549876,
+      "local_zip_sha256": "cc2222ebc6aa84ad4e8f7fcdc69242507d96781a8b38a83e8a2ae56a401e57a6",
+      "name": "commented-ply-audit-v3-case-ui-221-p4",
+      "size_in_bytes": 3272
+    },
+    {
+      "digest": "sha256:29a49d58a188358f6959e32378f7f9e0a8c5f2cb108ca0e46c6933e5d04f6a69",
+      "expired": false,
+      "id": 9516548902,
+      "local_zip_sha256": "29a49d58a188358f6959e32378f7f9e0a8c5f2cb108ca0e46c6933e5d04f6a69",
+      "name": "commented-ply-audit-v3-case-ui-221-p8",
+      "size_in_bytes": 3283
+    },
+    {
+      "digest": "sha256:42c3b0a6ccb785a7c1abea085f8ca15b4f2758b3f8fbeeb8821c32d2323673e2",
+      "expired": false,
+      "id": 9516546955,
+      "local_zip_sha256": "42c3b0a6ccb785a7c1abea085f8ca15b4f2758b3f8fbeeb8821c32d2323673e2",
+      "name": "commented-ply-audit-v3-case-ui-221-p13",
+      "size_in_bytes": 3944
+    },
+    {
+      "digest": "sha256:4e695c76e83499f5060e7c76577c52232c24a5e9fda5d9e29725ccb885ae7491",
+      "expired": false,
+      "id": 9516495118,
+      "local_zip_sha256": "4e695c76e83499f5060e7c76577c52232c24a5e9fda5d9e29725ccb885ae7491",
+      "name": "commented-ply-audit-v3-evaluator",
+      "size_in_bytes": 16957994
+    }
+  ],
+  "attempt_id": "v3",
+  "audit": {
+    "actor_selected_action_included": true,
+    "all_case_artifacts_byte_equal_to_merged_shards": true,
+    "all_case_sidecars_verified": true,
+    "all_case_timing_exit_zero": true,
+    "cases_completed": 17,
+    "counterfactual_cap_hits": 0,
+    "diagnostic_only": true,
+    "exact_world_budget": true,
+    "fixed_k_belief_case": "ui-221-p13",
+    "fixed_k_belief_valid": true,
+    "policy20_full_remaining_match": true,
+    "promotion_use": "forbidden",
+    "raw_shards": 17,
+    "summary": {
+      "actor_reviewed_move_denominator": 16,
+      "actor_selected_extra_signals": {
+        "alternative_ahead": 1,
+        "inconclusive": 1,
+        "invalid": 0,
+        "reference_ahead": 0
+      },
+      "actor_selected_reviewed_move": 8,
+      "alternative_signals": {
+        "alternative_ahead": 1,
+        "inconclusive": 16,
+        "invalid": 0,
+        "reference_ahead": 4
+      },
+      "p13_neutral_alternative_signals": {
+        "alternative_ahead": 0,
+        "inconclusive": 1,
+        "invalid": 0,
+        "reference_ahead": 0
+      },
+      "reviewed_candidates_below_two_percent_policy_prior": 7
+    },
+    "total_paired_worlds": 18432
+  },
+  "bindings": {
+    "actor_checkpoint_sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+    "audit_driver_sha256": "32ba8bbafd33756cb3af78cf15b0a35e988170436a6f1a636d4e5972d7f55b93",
+    "case_definition_sha256": "12ff900ef6b69a78b3384ba26bb5b2e6a2d2fe3e2d2135e291ed2bcb4d8cde83",
+    "definition_commit": "7a8e7ee0598e461cf3bad03d3817a76671341327",
+    "definition_lock_sha256": "131813ab280e46d6826edb3353265323858a126793526a7b0d98099432c6446d",
+    "definition_tree": "932b0558ee5d98cc7c360e95818aad76a1b9bb45",
+    "evaluator_c_sha256": "3bb8a50002f954c7f7db775270f2cb1e6a5fa8fce8875c9a6fe9a6e68b4d33fd",
+    "execution_sha256": "5f63df7611617c95f925f0fcb74f8a88f8896deb73f24abfa5c12dbe41d17c50",
+    "final_actor_result_sha256": "5ad3566c5fb66aa45efa0c3b45eff6bde83eacece2eefd13a6794eb57530e476",
+    "launch_commit": "330488423fad6f7a83fc1b1ace2bb8fae75449b1",
+    "launch_tree": "54178f073b257b96509a2e13dce1ca0897628abc",
+    "lock_commit": "681ccfa825b00b6ce5fc5a5d1356a17473b64aa4",
+    "plan_sha256": "8d66155829cc31b71b75e770e5aea454ecb5808e5a91bcd5c4c5fc0339a228e3",
+    "source_parent_commit": "681ccfa825b00b6ce5fc5a5d1356a17473b64aa4",
+    "source_parent_tree": "9094a9712f4f67bf4b9b6b7e9f37191abbf9ea15",
+    "workflow_sha256": "bb3a3172c2d4139f5ae94feef88cec51babd87adf7095154a203cd005fd6ae74"
+  },
+  "independent_verification": {
+    "all_19_downloaded_zip_digests_match_github": true,
+    "arithmetic_recomputed": [
+      "candidate_minus_reference_deltas",
+      "hybrid_identity",
+      "integral_score_and_margin_sums",
+      "paired_se_triangle_bounds",
+      "descriptive_signals",
+      "aggregate_counts"
+    ],
+    "canonical_json_verified": true,
+    "canonical_markdown_rerender_byte_equal": true,
+    "continuation_contract_verified": true,
+    "exact_case_set_and_order_verified": true,
+    "exact_state_hashes_verified": true,
+    "frozen_definition_and_execution_topology_verified": true,
+    "limitation": "Per-world observations, hidden worlds, future deals, paired cross-products, full policy vectors, and exact belief logits were not persisted. Their means, SEs, FNV hashes, actor choice, policy top-two status, and p13 posterior are evaluator-attested and structurally bound, but cannot be independently recomputed without forbidden production-seed reuse.",
+    "lossless_merge_verified": true,
+    "p13_fixed_k_marginal_sum": 8.00000005215,
+    "seed_and_world_contracts_verified": true,
+    "zero_caps_verified": true
+  },
+  "jobs": [
+    {
+      "conclusion": "success",
+      "id": 97401907383,
+      "name": "preflight",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 97402015514,
+      "name": "exact commented ply ui-221-p13",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 97402015515,
+      "name": "exact commented ply showcase-572-p14",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 97402015519,
+      "name": "exact commented ply ui-221-p8",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 97402015530,
+      "name": "exact commented ply ui-221-p20",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 97402015533,
+      "name": "exact commented ply showcase-572-p32",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 97402015561,
+      "name": "exact commented ply ui-221-p4",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 97402015562,
+      "name": "exact commented ply ui-725-p21",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 97402015563,
+      "name": "exact commented ply ui-221-p3",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 97402015569,
+      "name": "exact commented ply ui-956-p44",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 97402015577,
+      "name": "exact commented ply ui-221-p12",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 97402015582,
+      "name": "exact commented ply ui-221-p10",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 97402015588,
+      "name": "exact commented ply ui-725-p22",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 97402015611,
+      "name": "exact commented ply showcase-572-p15",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 97402015613,
+      "name": "exact commented ply ui-725-p25",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 97402015627,
+      "name": "exact commented ply showcase-572-p17",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 97402015635,
+      "name": "exact commented ply ui-221-p16",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 97402015713,
+      "name": "exact commented ply ui-725-p23",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "id": 97403377827,
+      "name": "merge",
+      "status": "completed"
+    }
+  ],
+  "maintained_actor": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+  "packaging_recovery": {
+    "efficacy_rerun": false,
+    "missing_file_count": 14,
+    "missing_files": [
+      {
+        "path": "evaluator/.github/workflows/action-advantage-veto-v1.yml",
+        "sha256": "87af6faac9df131536e5f90878390c6a1252c88852b14ee44ac1ccc7db467203"
+      },
+      {
+        "path": "evaluator/.github/workflows/action-core-shortlist.yml",
+        "sha256": "1da25ab6dae95867a108f3686b3f11e07a5026e2206f10d621dcd596044dcc50"
+      },
+      {
+        "path": "evaluator/.github/workflows/ci.yml",
+        "sha256": "c3d2d4f62e819956e363ae270f2d44faacf6c6475bf74552e041dcf5991e8b7c"
+      },
+      {
+        "path": "evaluator/.github/workflows/commented-ply-audit-v3.yml",
+        "sha256": "bb3a3172c2d4139f5ae94feef88cec51babd87adf7095154a203cd005fd6ae74"
+      },
+      {
+        "path": "evaluator/.github/workflows/commented-ply-audit.yml",
+        "sha256": "2c454e3fe351651e2965015b7c32f0bbb7d66c431b5c594406e59b7c07ab99d1"
+      },
+      {
+        "path": "evaluator/.github/workflows/continuation-soup-v1.yml",
+        "sha256": "756dfa9bb7c49a5010d21c0e5a602073ca4706d14fe35f99df644456633132f0"
+      },
+      {
+        "path": "evaluator/.github/workflows/continuation-v2.yml",
+        "sha256": "2128fb25ad39942b64a7e5c7c8aed771f01cfef3d3e6ae659eed0e9b4e5d323c"
+      },
+      {
+        "path": "evaluator/.github/workflows/controller-veto-v3.yml",
+        "sha256": "9a9f5756991173d55f42eb225e43689030d7b74ea4c0d07ae5f53188b32c84ec"
+      },
+      {
+        "path": "evaluator/.github/workflows/flagged-ply-audit.yml",
+        "sha256": "c2beb735eea0d31d0e5f437cd120e899d1a0f82dbda07ef62ae1d73582ef2f34"
+      },
+      {
+        "path": "evaluator/.github/workflows/match-value-variant.yml",
+        "sha256": "6e2fc483671912b9c5f7ddfdcfb27399f0e44f90f79bda0b0128a6dd709e9683"
+      },
+      {
+        "path": "evaluator/.github/workflows/role-coherent-stage.yml",
+        "sha256": "e9d3e786a051e502c96828ce2022ccbfd430058799060158fb9ee8c27c5a2eed"
+      },
+      {
+        "path": "evaluator/.github/workflows/root120-stage2.yml",
+        "sha256": "a356faa2c34d916d753c9bfd7c22f8b6501c0e145ca83ee846775433296df603"
+      },
+      {
+        "path": "evaluator/.github/workflows/world800.yml",
+        "sha256": "61a1286c15fee40186d4d0b69967681ee891ef686bd6954f56d4c0cbc1f45294"
+      },
+      {
+        "path": "evaluator/.gitignore",
+        "sha256": "0263313e0e75e5b20ea96bc8d171ebd6836906013cb41ccaffe65c27cdb628d2"
+      }
+    ],
+    "original_complete_evidence_artifact_id": 9516664848,
+    "original_complete_evidence_zip_sha256": "f38277808e1cd05a45ef345dc6e57606a1151bfa9374b674bc0cab70e3267f34",
+    "original_manifest_check": {
+      "bad_hashes": 0,
+      "missing_files": 14,
+      "other_listed_files_verified": true
+    },
+    "reason": "actions/upload-artifact omitted include-hidden-files, so the merged artifact excluded dot-prefixed paths",
+    "reconstructed_top_manifest_check": true,
+    "reconstruction": "Copy only the 14 exact manifest-listed bytes from the standalone evaluator artifact of this same immutable run into the original complete-evidence extraction; do not execute the evaluator or reuse any audit seed.",
+    "standalone_evaluator_artifact_id": 9516495118,
+    "standalone_evaluator_zip_sha256": "4e695c76e83499f5060e7c76577c52232c24a5e9fda5d9e29725ccb885ae7491"
+  },
+  "persisted_evidence": [
+    {
+      "path": "data/experiments/commented_ply_audit_v3.json",
+      "sha256": "be63dcae2ae1a179cf43a0c47e9971755290f9b3bfd90cc40fd4b6bd2838bbd7",
+      "size": 110628
+    },
+    {
+      "path": "data/experiments/commented_ply_audit_v3.md",
+      "sha256": "a30eb93e4623e75ec2dae4c2cb73103b801d67954e0b02298e1a5b1082ebcd71",
+      "size": 7751
+    },
+    {
+      "path": "data/experiments/commented_ply_audit_v3_evidence.zip",
+      "sha256": "aacec0f3da9bbedd5d6512cf7bf2ef0d993232ed888d64f2e8099f5b15c03994",
+      "size": 221494
+    }
+  ],
+  "run": {
+    "attempt": 1,
+    "branch": "agent/correctness-and-policy-upgrade",
+    "conclusion": "success",
+    "created_at": "2026-08-24T10:35:31Z",
+    "event": "push",
+    "head_sha": "330488423fad6f7a83fc1b1ace2bb8fae75449b1",
+    "id": 32717551770,
+    "job_count": 19,
+    "status": "completed",
+    "updated_at": "2026-08-24T10:41:37Z",
+    "url": "https://github.com/BEKINDTOEVERYKIND/LOSTCITIESCHATGPT/actions/runs/32717551770"
+  },
+  "schema": "lc-commented-ply-audit-v3-result-v1",
+  "status": "complete_verified_diagnostic_only"
+}

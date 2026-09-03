@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "precommitted_conditional_world_count_strength_plan",
+  "status": "precommitted_before_parent_result_and_before_any_candidate_efficacy",
+  "created_utc": "2026-08-22",
+  "hypothesis": "Increasing both the primary and fresh-confirmation panels from 512 to 800 hidden worlds reduces decision noise enough to improve the maintained full actor without widening its top-policy shortlist or changing its continuation method.",
+  "dependency_and_selection_rule": {
+    "parent_test": "data/experiments/locked_role_coherent_plan.json",
+    "parent_execution": "data/experiments/locked_role_coherent_execution.json",
+    "rule": "If and only if the completed role-coherent holdout has authoritative promotion_gate_passed=true after hardened raw-input revalidation, compare 800+800 against the role-coherent 512+512 actor. If it validly fails, compare 800+800 against the unchanged mode-2/prefix-2 actor. If the parent is operationally invalid or incomplete, do not start this test.",
+    "no_other_result_dependent_choice": true,
+    "role_pass_baseline": "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+    "role_pass_candidate": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+    "role_fail_baseline": "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:2:20:0:0:20:1:0:512:1:0:0:0:0:0:0:2:1:0:0:0:0:0:0:1",
+    "role_fail_candidate": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:2:20:0:0:20:1:0:800:1:0:0:0:0:0:0:2:1:0:0:0:0:0:0:1"
+  },
+  "candidate_definition": {
+    "only_intended_changes": [
+      "primary hidden-world count dets changes from 512 to 800",
+      "fresh trusted-prefix confirmation count confirm_dets changes from 512 to 800"
+    ],
+    "unchanged": [
+      "champion checkpoint and all policy/value outputs",
+      "root and continuation suit group selected by the parent-test rule",
+      "top-five, two-percent policy shortlist and all practical/evidence gates",
+      "ply-14 phase boundary, uniform hidden-world sampling, objective mode 0, and exact one-card terminal solution",
+      "discard guards, semantic/draw variants, planners, recursive replan, and bounded late resolver remain disabled"
+    ],
+    "candidate_width": "Only the existing top-policy prefix is evaluated; no additional legal move is admitted.",
+    "why_800": [
+      "800 is two complete 20x20 ordered role-mapping periods if role coherence is selected",
+      "800 is divisible by the 20-way continuation group if mode 2 remains selected",
+      "704 would duplicate only 304 of 400 ordered role mappings in its partial second period",
+      "batch_dets remains zero, so there is no 64-world implementation boundary to prefer 704",
+      "deck-two support still caps at 90 assignments, while deck-three can use up to 800 of 990 assignments"
+    ],
+    "compute_interpretation": "The independently verified inference shortcut is about 1.44x faster with byte-identical decisions. Eight hundred worlds is 1.5625x the panel size, deliberately reinvesting essentially all of that saving plus a small additional budget into lower Monte Carlo error."
+  },
+  "source": {
+    "repository": "BEKINDTOEVERYKIND/LOSTCITIESCHATGPT",
+    "remote_evaluation_commit": "08f9e1a5218e03c399b257b852efe20b0089c7b0",
+    "remote_evaluation_tree": "c70405a09b88919b228f96d19d84d83875d4fea4",
+    "compiler": "gcc on one pinned ubuntu-24.04 build runner",
+    "cflags": "-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11",
+    "single_binary_requirement": "Build and hash one evaluator once, then distribute that exact artifact to every shard.",
+    "runtime_provenance_requirement": "Every raw shard must bind this plan SHA-256, the selected parent-result SHA-256, source commit, arena/model hashes, threads=4, exact actors, seed, pair range, and rounds."
+  },
+  "model": {
+    "path": "data/champion.bin",
+    "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417"
+  },
+  "prior_evidence": {
+    "status": "No retained 800+800 versus 512+512 strength A/B exists. Runtime speedups and sampling-variance arguments select the fixed candidate but are not efficacy evidence.",
+    "excluded_from_gate": [
+      "all root-120, role-coherent, policy-only, viewer, position-probe, performance, and historical world-count results",
+      "any operational smoke performed after this plan is committed"
+    ]
+  },
+  "locked_actor_test": {
+    "purpose": "This fresh reciprocal full-actor test alone can promote the selected 800+800 candidate.",
+    "rounds_per_game": 3,
+    "mirrored_deals": true,
+    "threads_per_shard": 4,
+    "pairs_per_orientation": 2500,
+    "shards_per_orientation": 25,
+    "pairs_per_shard": 100,
+    "pair_starts": [0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000, 2100, 2200, 2300, 2400],
+    "blocks": [
+      {
+        "orientation": "candidate-first",
+        "seed": "202608221501",
+        "pair_start": "0",
+        "pairs": 2500,
+        "agent_a": "mechanically selected candidate",
+        "agent_b": "mechanically selected baseline"
+      },
+      {
+        "orientation": "baseline-first",
+        "seed": "202608221502",
+        "pair_start": "0",
+        "pairs": 2500,
+        "agent_a": "mechanically selected baseline",
+        "agent_b": "mechanically selected candidate"
+      }
+    ],
+    "efficacy_looks": 1,
+    "inspection_rule": "Do not inspect or publish any efficacy result until all 50 shards complete, every raw sidecar hash passes, and the hardened reciprocal merge succeeds.",
+    "combination": "Invert block two to the candidate perspective, then equal-weight the two independent reciprocal blocks. Combined SE is sqrt(SE1^2 + SE2^2) / 2.",
+    "promotion_gate": [
+      "combined candidate match score minus 1.645 pair-clustered standard errors exceeds 0.5",
+      "candidate match-score point estimate exceeds 0.5 in each reciprocal orientation",
+      "combined candidate point margin exceeds 0",
+      "all recorded raw shards reopen, hash, and exactly remerge to the submitted summaries",
+      "zero cap-terminated rounds, incomplete shards, gaps, overlaps, malformed rows, provenance mismatches, or operational errors"
+    ],
+    "one_sided_alpha": 0.05,
+    "no_optional_stopping_or_variant_changes": true
+  },
+  "power_note": "Using the completed root-120 actor panel only as a variance calibration, 5000 total pairs should yield about 0.41 percentage-point match-score SE. The expected one-sided boundary is near 50.68%, with roughly 78% power for a true +1 percentage-point gain and 98% for +1.5 points.",
+  "claim_limits": [
+    "This jointly tests the deployable primary-plus-confirmation world increase and cannot attribute a gain to either panel separately.",
+    "A failed gate means not promoted; it does not establish equality or inferiority unless the reported confidence interval supports that narrower statement.",
+    "The test compares strength, not equal wall time. Exact timings are reported and no world count is reduced to equalize compute.",
+    "Exploratory, parent-test, operational, policy-only, or position-review observations are never pooled into this estimate."
+  ],
+  "reporting": [
+    "Report each orientation and the equal-weight candidate result: match score and pair-clustered SE, point margin and SE, W/L/D, cap count, total pairs, elapsed time, model/arena/source/plan/parent-result hashes, compiler, and exact actor specifications.",
+    "Retain every integer pair row, timing sidecar, evaluator build record, and canonical merged-row SHA-256.",
+    "Report the selected continuation family and the authoritative parent artifact that mechanically selected it."
+  ],
+  "results": null
+}

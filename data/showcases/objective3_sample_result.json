@@ -1,0 +1,66 @@
+{
+  "schema": "lc-objective3-showcase-result-v1",
+  "status": "complete",
+  "plan": {
+    "path": "data/showcases/objective3_sample_plan.json",
+    "sha256": "82c2a60daecdde3aaa2de8b6c53873f46cab969d20eff00c34e1378bb93c25c9"
+  },
+  "selection": "all frozen seeds published in plan order without outcome screening, replacement, or retry",
+  "promotion_commit": "09aaf8fdf50d364c100295dca1e696472353666e",
+  "validation": {
+    "standalone_equals_embedded": true,
+    "seeds_unique_and_exact": true,
+    "actor_and_evaluator_exact": true,
+    "asset_hashes_exact": true,
+    "plies_contiguous_and_complete": true,
+    "every_ply_has_policy_search_belief_and_evaluation": true,
+    "make_showcase_tests": 26
+  },
+  "games": [
+    {
+      "seed": 1429981849814461,
+      "plies": 140,
+      "final": [66, 95],
+      "json": {
+        "path": "data/showcases/objective3-1429981849814461.json",
+        "bytes": 2392254,
+        "sha256": "7fe1c09123d20dfac7f9a9c1f96a505b40a4f616cfebc06532cc70116c05396e"
+      },
+      "viewer": {
+        "path": "web/showcases/objective3-1429981849814461.html",
+        "bytes": 2464049,
+        "sha256": "154928f6248050cc36b90278397b58095167544659d49b6c216863f5dd014109"
+      }
+    },
+    {
+      "seed": 6384097756503089,
+      "plies": 144,
+      "final": [204, 132],
+      "json": {
+        "path": "data/showcases/objective3-6384097756503089.json",
+        "bytes": 2367739,
+        "sha256": "7bd19aab11d28d4b82753eeda2cdbb83ae38d7e6760361012449e904a7980d65"
+      },
+      "viewer": {
+        "path": "web/showcases/objective3-6384097756503089.html",
+        "bytes": 2439534,
+        "sha256": "44310e4f9d792fc8fe5413077df15c340719f7e41751152395942436bbbd329c"
+      }
+    },
+    {
+      "seed": 8833781422507746,
+      "plies": 147,
+      "final": [199, 112],
+      "json": {
+        "path": "data/showcases/objective3-8833781422507746.json",
+        "bytes": 2552945,
+        "sha256": "8d80b95b051b2c3daac51f4443bdcf764070b6bbf5a97529772a9ee66335986b"
+      },
+      "viewer": {
+        "path": "web/showcases/objective3-8833781422507746.html",
+        "bytes": 2624740,
+        "sha256": "bddb51151b8d824e5760899fb65765cf8fb3776db70e82b928275b08cab48ad7"
+      }
+    }
+  ]
+}

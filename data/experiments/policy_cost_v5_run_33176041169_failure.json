@@ -1,0 +1,73 @@
+{
+  "artifact_count": 228,
+  "cause": {
+    "classification": "floating_point_variance_serialization_defect",
+    "efficacy_related": false,
+    "mechanism": "TRAIN shard 2 allocation 143 had a constant 512-world full_match_hybrid sample. The one-pass sum_squares - n*mean^2 calculation rounded to -1.6298145055770874e-9 (seven ulps below zero), missed the fixed -1e-9 clamp, and fprintf serialized sqrt(negative) as the invalid JSON token -nan.",
+    "producer": {
+      "allocation_id": 143,
+      "artifact_digest": "3ef59c139174daae06839d575b86c514a74795472d38dbdd14721cb009d8d27d",
+      "artifact_id": 9690616686,
+      "artifact_name": "policy-cost-v5-train-eval-2",
+      "artifact_size": 217648,
+      "evidence_file_sha256": "f459e1544f13b801c35a7360ff54c59dcce2b05909a71e8a181474bed022f348",
+      "invalid_column": 8973,
+      "invalid_line": 17,
+      "job_id": 98884915017,
+      "source_match_id": "TRAIN-000000065323"
+    },
+    "stage": {
+      "error": "../shards/2.jsonl: invalid JSONL line 17: Expecting value: line 1 column 8973 (char 8972)",
+      "job_id": 98967389375,
+      "name": "train_calibrate"
+    }
+  },
+  "efficacy_data_observed": false,
+  "execution": {
+    "path": "data/experiments/locked_policy_cost_v5_execution.json",
+    "sha256": "e7b59d3997980eea10b7483d2b2a308b88a54456e60b3149034760c0583302ac"
+  },
+  "fixed_seed_execution": {
+    "all_policy_cost_v5_fixed_roots_retired": true,
+    "retired_fixed_root_count": 21,
+    "retry_forbidden": true
+  },
+  "github_run": {
+    "attempt": 1,
+    "conclusion": "failure",
+    "event": "push",
+    "head_sha": "bf113e972c0e3f10af6e39e31dd8f19dea691812",
+    "head_tree": "3e256ac7ec3ea5b1cf0c03b87789535e25f46a06",
+    "id": 33176041169,
+    "url": "https://github.com/BEKINDTOEVERYKIND/LOSTCITIESCHATGPT/actions/runs/33176041169"
+  },
+  "job_disposition": {
+    "failure": 1,
+    "skipped": 9,
+    "success": 225,
+    "total": 235,
+    "train_evaluate_success": 216
+  },
+  "locked_validation_relaxed": false,
+  "maintained_actor_disposition": {
+    "changed": false,
+    "objective3_result_path": "data/experiments/match_value_objective3_v2_result.json",
+    "objective3_result_sha256": "05d6ee1b0ce59d5d502ebac27b4a59cc7c816bfc1245eccee4d5b8fbda9c6700"
+  },
+  "remediation_constraint": "A successor may replace only the unstable diagnostic sample-variance calculation with a numerically stable finite calculation, must add an exact regression, use all-fresh roots, and preserve every sampling budget, model-adequacy criterion, safety gate, and final gate.",
+  "schema": "lc-policy-cost-v5-numeric-serialization-failure-v1",
+  "search_and_truth_labels_generated": true,
+  "source_parent": {
+    "commit": "10ad3e270b45cb4a85ab4f8c079af82d8a5c1416",
+    "tree": "33e9c5f01631ae64fedd2b7ccb9fa050e535b6d1"
+  },
+  "status": "complete_terminal_non_promotable",
+  "untouched_stages": [
+    "calibration_decision",
+    "SELECT_search_and_truth",
+    "untouched_TEST_search_and_truth",
+    "200_pair_per_orientation_safety",
+    "2500_pair_per_orientation_final",
+    "promotion"
+  ]
+}

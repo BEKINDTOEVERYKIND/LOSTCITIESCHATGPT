@@ -1,0 +1,1361 @@
+name: Locked policy-cost v6 numeric recovery campaign
+
+# This workflow is inert until the one future addendum-only push.  Every seed,
+# split, configuration and arena budget is frozen by the checked-in plan; no
+# job writes to the repository or accepts an input from a dispatcher.
+on:
+  push:
+    branches: [agent/correctness-and-policy-upgrade]
+    paths: [data/experiments/locked_policy_cost_v6_execution.json]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: locked-policy-cost-v6-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  MKL_NUM_THREADS: '1'
+  NPY_DISABLE_CPU_FEATURES: AVX512F
+  OMP_NUM_THREADS: '1'
+  OPENBLAS_CORETYPE: Haswell
+  OPENBLAS_NUM_THREADS: '1'
+  POLICY_COST_COMPILE_ONCE: '1'
+  PYTHONHASHSEED: '0'
+  PLAN: data/experiments/locked_policy_cost_v6_plan.json
+  EXECUTION: data/experiments/locked_policy_cost_v6_execution.json
+  WORKFLOW: .github/workflows/policy-cost-v6.yml
+  DATASET: tools/policy_cost_dataset_v6.c
+  HELPER: tools/policy_cost_campaign_v6.py
+  EXACT17_EXPORTER: tools/policy_cost_exact17_v6.py
+  POLICY_COST_SOURCE: src/policy_cost_v6.c
+  POLICY_COST_HEADER: src/policy_cost_v6.h
+  EXCLUSIONS: data/experiments/policy_cost_v6_exact17_exclusions.txt
+  EXCLUSION_JSON: data/experiments/policy_cost_v6_exact17_exclusions.json
+  PYTHON_REQUIREMENTS: data/experiments/policy_cost_v6_python_requirements.txt
+  CFLAGS_LOCKED: -O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11
+  LDFLAGS_LOCKED: -lm -pthread
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    outputs:
+      source_commit: ${{ steps.guard.outputs.source_commit }}
+      source_tree: ${{ steps.guard.outputs.source_tree }}
+      execution_sha: ${{ steps.guard.outputs.execution_sha }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: {fetch-depth: 0, path: campaign}
+      - id: guard
+        name: Reject every launch except the unique direct addendum push
+        working-directory: campaign
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+          FORCED: ${{ github.event.forced }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = push
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$GITHUB_REF" = refs/heads/agent/correctness-and-policy-upgrade
+          test "$FORCED" = false
+          test "$AFTER" = "$GITHUB_SHA"
+          test "$(git rev-list --parents -n1 HEAD | wc -w)" = 2
+          SOURCE_COMMIT="$(git rev-parse HEAD^)"
+          SOURCE_TREE="$(git rev-parse 'HEAD^^{tree}')"
+          test "$BEFORE" = "$SOURCE_COMMIT"
+          test "$(git diff-tree --no-commit-id --name-status -r HEAD)" = "$(printf 'A\t%s' "$EXECUTION")"
+          test "$(git rev-list --all --count -- "$EXECUTION")" = 1
+          ! git cat-file -e "HEAD^:$EXECUTION" 2>/dev/null
+          SOURCE_SNAPSHOT="$(mktemp -d)"
+          git archive "$SOURCE_COMMIT" | tar -x -C "$SOURCE_SNAPSHOT"
+          test "$(git rev-parse "$SOURCE_COMMIT^{tree}")" = "$SOURCE_TREE"
+          mkdir -p "$SOURCE_SNAPSHOT/$(dirname "$EXECUTION")"
+          cp "$EXECUTION" "$SOURCE_SNAPSHOT/$EXECUTION"
+          python3 "$SOURCE_SNAPSHOT/$HELPER" guard-execution \
+            --root "$SOURCE_SNAPSHOT" \
+            --execution "$SOURCE_SNAPSHOT/$EXECUTION" \
+            --source-parent-commit "$SOURCE_COMMIT" --source-parent-tree "$SOURCE_TREE"
+          for path in "$PLAN" "$WORKFLOW" "$HELPER" "$DATASET" "$EXACT17_EXPORTER" "$POLICY_COST_SOURCE" "$POLICY_COST_HEADER" "$EXCLUSIONS" "$EXCLUSION_JSON" "$PYTHON_REQUIREMENTS"; do
+            test "$(git cat-file -t "HEAD^:$path")" = blob
+            test "$(sha256sum "$SOURCE_SNAPSHOT/$path" | cut -d' ' -f1)" = "$(git show "HEAD^:$path" | sha256sum | cut -d' ' -f1)"
+          done
+          echo "source_commit=$SOURCE_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "source_tree=$SOURCE_TREE" >> "$GITHUB_OUTPUT"
+          echo "execution_sha=$(sha256sum "$EXECUTION" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Materialize and compile the bound parent once
+        run: |
+          set -euo pipefail
+          test "$(python3 --version 2>&1)" = "Python 3.12.3"
+          mkdir python-wheel python-runtime
+          python3 -m pip download --disable-pip-version-check --no-deps \
+            --only-binary=:all: --require-hashes --dest python-wheel \
+            -r "campaign/$PYTHON_REQUIREMENTS"
+          test "$(find python-wheel -maxdepth 1 -type f -name '*.whl' | wc -l)" = 2
+          NUMPY_WHEEL="python-wheel/numpy-2.3.5-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl"
+          PYYAML_WHEEL="python-wheel/pyyaml-6.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl"
+          test -f "$NUMPY_WHEEL"
+          test -f "$PYYAML_WHEEL"
+          test "$(sha256sum "$NUMPY_WHEEL" | cut -d' ' -f1)" = \
+            0d8163f43acde9a73c2a33605353a4f1bc4798745a8b1d73183b28e5b435ae28
+          test "$(sha256sum "$PYYAML_WHEEL" | cut -d' ' -f1)" = \
+            ba1cc08a7ccde2d2ec775841541641e4548226580ab850948cbfda66a1befcdc
+          python3 -m pip install --disable-pip-version-check --no-index \
+            --no-deps --target python-runtime "$NUMPY_WHEEL" "$PYYAML_WHEEL"
+          PYTHONPATH="$PWD/python-runtime" python3 -c \
+            'import numpy, yaml; assert numpy.__version__ == "2.3.5"; assert yaml.__version__ == "6.0.3"'
+          RUN_ROOT="$PWD"
+          git -C campaign worktree add --detach "$RUN_ROOT/source" HEAD^
+          cd source
+          test ! -e "$EXECUTION"
+          test "$(gcc -dumpfullversion -dumpversion)" = 13.3.0
+          # First validate the immutable repository parent with its canonical
+          # predecessor sources.  Frozen predecessor readers reject the
+          # fresh v6 source seed, so this history-aware suite must precede the
+          # build-only v6 overlay below.
+          PYTHONPATH="$RUN_ROOT/python-runtime" make test CC=gcc \
+            CFLAGS="$CFLAGS_LOCKED" LDFLAGS="$LDFLAGS_LOCKED"
+          # V3/v4's retired definition-only tests correctly asserted that their
+          # execution addenda did not yet exist at their definition parents.
+          # Historical addenda now exist; v6 binds the terminal v5 attempt.
+          mapfile -t TEST_MODULES < <(find tests -maxdepth 1 -type f -name 'test_*.py' \
+            ! -name 'test_policy_cost_v3_recovery.py' \
+            ! -name 'test_policy_cost_v4_recovery.py' \
+            ! -name 'test_policy_cost_v5_recovery.py' \
+            ! -name 'test_policy_cost_v6_recovery.py' -printf '%p\n' | sort | \
+            sed -e 's#/#.#g' -e 's#\.py$##')
+          test "${#TEST_MODULES[@]}" -gt 0
+          PYTHONPATH="$RUN_ROOT/python-runtime" python3 -m unittest "${TEST_MODULES[@]}"
+          # Build only in this detached parent worktree.  The versioned v6
+          # implementation is overlaid onto the canonical runtime paths so
+          # arena, the LCPC materializer, and the dataset all consume the
+          # exact same math without changing any repository source byte.
+          cp "$POLICY_COST_SOURCE" src/policy_cost.c
+          cp "$POLICY_COST_HEADER" src/policy_cost.h
+          make -j2 CC=gcc CFLAGS="$CFLAGS_LOCKED" LDFLAGS="$LDFLAGS_LOCKED" \
+            bin/arena bin/build_policy_cost bin/test_policy_cost
+          gcc $CFLAGS_LOCKED -o bin/policy_cost_dataset "$DATASET" \
+            src/lc.c src/features.c src/net.c src/heuristic.c src/planner.c \
+            src/search.c src/rollout.c src/late_resolver.c src/match_value.c \
+            src/policy_cost.c src/agent.c src/match.c src/spec.c $LDFLAGS_LOCKED
+          gcc $CFLAGS_LOCKED -fno-fast-math -ffp-contract=off \
+            -o bin/test_policy_cost_v6 tests/test_policy_cost_v6.c \
+            src/lc.c src/features.c src/net.c src/heuristic.c src/planner.c \
+            src/search.c src/rollout.c src/late_resolver.c src/match_value.c \
+            src/policy_cost.c src/agent.c src/match.c src/spec.c $LDFLAGS_LOCKED
+          bin/test_policy_cost
+          bin/test_policy_cost_v6
+          bin/policy_cost_dataset self-test
+          for SPEC in TRAIN:202704290101 SELECT:202704290201 TEST:202704290301; do
+            SPLIT="${SPEC%%:*}"; SEED="${SPEC##*:}"; LOWER="$(echo "$SPLIT" | tr '[:upper:]' '[:lower:]')"
+            bin/policy_cost_dataset discover --out "$LOWER-contract-discovery.jsonl" \
+              --reservoir-out "$LOWER-contract-reservoir.tsv" --net data/champion.bin \
+              --split "$SPLIT" --matches 1 --match-start 0 --reservoir-per-cell 1 \
+              --smoke-seed "$SEED" --exclusions "$EXCLUSIONS" \
+              --exclusions-sha256 "$(sha256sum "$EXCLUSIONS" | cut -d' ' -f1)"
+            python3 tools/policy_cost_allocate_v6.py --validate-contract-only \
+              --discovery "$LOWER-contract-discovery.jsonl" \
+              --discovery-sha256 "$(sha256sum "$LOWER-contract-discovery.jsonl" | cut -d' ' -f1)" \
+              --reservoir "$LOWER-contract-reservoir.tsv" \
+              --reservoir-sha256 "$(sha256sum "$LOWER-contract-reservoir.tsv" | cut -d' ' -f1)" \
+              --split "$SPLIT" --smoke-seed "$SEED" --matches 1 --reservoir-per-cell 1
+          done
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          rows=[json.loads(line) for line in Path('train-contract-discovery.jsonl').read_text(encoding='ascii').splitlines()]
+          six=[dict(row) for row in rows]; six[1]=dict(six[1]); six[1]['union_width_counts']=[*six[1]['union_width_counts'],0]
+          unequal=[dict(row) for row in rows]; unequal[1]=dict(unequal[1]); unequal[1]['union_width_counts']=list(unequal[1]['union_width_counts'])
+          source=next(index for index,count in enumerate(unequal[1]['union_width_counts']) if count); target=(source+1)%len(unequal[1]['union_width_counts'])
+          unequal[1]['union_width_counts'][source]-=1; unequal[1]['union_width_counts'][target]+=1
+          for name,value in (('six-bin-contract-discovery.jsonl',six),('unequal-contract-discovery.jsonl',unequal)):
+              Path(name).write_text(''.join(json.dumps(row,sort_keys=True,separators=(',',':'),ensure_ascii=True,allow_nan=False)+'\n' for row in value),encoding='ascii')
+          PY
+          for BAD in six-bin-contract-discovery.jsonl unequal-contract-discovery.jsonl; do
+            if python3 tools/policy_cost_allocate_v6.py --validate-contract-only \
+              --discovery "$BAD" --discovery-sha256 "$(sha256sum "$BAD" | cut -d' ' -f1)" \
+              --reservoir train-contract-reservoir.tsv \
+              --reservoir-sha256 "$(sha256sum train-contract-reservoir.tsv | cut -d' ' -f1)" \
+              --split TRAIN --smoke-seed 202704290101 --matches 1 --reservoir-per-cell 1; then
+              echo "negative producer/consumer contract mutation was accepted" >&2; exit 1
+            fi
+          done
+          EXACT17_TMP="$(mktemp -d)"
+          python3 "$EXACT17_EXPORTER" export --root . --hash-probe bin/policy_cost_dataset \
+            --text-out "$EXACT17_TMP/policy_cost_v6_exact17_exclusions.txt" \
+            --json-out "$EXACT17_TMP/policy_cost_v6_exact17_exclusions.json"
+          cmp "$EXACT17_TMP/policy_cost_v6_exact17_exclusions.txt" "$EXCLUSIONS"
+          cmp "$EXACT17_TMP/policy_cost_v6_exact17_exclusions.json" "$EXCLUSION_JSON"
+      - name: Freeze a source-free transport before any search or truth label
+        working-directory: source
+        run: |
+          set -euo pipefail
+          # The archived source parent intentionally contains the retained
+          # Objective-3 evidence at repo-root transport/.  Build the new
+          # policy-cost transport in a disjoint staging directory so no
+          # prerequisite byte can be overwritten before it is rebound below.
+          mkdir -p policy-transport/{bin,tools,bindings/exact17,bindings/predecessor,bindings/runtime,data}
+          cp bin/arena bin/build_policy_cost bin/policy_cost_dataset policy-transport/bin/
+          cp data/champion.bin policy-transport/data/
+          python3 - <<'PY'
+          import json, shutil
+          execution=json.load(open('../campaign/data/experiments/locked_policy_cost_v6_execution.json'))
+          path=execution['subject'].get('match_value_path')
+          if path:
+              target='policy-transport/' + path
+              __import__('pathlib').Path(target).parent.mkdir(parents=True, exist_ok=True)
+              shutil.copyfile(path, target)
+          PY
+          cp tools/policy_cost_{allocate,artifact,calibration,campaign,selection}_v6.py policy-transport/tools/
+          cp tools/{merge_arena,gate_actor_panel}.py policy-transport/tools/
+          cp tools/{match_value_objective3_v2,flagged_ply_execution}.py policy-transport/tools/
+          cp "$PLAN" policy-transport/bindings/plan.json
+          cp "$WORKFLOW" policy-transport/bindings/workflow.yml
+          cp "$EXCLUSIONS" policy-transport/bindings/exact17/policy_cost_v6_exact17_exclusions.txt
+          cp "$EXCLUSION_JSON" policy-transport/bindings/exact17/policy_cost_v6_exact17_exclusions.json
+          cp "$PYTHON_REQUIREMENTS" policy-transport/bindings/runtime/requirements.txt
+          cp ../python-wheel/*.whl policy-transport/bindings/runtime/
+          cp data/experiments/commented_ply_audit_v3.json policy-transport/bindings/exact17/commented_ply_audit_v3.json
+          cp data/experiments/commented_ply_audit_v3.md policy-transport/bindings/exact17/commented_ply_audit_v3.md
+          cp data/experiments/commented_ply_audit_v3_result.json policy-transport/bindings/exact17/commented_ply_audit_v3_result.json
+          cp data/experiments/commented_ply_audit_v3_evidence.zip policy-transport/bindings/exact17/commented_ply_audit_v3_evidence.zip
+          cp data/experiments/locked_policy_cost_v5_execution.json policy-transport/bindings/predecessor/
+          cp data/experiments/policy_cost_v5_infrastructure_retain.json policy-transport/bindings/predecessor/
+          cp data/experiments/policy_cost_v5_run_33176041169_failure.json policy-transport/bindings/predecessor/
+          cp "../campaign/$EXECUTION" policy-transport/bindings/execution.json
+          python3 - <<'PY'
+          import hashlib, json, shutil
+          from pathlib import Path
+          execution = json.load(open('../campaign/data/experiments/locked_policy_cost_v6_execution.json'))
+          prerequisite = execution['bindings']['objective3_prerequisite']
+          records = [prerequisite['result'], *prerequisite['evidence']]
+          seen = set()
+          for record in records:
+              relative = Path(record['path'])
+              if relative.is_absolute() or '..' in relative.parts or relative.as_posix() in seen:
+                  raise SystemExit('unsafe/duplicate objective3 evidence path')
+              seen.add(relative.as_posix())
+              source = relative
+              if not source.is_file() or source.is_symlink():
+                  raise SystemExit('objective3 evidence member is absent or unsafe')
+              payload = source.read_bytes()
+              if hashlib.sha256(payload).hexdigest() != record['sha256'] or len(payload) != record['size']:
+                  raise SystemExit('objective3 evidence member binding drift')
+              target = Path('policy-transport/bindings/objective3/repo') / relative
+              target.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copyfile(source, target)
+          PY
+          # This is the canonical binding consumed by pre-efficacy-manifest;
+          # it intentionally does not rely on runner-provided descriptive text.
+          python3 - <<'PY'
+          import hashlib, json, subprocess
+          from pathlib import Path
+          cflags = '-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11'
+          ldflags = '-lm -pthread'
+          for source_path, runtime_path in (
+              ('src/policy_cost_v6.c', 'src/policy_cost.c'),
+              ('src/policy_cost_v6.h', 'src/policy_cost.h'),
+          ):
+              source = Path(source_path)
+              runtime = Path(runtime_path)
+              assert source.read_bytes() == runtime.read_bytes()
+          commands = [
+              'cp src/policy_cost_v6.c src/policy_cost.c && cp src/policy_cost_v6.h src/policy_cost.h',
+              f'make -j2 CC=gcc CFLAGS={cflags} LDFLAGS={ldflags} bin/arena bin/build_policy_cost bin/test_policy_cost',
+              f'gcc {cflags} -o bin/policy_cost_dataset tools/policy_cost_dataset_v6.c src/lc.c src/features.c src/net.c src/heuristic.c src/planner.c src/search.c src/rollout.c src/late_resolver.c src/match_value.c src/policy_cost.c src/agent.c src/match.c src/spec.c {ldflags}',
+          ]
+          binaries = []
+          for relative in ('bin/arena', 'bin/build_policy_cost', 'bin/policy_cost_dataset'):
+              path = Path('policy-transport') / relative
+              binaries.append({'path': relative, 'sha256': hashlib.sha256(path.read_bytes()).hexdigest(), 'size': path.stat().st_size, 'mode': f'{path.stat().st_mode & 0o777:04o}'})
+          package_specs = (
+              ('numpy', 'numpy', '2.3.5', 'numpy-2.3.5-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl', '0d8163f43acde9a73c2a33605353a4f1bc4798745a8b1d73183b28e5b435ae28'),
+              ('PyYAML', 'yaml', '6.0.3', 'pyyaml-6.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl', 'ba1cc08a7ccde2d2ec775841541641e4548226580ab850948cbfda66a1befcdc'),
+          )
+          python_packages = []
+          for distribution, import_name, version, filename, expected_sha256 in package_specs:
+              wheel = Path('policy-transport/bindings/runtime') / filename
+              payload = wheel.read_bytes()
+              assert hashlib.sha256(payload).hexdigest() == expected_sha256
+              python_packages.append({
+                  'distribution': distribution, 'import_name': import_name,
+                  'version': version,
+                  'wheel': {
+                      'path': wheel.relative_to('policy-transport').as_posix(),
+                      'sha256': expected_sha256, 'size': len(payload),
+                  },
+              })
+          value = {
+              'schema': 'lc-policy-cost-v6-build-identity-v2',
+              'runner': 'ubuntu-24.04', 'architecture': 'x86_64', 'compiler': 'gcc',
+              'compiler_semantic_version_command': 'gcc -dumpfullversion -dumpversion',
+              'compiler_semantic_version': '13.3.0', 'cflags': cflags, 'ldflags': ldflags,
+              'python3_version': subprocess.check_output(['python3', '--version'], text=True, stderr=subprocess.STDOUT).strip(),
+              'python_packages': python_packages,
+              'numeric_runtime_environment': {
+                  'MKL_NUM_THREADS': '1', 'NPY_DISABLE_CPU_FEATURES': 'AVX512F',
+                  'OMP_NUM_THREADS': '1', 'OPENBLAS_CORETYPE': 'Haswell',
+                  'OPENBLAS_NUM_THREADS': '1', 'PYTHONHASHSEED': '0',
+              },
+              'compile_commands': commands, 'binaries': binaries,
+          }
+          Path('policy-transport/bindings/build-identity.json').write_text(
+              json.dumps(value, indent=2, sort_keys=True, ensure_ascii=True, allow_nan=False) + '\n',
+              encoding='ascii')
+          PY
+          python3 "$HELPER" verify-runtime --transport policy-transport
+          python3 "$HELPER" pre-efficacy-manifest --execution "../campaign/$EXECUTION" \
+            --transport policy-transport --output policy-transport/bindings/pre-efficacy.json
+          (cd policy-transport && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+          (cd policy-transport && sha256sum -c SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with: {name: policy-cost-v6-transport, path: source/policy-transport, if-no-files-found: error, retention-days: 30}
+
+  train_discover:
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-transport, path: transport}
+      - name: Capture the atomic TRAIN producer disposition
+        continue-on-error: true
+        run: |
+          set -euo pipefail; test "$GITHUB_RUN_ATTEMPT" = 1; cd transport; chmod 0755 bin/arena bin/build_policy_cost bin/policy_cost_dataset; sha256sum -c SHA256SUMS; python3 tools/policy_cost_campaign_v6.py verify-runtime --transport .
+          set +e
+          ./bin/policy_cost_dataset discover --out train-discovery.jsonl --reservoir-out train-reservoir.tsv \
+            --net data/champion.bin --split TRAIN --matches 65536 --match-start 0 \
+            --reservoir-per-cell 1024 --exclusions bindings/exact17/policy_cost_v6_exact17_exclusions.txt \
+            --exclusions-sha256 "$(sha256sum bindings/exact17/policy_cost_v6_exact17_exclusions.txt | cut -d' ' -f1)" \
+            > train-generation.log 2>&1
+          RC=$?
+          set -e
+          python3 - "$RC" <<'PY'
+          import hashlib, json, os, sys
+          from pathlib import Path
+          rc=int(sys.argv[1]); rows=[]
+          for name in ('train-discovery.jsonl','train-reservoir.tsv'):
+              path=Path(name); regular=path.is_file() and not path.is_symlink()
+              row={'path':name,'regular_file':regular}
+              if regular:
+                  payload=path.read_bytes(); row.update(sha256=hashlib.sha256(payload).hexdigest(),size=len(payload))
+              rows.append(row)
+          footer=None
+          try:
+              records=[json.loads(line) for line in Path('train-discovery.jsonl').read_text(encoding='ascii').splitlines()]
+              raw=records[-1]
+              if raw.get('record_type')=='footer': footer={key:raw.get(key) for key in ('requested_matches','completed_matches','cap_hits','accepted_states','retained_units')}
+          except (OSError,UnicodeError,ValueError,IndexError): pass
+          complete=rc==0 and all(row['regular_file'] and row.get('size',0)>0 for row in rows) and footer is not None and footer.get('requested_matches')==65536 and footer.get('completed_matches')==65536 and footer.get('cap_hits')==0
+          value={'schema':'lc-policy-cost-v6-discovery-generation-disposition-v1','split':'TRAIN','fixed_root_seed':'202704100101','requested_matches':65536,'github_run_id':int(os.environ['GITHUB_RUN_ID']),'github_run_attempt':int(os.environ['GITHUB_RUN_ATTEMPT']),'head_sha':os.environ['GITHUB_SHA'],'producer_exit_code':rc,'atomic_pair_complete':complete,'footer':footer,'status':'complete_atomic_generation' if complete else 'producer_failed_or_atomic_pair_incomplete','files':rows}
+          Path('train-generation-disposition.json').write_text(json.dumps(value,indent=2,sort_keys=True,ensure_ascii=True,allow_nan=False)+'\n',encoding='ascii')
+          PY
+          SUMS="$(mktemp)"; find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > "$SUMS"; mv "$SUMS" SHA256SUMS; sha256sum -c SHA256SUMS
+      # Persist the two atomic native outputs before the independent allocator
+      # is allowed to open them.  Thus a consumer-contract failure cannot erase
+      # another completed multi-hour policy-only census.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with: {name: policy-cost-v6-train-raw-discovery, path: transport, if-no-files-found: error, retention-days: 30}
+      - name: Enforce successful atomic TRAIN generation after persistence
+        if: always()
+        run: |
+          set -euo pipefail; cd transport; sha256sum -c SHA256SUMS
+          python3 -c 'import json; v=json.load(open("train-generation-disposition.json")); assert v["status"] == "complete_atomic_generation" and v["atomic_pair_complete"] is True and v["producer_exit_code"] == 0'
+
+  train_allocate:
+    needs: train_discover
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-train-raw-discovery, path: transport}
+      - name: Capture independent TRAIN allocation and origin-proof disposition
+        continue-on-error: true
+        run: |
+          set -euo pipefail; test "$GITHUB_RUN_ATTEMPT" = 1; cd transport; chmod 0755 bin/arena bin/build_policy_cost bin/policy_cost_dataset; sha256sum -c SHA256SUMS; python3 tools/policy_cost_campaign_v6.py verify-runtime --transport .
+          python3 -c 'import json; v=json.load(open("train-generation-disposition.json")); assert v["status"] == "complete_atomic_generation" and v["atomic_pair_complete"] is True'
+          set +e
+          python3 tools/policy_cost_allocate_v6.py --discovery train-discovery.jsonl \
+            --discovery-sha256 "$(sha256sum train-discovery.jsonl|cut -d' ' -f1)" \
+            --reservoir train-reservoir.tsv --reservoir-sha256 "$(sha256sum train-reservoir.tsv|cut -d' ' -f1)" \
+            --out train-allocation.tsv > train-allocation.log 2>&1
+          ALLOCATION_RC=$?
+          PROOF_RC=125
+          if test "$ALLOCATION_RC" = 0; then
+            ./bin/policy_cost_dataset verify-reservoir --out train-reservoir-proof.json \
+              --manifest train-allocation.tsv --manifest-sha256 "$(sha256sum train-allocation.tsv|cut -d' ' -f1)" \
+              --reservoir train-reservoir.tsv --reservoir-sha256 "$(sha256sum train-reservoir.tsv|cut -d' ' -f1)" \
+              --net data/champion.bin --exclusions bindings/exact17/policy_cost_v6_exact17_exclusions.txt \
+              --exclusions-sha256 "$(sha256sum bindings/exact17/policy_cost_v6_exact17_exclusions.txt|cut -d' ' -f1)" \
+              > train-origin-proof.log 2>&1
+            PROOF_RC=$?
+          fi
+          set -e
+          python3 - "$ALLOCATION_RC" "$PROOF_RC" <<'PY'
+          import hashlib, json, os, sys
+          from pathlib import Path
+          allocation_rc,proof_rc=map(int,sys.argv[1:]); rows=[]; inputs=[]
+          for name in ('train-discovery.jsonl','train-reservoir.tsv','train-generation-disposition.json'):
+              path=Path(name); payload=path.read_bytes(); inputs.append({'path':name,'sha256':hashlib.sha256(payload).hexdigest(),'size':len(payload)})
+          for name in ('train-allocation.tsv','train-reservoir-proof.json'):
+              path=Path(name); regular=path.is_file() and not path.is_symlink(); row={'path':name,'regular_file':regular}
+              if regular:
+                  payload=path.read_bytes(); row.update(sha256=hashlib.sha256(payload).hexdigest(),size=len(payload))
+              rows.append(row)
+          complete=allocation_rc==0 and proof_rc==0 and all(row['regular_file'] and row.get('size',0)>0 for row in rows)
+          status='complete_validated_allocation' if complete else ('allocation_rejected' if allocation_rc!=0 else 'origin_proof_rejected')
+          value={'schema':'lc-policy-cost-v6-allocation-disposition-v1','split':'TRAIN','fixed_root_seed':'202704100101','requested_matches':65536,'github_run_id':int(os.environ['GITHUB_RUN_ID']),'github_run_attempt':int(os.environ['GITHUB_RUN_ATTEMPT']),'head_sha':os.environ['GITHUB_SHA'],'allocation_exit_code':allocation_rc,'origin_proof_exit_code':proof_rc,'validated_allocation_complete':complete,'status':status,'inputs':inputs,'files':rows}
+          Path('train-allocation-disposition.json').write_text(json.dumps(value,indent=2,sort_keys=True,ensure_ascii=True,allow_nan=False)+'\n',encoding='ascii')
+          PY
+          SUMS="$(mktemp)"; find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > "$SUMS"; mv "$SUMS" SHA256SUMS; sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with: {name: policy-cost-v6-train-allocation-attempt, path: transport, if-no-files-found: error, retention-days: 30}
+      - name: Enforce successful TRAIN allocation after attempt persistence
+        if: always()
+        run: |
+          set -euo pipefail; cd transport; sha256sum -c SHA256SUMS
+          python3 -c 'import json; v=json.load(open("train-allocation-disposition.json")); assert v["status"] == "complete_validated_allocation" and v["validated_allocation_complete"] is True and v["allocation_exit_code"] == 0 and v["origin_proof_exit_code"] == 0'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with: {name: policy-cost-v6-train-discovery, path: transport, if-no-files-found: error, retention-days: 30}
+
+  train_evaluate:
+    needs: reservoir_barrier
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 64
+      matrix:
+        slice: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 215]
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-train-discovery, path: transport}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-reservoir-freeze, path: freeze}
+      - run: |
+          set -euo pipefail; (cd transport && sha256sum -c SHA256SUMS); (cd freeze && sha256sum -c reservoir-freeze.json.sha256); cp freeze/reservoir-freeze.json transport/bindings/; cd transport; chmod 0755 bin/arena bin/build_policy_cost bin/policy_cost_dataset; python3 tools/policy_cost_campaign_v6.py verify-reservoir-freeze --manifest bindings/reservoir-freeze.json --root . --split TRAIN; test "$GITHUB_RUN_ATTEMPT" = 1; python3 tools/policy_cost_campaign_v6.py verify-runtime --transport .
+          START=$(( ${{ matrix.slice }} * 64 ))
+          mkdir -p train-slices
+          ./bin/policy_cost_dataset evaluate --out "train-slices/${{ matrix.slice }}.jsonl" --manifest train-allocation.tsv \
+            --manifest-sha256 "$(sha256sum train-allocation.tsv|cut -d' ' -f1)" \
+            --reservoir train-reservoir.tsv --reservoir-sha256 "$(sha256sum train-reservoir.tsv|cut -d' ' -f1)" \
+            --actor "$(python3 -c 'import json; print(json.load(open("bindings/execution.json"))["subject"]["neutral_counterfactual_actor"])')" \
+            --truth-net data/champion.bin --allocation-start "$START" --allocation-count 64
+          sha256sum "train-slices/${{ matrix.slice }}.jsonl" | cut -d' ' -f1 > "train-slices/${{ matrix.slice }}.jsonl.sha256"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: policy-cost-v6-train-eval-${{ matrix.slice }}
+          path: transport/train-slices
+          if-no-files-found: error
+          retention-days: 30
+
+  train_calibrate:
+    needs: train_evaluate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    outputs:
+      calibration_passed: ${{ steps.calibration_gate.outputs.calibration_passed }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-train-discovery, path: transport}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {pattern: policy-cost-v6-train-eval-*, path: shards, merge-multiple: true}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-reservoir-freeze, path: freeze}
+      - name: Calibrate and seal the pre-SELECT decision
+        id: calibration_gate
+        run: |
+          set -euo pipefail; (cd transport && sha256sum -c SHA256SUMS); (cd freeze && sha256sum -c reservoir-freeze.json.sha256); cp freeze/reservoir-freeze.json transport/bindings/; cd transport; chmod 0755 bin/arena bin/build_policy_cost bin/policy_cost_dataset; python3 tools/policy_cost_campaign_v6.py verify-reservoir-freeze --manifest bindings/reservoir-freeze.json --root . --split TRAIN; test "$GITHUB_RUN_ATTEMPT" = 1; python3 tools/policy_cost_campaign_v6.py verify-runtime --transport .
+          test ! -e ../python-runtime; mkdir ../python-runtime
+          test "$(find bindings/runtime -maxdepth 1 -type f -name '*.whl' | wc -l)" = 2
+          NUMPY_WHEEL='bindings/runtime/numpy-2.3.5-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl'
+          PYYAML_WHEEL='bindings/runtime/pyyaml-6.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl'
+          python3 -m pip install --disable-pip-version-check --no-index --no-deps --target ../python-runtime "$NUMPY_WHEEL" "$PYYAML_WHEEL"
+          export PYTHONPATH="$PWD/../python-runtime"
+          python3 -c 'import numpy, yaml; assert numpy.__version__ == "2.3.5"; assert yaml.__version__ == "6.0.3"'
+          mapfile -t SLICES < <(find ../shards -type f -name '*.jsonl' -print | sort -V)
+          test "${#SLICES[@]}" = 216
+          mkdir -p evidence/train/raw
+          for SLICE_PATH in "${SLICES[@]}"; do SIDE="$SLICE_PATH.sha256"; test -f "$SIDE"; WANT="$(tr -d '\r\n' < "$SIDE")"; test "${#WANT}" = 64; test "$(sha256sum "$SLICE_PATH" | cut -d' ' -f1)" = "$WANT"; cp "$SLICE_PATH" "$SIDE" evidence/train/raw/; done
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          root=Path('evidence/train/raw'); files=[]
+          for path in sorted(root.glob('*.jsonl'), key=lambda item: int(item.stem)):
+              files.append({'path':path.name,'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),'size':path.stat().st_size})
+          Path('evidence/train/raw-shards.json').write_text(json.dumps({'schema':'lc-policy-cost-v6-raw-evaluation-manifest-v1','stage':'TRAIN','files':files},indent=2,sort_keys=True,ensure_ascii=True,allow_nan=False)+'\n',encoding='ascii')
+          PY
+          ARGS=(); for SLICE_PATH in "${SLICES[@]}"; do ARGS+=(--input "$SLICE_PATH"); done
+          python3 tools/policy_cost_campaign_v6.py merge-evaluation-slices --stage TRAIN "${ARGS[@]}" --output train-evaluation.jsonl
+          python3 tools/policy_cost_campaign_v6.py train-input --evaluation train-evaluation.jsonl \
+            --execution bindings/execution.json --allocation train-allocation.tsv \
+            --allocation-manifest-output train-allocation.json --evidence-binding-output train-evidence.json --output train-input.jsonl
+          python3 tools/policy_cost_calibration_v6.py --input train-input.jsonl --output calibration.json \
+            --require-campaign-design --campaign-allocation-manifest train-allocation.json --campaign-evidence-binding train-evidence.json
+          python3 tools/policy_cost_campaign_v6.py calibration-gate \
+            --calibration calibration.json --execution bindings/execution.json \
+            --output calibration-gate.json --github-output "$GITHUB_OUTPUT"
+          seal() { SUMS="$(mktemp)"; find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > "$SUMS"; mv "$SUMS" SHA256SUMS; sha256sum -c SHA256SUMS; }
+          CALIBRATION_PASSED="$(python3 -c 'import json; value=json.load(open("calibration-gate.json")); print(str(value["calibration_passed"]).lower())')"
+          if test "$CALIBRATION_PASSED" = false; then
+            test ! -e preselect-policy-cost.lcpc
+            python3 -c 'import json; value=json.load(open("calibration.json")); assert "schedule" not in value; assert "derived_gap_thresholds" not in value; assert value["deployment"] == {"permitted": False, "reason": "authoritative_predictive_model_adequacy_gate_failed"}'
+            seal
+            exit 0
+          fi
+          test "$CALIBRATION_PASSED" = true
+          BETAS="$(python3 -c 'import json; print(",".join(map(str,json.load(open("calibration.json"))["schedule"]["beta_search"])))')"
+          ALPHAS_A="$(python3 -c 'import json; print(",".join(map(str,json.load(open("calibration.json"))["schedule"]["alpha_core"])))')"
+          ALPHAS_D="$(python3 -c 'import json; print(",".join(map(str,json.load(open("calibration.json"))["schedule"]["alpha_draw"])))')"
+          MATCH_VALUE_ARG="$(python3 -c 'import json; p=json.load(open("bindings/execution.json"))["subject"].get("match_value_path"); print("--match-value " + p if p else "")')"
+          ./bin/build_policy_cost --root-model data/champion.bin --continuation-model data/champion.bin \
+            --out preselect-policy-cost.lcpc --source-seed 202704140101 --epsilon 0x1p-150 --objective "$(python3 -c 'import json; print(json.load(open("bindings/execution.json"))["subject"]["objective"])')" \
+            $MATCH_VALUE_ARG \
+            --root-symmetries 20 --playout-symmetries 20 --playout-sample 4 --playout-prune 1 \
+            --exact-terminal 1 --no-belief 1 --dets 800 --confirm-dets 800 --root-width 5 \
+            --action-core-count 3 --min-cand 1 --ply-lo 0 --ply-hi 0 --discard-guard 1 --root-prune 0 \
+            --cand-floor 0.01 --override-k 3.5 --override-min 0 --beta "$BETAS" --alpha-action "$ALPHAS_A" --alpha-draw "$ALPHAS_D"
+          python3 tools/policy_cost_campaign_v6.py handoff-manifest --stage calibration_to_select \
+            --input calibration.json --input calibration-gate.json \
+            --input preselect-policy-cost.lcpc --output calibration-handoff.json
+          seal
+          mkdir ../calibration-handoff
+          cp calibration.json calibration-gate.json preselect-policy-cost.lcpc calibration-handoff.json ../calibration-handoff/
+          (cd ../calibration-handoff && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS && sha256sum -c SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with: {name: policy-cost-v6-calibration, path: transport, if-no-files-found: error, retention-days: 30}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: steps.calibration_gate.outputs.calibration_passed == 'true'
+        with: {name: policy-cost-v6-calibration-handoff, path: calibration-handoff, if-no-files-found: error, retention-days: 30}
+
+  select_discover:
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-transport, path: transport}
+      - name: Capture the atomic SELECT producer disposition
+        continue-on-error: true
+        run: |
+          set -euo pipefail; test "$GITHUB_RUN_ATTEMPT" = 1; cd transport; chmod 0755 bin/arena bin/build_policy_cost bin/policy_cost_dataset; sha256sum -c SHA256SUMS; python3 tools/policy_cost_campaign_v6.py verify-runtime --transport .
+          set +e
+          ./bin/policy_cost_dataset discover --out select-discovery.jsonl --reservoir-out select-reservoir.tsv \
+            --net data/champion.bin --split SELECT --matches 32768 --match-start 0 --reservoir-per-cell 64 \
+            --exclusions bindings/exact17/policy_cost_v6_exact17_exclusions.txt --exclusions-sha256 "$(sha256sum bindings/exact17/policy_cost_v6_exact17_exclusions.txt|cut -d' ' -f1)" \
+            > select-generation.log 2>&1
+          RC=$?
+          set -e
+          python3 - "$RC" <<'PY'
+          import hashlib, json, os, sys
+          from pathlib import Path
+          rc=int(sys.argv[1]); rows=[]
+          for name in ('select-discovery.jsonl','select-reservoir.tsv'):
+              path=Path(name); regular=path.is_file() and not path.is_symlink(); row={'path':name,'regular_file':regular}
+              if regular:
+                  payload=path.read_bytes(); row.update(sha256=hashlib.sha256(payload).hexdigest(),size=len(payload))
+              rows.append(row)
+          footer=None
+          try:
+              records=[json.loads(line) for line in Path('select-discovery.jsonl').read_text(encoding='ascii').splitlines()]; raw=records[-1]
+              if raw.get('record_type')=='footer': footer={key:raw.get(key) for key in ('requested_matches','completed_matches','cap_hits','accepted_states','retained_units')}
+          except (OSError,UnicodeError,ValueError,IndexError): pass
+          complete=rc==0 and all(row['regular_file'] and row.get('size',0)>0 for row in rows) and footer is not None and footer.get('requested_matches')==32768 and footer.get('completed_matches')==32768 and footer.get('cap_hits')==0
+          value={'schema':'lc-policy-cost-v6-discovery-generation-disposition-v1','split':'SELECT','fixed_root_seed':'202704100201','requested_matches':32768,'github_run_id':int(os.environ['GITHUB_RUN_ID']),'github_run_attempt':int(os.environ['GITHUB_RUN_ATTEMPT']),'head_sha':os.environ['GITHUB_SHA'],'producer_exit_code':rc,'atomic_pair_complete':complete,'footer':footer,'status':'complete_atomic_generation' if complete else 'producer_failed_or_atomic_pair_incomplete','files':rows}
+          Path('select-generation-disposition.json').write_text(json.dumps(value,indent=2,sort_keys=True,ensure_ascii=True,allow_nan=False)+'\n',encoding='ascii')
+          PY
+          test -f select-discovery.jsonl -a ! -L select-discovery.jsonl
+          test -f select-reservoir.tsv -a ! -L select-reservoir.tsv
+          SUMS="$(mktemp)"; find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > "$SUMS"; mv "$SUMS" SHA256SUMS; sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with: {name: policy-cost-v6-select-raw-discovery, path: transport, if-no-files-found: error, retention-days: 30}
+      - name: Enforce successful atomic SELECT generation after persistence
+        if: always()
+        run: |
+          set -euo pipefail; cd transport; sha256sum -c SHA256SUMS
+          python3 -c 'import json; v=json.load(open("select-generation-disposition.json")); assert v["status"] == "complete_atomic_generation" and v["atomic_pair_complete"] is True and v["producer_exit_code"] == 0'
+
+  select_allocate:
+    needs: select_discover
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-select-raw-discovery, path: transport}
+      - name: Capture independent SELECT allocation and origin-proof disposition
+        continue-on-error: true
+        run: |
+          set -euo pipefail; test "$GITHUB_RUN_ATTEMPT" = 1; cd transport; chmod 0755 bin/arena bin/build_policy_cost bin/policy_cost_dataset; sha256sum -c SHA256SUMS; python3 tools/policy_cost_campaign_v6.py verify-runtime --transport .
+          python3 -c 'import json; v=json.load(open("select-generation-disposition.json")); assert v["status"] == "complete_atomic_generation" and v["atomic_pair_complete"] is True'
+          set +e
+          python3 tools/policy_cost_allocate_v6.py --discovery select-discovery.jsonl --discovery-sha256 "$(sha256sum select-discovery.jsonl|cut -d' ' -f1)" --reservoir select-reservoir.tsv --reservoir-sha256 "$(sha256sum select-reservoir.tsv|cut -d' ' -f1)" --out select-allocation.tsv > select-allocation.log 2>&1
+          ALLOCATION_RC=$?; PROOF_RC=125
+          if test "$ALLOCATION_RC" = 0; then
+            ./bin/policy_cost_dataset verify-reservoir --out select-reservoir-proof.json --manifest select-allocation.tsv --manifest-sha256 "$(sha256sum select-allocation.tsv|cut -d' ' -f1)" --reservoir select-reservoir.tsv --reservoir-sha256 "$(sha256sum select-reservoir.tsv|cut -d' ' -f1)" --net data/champion.bin --exclusions bindings/exact17/policy_cost_v6_exact17_exclusions.txt --exclusions-sha256 "$(sha256sum bindings/exact17/policy_cost_v6_exact17_exclusions.txt|cut -d' ' -f1)" > select-origin-proof.log 2>&1
+            PROOF_RC=$?
+          fi
+          set -e
+          python3 - "$ALLOCATION_RC" "$PROOF_RC" <<'PY'
+          import hashlib, json, os, sys
+          from pathlib import Path
+          allocation_rc,proof_rc=map(int,sys.argv[1:]); rows=[]; inputs=[]
+          for name in ('select-discovery.jsonl','select-reservoir.tsv','select-generation-disposition.json'):
+              path=Path(name); payload=path.read_bytes(); inputs.append({'path':name,'sha256':hashlib.sha256(payload).hexdigest(),'size':len(payload)})
+          for name in ('select-allocation.tsv','select-reservoir-proof.json'):
+              path=Path(name); regular=path.is_file() and not path.is_symlink(); row={'path':name,'regular_file':regular}
+              if regular:
+                  payload=path.read_bytes(); row.update(sha256=hashlib.sha256(payload).hexdigest(),size=len(payload))
+              rows.append(row)
+          complete=allocation_rc==0 and proof_rc==0 and all(row['regular_file'] and row.get('size',0)>0 for row in rows)
+          status='complete_validated_allocation' if complete else ('allocation_rejected' if allocation_rc!=0 else 'origin_proof_rejected')
+          value={'schema':'lc-policy-cost-v6-allocation-disposition-v1','split':'SELECT','fixed_root_seed':'202704100201','requested_matches':32768,'github_run_id':int(os.environ['GITHUB_RUN_ID']),'github_run_attempt':int(os.environ['GITHUB_RUN_ATTEMPT']),'head_sha':os.environ['GITHUB_SHA'],'allocation_exit_code':allocation_rc,'origin_proof_exit_code':proof_rc,'validated_allocation_complete':complete,'status':status,'inputs':inputs,'files':rows}
+          Path('select-allocation-disposition.json').write_text(json.dumps(value,indent=2,sort_keys=True,ensure_ascii=True,allow_nan=False)+'\n',encoding='ascii')
+          PY
+          SUMS="$(mktemp)"; find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > "$SUMS"; mv "$SUMS" SHA256SUMS; sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with: {name: policy-cost-v6-select-allocation-attempt, path: transport, if-no-files-found: error, retention-days: 30}
+      - name: Enforce successful SELECT allocation after attempt persistence
+        if: always()
+        run: |
+          set -euo pipefail; cd transport; sha256sum -c SHA256SUMS
+          python3 -c 'import json; v=json.load(open("select-allocation-disposition.json")); assert v["status"] == "complete_validated_allocation" and v["validated_allocation_complete"] is True and v["allocation_exit_code"] == 0 and v["origin_proof_exit_code"] == 0'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with: {name: policy-cost-v6-select-discovery, path: transport, if-no-files-found: error, retention-days: 30}
+
+  select_evaluate:
+    needs: [train_calibrate, reservoir_barrier]
+    if: ${{ needs.train_calibrate.result == 'success' && needs.reservoir_barrier.result == 'success' && needs.train_calibrate.outputs.calibration_passed == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 48
+      matrix:
+        slice: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191]
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-select-discovery, path: transport}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-calibration-handoff, path: calibration-upstream}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-reservoir-freeze, path: freeze}
+      - run: |
+          set -euo pipefail; (cd transport && sha256sum -c SHA256SUMS); (cd calibration-upstream && sha256sum -c SHA256SUMS); (cd freeze && sha256sum -c reservoir-freeze.json.sha256); cp calibration-upstream/{calibration.json,calibration-gate.json,preselect-policy-cost.lcpc,calibration-handoff.json} transport/; cp freeze/reservoir-freeze.json transport/bindings/; cd transport; chmod 0755 bin/arena bin/build_policy_cost bin/policy_cost_dataset; python3 tools/policy_cost_campaign_v6.py verify-reservoir-freeze --manifest bindings/reservoir-freeze.json --root . --split SELECT; GATE_CHECK="$(mktemp -d)/calibration-gate.json"; python3 tools/policy_cost_campaign_v6.py calibration-gate --calibration calibration.json --execution bindings/execution.json --output "$GATE_CHECK"; cmp "$GATE_CHECK" calibration-gate.json; test "$(python3 -c 'import json; print(str(json.load(open("calibration-gate.json"))["calibration_passed"]).lower())')" = true; python3 tools/policy_cost_campaign_v6.py handoff-manifest --stage calibration_to_select --input calibration.json --input calibration-gate.json --input preselect-policy-cost.lcpc --output calibration-handoff-recomputed.json; cmp calibration-handoff-recomputed.json calibration-handoff.json; SUMS="$(mktemp)"; find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > "$SUMS"; mv "$SUMS" SHA256SUMS; sha256sum -c SHA256SUMS; test "$GITHUB_RUN_ATTEMPT" = 1; python3 tools/policy_cost_campaign_v6.py verify-runtime --transport .
+          START=$(( ${{ matrix.slice }} * 48 )); mkdir -p select-slices
+          ./bin/policy_cost_dataset evaluate --out "select-slices/${{ matrix.slice }}.jsonl" --manifest select-allocation.tsv --manifest-sha256 "$(sha256sum select-allocation.tsv|cut -d' ' -f1)" --reservoir select-reservoir.tsv --reservoir-sha256 "$(sha256sum select-reservoir.tsv|cut -d' ' -f1)" --actor "$(python3 -c 'import json; print(json.load(open("bindings/execution.json"))["subject"]["neutral_counterfactual_actor"])')" --truth-net data/champion.bin --policy-cost preselect-policy-cost.lcpc --maintained-actor "$(python3 -c 'import json; print(json.load(open("bindings/execution.json"))["subject"]["maintained_actor"])')" --allocation-start "$START" --allocation-count 48
+          sha256sum "select-slices/${{ matrix.slice }}.jsonl" | cut -d' ' -f1 > "select-slices/${{ matrix.slice }}.jsonl.sha256"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: policy-cost-v6-select-eval-${{ matrix.slice }}
+          path: transport/select-slices
+          if-no-files-found: error
+          retention-days: 30
+
+  select_configuration:
+    needs: select_evaluate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-select-discovery, path: transport}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-calibration, path: calibration-upstream}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {pattern: policy-cost-v6-select-eval-*, path: shards, merge-multiple: true}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-reservoir-freeze, path: freeze}
+      - run: |
+          set -euo pipefail; (cd transport && sha256sum -c SHA256SUMS); (cd calibration-upstream && sha256sum -c SHA256SUMS); (cd freeze && sha256sum -c reservoir-freeze.json.sha256); cp -a calibration-upstream/. transport/; cp freeze/reservoir-freeze.json transport/bindings/; cd transport; chmod 0755 bin/arena bin/build_policy_cost bin/policy_cost_dataset; python3 tools/policy_cost_campaign_v6.py verify-reservoir-freeze --manifest bindings/reservoir-freeze.json --root . --split SELECT; GATE_CHECK="$(mktemp -d)/calibration-gate.json"; python3 tools/policy_cost_campaign_v6.py calibration-gate --calibration calibration.json --execution bindings/execution.json --output "$GATE_CHECK"; cmp "$GATE_CHECK" calibration-gate.json; test "$(python3 -c 'import json; print(str(json.load(open("calibration-gate.json"))["calibration_passed"]).lower())')" = true; python3 tools/policy_cost_campaign_v6.py handoff-manifest --stage calibration_to_select --input calibration.json --input calibration-gate.json --input preselect-policy-cost.lcpc --output calibration-handoff-recomputed.json; cmp calibration-handoff-recomputed.json calibration-handoff.json; SUMS="$(mktemp)"; find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > "$SUMS"; mv "$SUMS" SHA256SUMS; sha256sum -c SHA256SUMS; test "$GITHUB_RUN_ATTEMPT" = 1; python3 tools/policy_cost_campaign_v6.py verify-runtime --transport .
+          test ! -e ../python-runtime; mkdir ../python-runtime
+          test "$(find bindings/runtime -maxdepth 1 -type f -name '*.whl' | wc -l)" = 2
+          NUMPY_WHEEL='bindings/runtime/numpy-2.3.5-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl'
+          PYYAML_WHEEL='bindings/runtime/pyyaml-6.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl'
+          python3 -m pip install --disable-pip-version-check --no-index --no-deps --target ../python-runtime "$NUMPY_WHEEL" "$PYYAML_WHEEL"
+          export PYTHONPATH="$PWD/../python-runtime"
+          python3 -c 'import numpy, yaml; assert numpy.__version__ == "2.3.5"; assert yaml.__version__ == "6.0.3"'
+          mapfile -t SLICES < <(find ../shards -type f -name '*.jsonl' -print | sort -V); test "${#SLICES[@]}" = 192
+          mkdir -p evidence/select/raw
+          for SLICE_PATH in "${SLICES[@]}"; do SIDE="$SLICE_PATH.sha256"; test -f "$SIDE"; WANT="$(tr -d '\r\n' < "$SIDE")"; test "${#WANT}" = 64; test "$(sha256sum "$SLICE_PATH" | cut -d' ' -f1)" = "$WANT"; cp "$SLICE_PATH" "$SIDE" evidence/select/raw/; done
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          root=Path('evidence/select/raw'); files=[]
+          for path in sorted(root.glob('*.jsonl'), key=lambda item: int(item.stem)):
+              files.append({'path':path.name,'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),'size':path.stat().st_size})
+          Path('evidence/select/raw-shards.json').write_text(json.dumps({'schema':'lc-policy-cost-v6-raw-evaluation-manifest-v1','stage':'SELECT','files':files},indent=2,sort_keys=True,ensure_ascii=True,allow_nan=False)+'\n',encoding='ascii')
+          PY
+          ARGS=(); for SLICE_PATH in "${SLICES[@]}"; do ARGS+=(--input "$SLICE_PATH"); done
+          python3 tools/policy_cost_campaign_v6.py merge-evaluation-slices --stage SELECT "${ARGS[@]}" --output select-evaluation.jsonl
+          python3 tools/policy_cost_campaign_v6.py holdout-input --evaluation select-evaluation.jsonl --allocation select-allocation.tsv --stage SELECT --execution bindings/execution.json --calibration calibration.json --policy-cost preselect-policy-cost.lcpc --output select-input.json
+          python3 tools/policy_cost_selection_v6.py select --input select-input.json --output select-result.json
+          SELECT_FLOOR="$(python3 -c 'import json; print(json.load(open("select-result.json"))["selected"]["policy_floor"])')"; SELECT_PLY="$(python3 -c 'import json; print(json.load(open("select-result.json"))["selected"]["ply_lo"])')"
+          BETAS="$(python3 -c 'import json; print(",".join(map(str,json.load(open("calibration.json"))["schedule"]["beta_search"])))')"; ALPHAS_A="$(python3 -c 'import json; print(",".join(map(str,json.load(open("calibration.json"))["schedule"]["alpha_core"])))')"; ALPHAS_D="$(python3 -c 'import json; print(",".join(map(str,json.load(open("calibration.json"))["schedule"]["alpha_draw"])))')"; MATCH_VALUE_ARG="$(python3 -c 'import json; p=json.load(open("bindings/execution.json"))["subject"].get("match_value_path"); print("--match-value " + p if p else "")')"
+          ./bin/build_policy_cost --root-model data/champion.bin --continuation-model data/champion.bin --out policy-cost.lcpc --source-seed 202704140101 --epsilon 0x1p-150 --objective "$(python3 -c 'import json; print(json.load(open("bindings/execution.json"))["subject"]["objective"])')" $MATCH_VALUE_ARG --root-symmetries 20 --playout-symmetries 20 --playout-sample 4 --playout-prune 1 --exact-terminal 1 --no-belief 1 --dets 800 --confirm-dets 800 --root-width 5 --action-core-count 3 --min-cand 1 --ply-lo "$SELECT_PLY" --ply-hi 0 --discard-guard 1 --root-prune 0 --cand-floor "$SELECT_FLOOR" --override-k 3.5 --override-min 0 --beta "$BETAS" --alpha-action "$ALPHAS_A" --alpha-draw "$ALPHAS_D"
+          python3 tools/policy_cost_campaign_v6.py actor-manifest --execution bindings/execution.json --calibration calibration.json --selection select-result.json --artifact policy-cost.lcpc --preselect-artifact preselect-policy-cost.lcpc --actor-artifact-path policy-cost.lcpc --output actor-manifest.json
+          python3 tools/policy_cost_campaign_v6.py handoff-manifest --stage selection_to_test \
+            --input calibration.json --input calibration-gate.json \
+            --input policy-cost.lcpc --input actor-manifest.json \
+            --input select-result.json --output selection-handoff.json
+          SUMS="$(mktemp)"; find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > "$SUMS"; mv "$SUMS" SHA256SUMS; sha256sum -c SHA256SUMS
+          mkdir ../selection-handoff
+          cp calibration.json calibration-gate.json policy-cost.lcpc actor-manifest.json select-result.json selection-handoff.json ../selection-handoff/
+          (cd ../selection-handoff && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS && sha256sum -c SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with: {name: policy-cost-v6-selection, path: transport, if-no-files-found: error, retention-days: 30}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with: {name: policy-cost-v6-selection-handoff, path: selection-handoff, if-no-files-found: error, retention-days: 30}
+
+  test_discover:
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-transport, path: transport}
+      - name: Capture the atomic TEST producer disposition
+        continue-on-error: true
+        run: |
+          set -euo pipefail; test "$GITHUB_RUN_ATTEMPT" = 1; cd transport; chmod 0755 bin/arena bin/build_policy_cost bin/policy_cost_dataset; sha256sum -c SHA256SUMS; python3 tools/policy_cost_campaign_v6.py verify-runtime --transport .
+          set +e
+          ./bin/policy_cost_dataset discover --out test-discovery.jsonl --reservoir-out test-reservoir.tsv --net data/champion.bin --split TEST --matches 32768 --match-start 0 --reservoir-per-cell 64 --exclusions bindings/exact17/policy_cost_v6_exact17_exclusions.txt --exclusions-sha256 "$(sha256sum bindings/exact17/policy_cost_v6_exact17_exclusions.txt|cut -d' ' -f1)" > test-generation.log 2>&1
+          RC=$?
+          set -e
+          python3 - "$RC" <<'PY'
+          import hashlib, json, os, sys
+          from pathlib import Path
+          rc=int(sys.argv[1]); rows=[]
+          for name in ('test-discovery.jsonl','test-reservoir.tsv'):
+              path=Path(name); regular=path.is_file() and not path.is_symlink(); row={'path':name,'regular_file':regular}
+              if regular:
+                  payload=path.read_bytes(); row.update(sha256=hashlib.sha256(payload).hexdigest(),size=len(payload))
+              rows.append(row)
+          footer=None
+          try:
+              records=[json.loads(line) for line in Path('test-discovery.jsonl').read_text(encoding='ascii').splitlines()]; raw=records[-1]
+              if raw.get('record_type')=='footer': footer={key:raw.get(key) for key in ('requested_matches','completed_matches','cap_hits','accepted_states','retained_units')}
+          except (OSError,UnicodeError,ValueError,IndexError): pass
+          complete=rc==0 and all(row['regular_file'] and row.get('size',0)>0 for row in rows) and footer is not None and footer.get('requested_matches')==32768 and footer.get('completed_matches')==32768 and footer.get('cap_hits')==0
+          value={'schema':'lc-policy-cost-v6-discovery-generation-disposition-v1','split':'TEST','fixed_root_seed':'202704100301','requested_matches':32768,'github_run_id':int(os.environ['GITHUB_RUN_ID']),'github_run_attempt':int(os.environ['GITHUB_RUN_ATTEMPT']),'head_sha':os.environ['GITHUB_SHA'],'producer_exit_code':rc,'atomic_pair_complete':complete,'footer':footer,'status':'complete_atomic_generation' if complete else 'producer_failed_or_atomic_pair_incomplete','files':rows}
+          Path('test-generation-disposition.json').write_text(json.dumps(value,indent=2,sort_keys=True,ensure_ascii=True,allow_nan=False)+'\n',encoding='ascii')
+          PY
+          SUMS="$(mktemp)"; find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > "$SUMS"; mv "$SUMS" SHA256SUMS; sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with: {name: policy-cost-v6-test-raw-discovery, path: transport, if-no-files-found: error, retention-days: 30}
+      - name: Enforce successful atomic TEST generation after persistence
+        if: always()
+        run: |
+          set -euo pipefail; cd transport; sha256sum -c SHA256SUMS
+          python3 -c 'import json; v=json.load(open("test-generation-disposition.json")); assert v["status"] == "complete_atomic_generation" and v["atomic_pair_complete"] is True and v["producer_exit_code"] == 0'
+
+  test_allocate:
+    needs: test_discover
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-test-raw-discovery, path: transport}
+      - name: Capture independent TEST allocation and origin-proof disposition
+        continue-on-error: true
+        run: |
+          set -euo pipefail; test "$GITHUB_RUN_ATTEMPT" = 1; cd transport; chmod 0755 bin/arena bin/build_policy_cost bin/policy_cost_dataset; sha256sum -c SHA256SUMS; python3 tools/policy_cost_campaign_v6.py verify-runtime --transport .
+          python3 -c 'import json; v=json.load(open("test-generation-disposition.json")); assert v["status"] == "complete_atomic_generation" and v["atomic_pair_complete"] is True'
+          set +e
+          python3 tools/policy_cost_allocate_v6.py --discovery test-discovery.jsonl --discovery-sha256 "$(sha256sum test-discovery.jsonl|cut -d' ' -f1)" --reservoir test-reservoir.tsv --reservoir-sha256 "$(sha256sum test-reservoir.tsv|cut -d' ' -f1)" --out test-allocation.tsv > test-allocation.log 2>&1
+          ALLOCATION_RC=$?; PROOF_RC=125
+          if test "$ALLOCATION_RC" = 0; then
+            ./bin/policy_cost_dataset verify-reservoir --out test-reservoir-proof.json --manifest test-allocation.tsv --manifest-sha256 "$(sha256sum test-allocation.tsv|cut -d' ' -f1)" --reservoir test-reservoir.tsv --reservoir-sha256 "$(sha256sum test-reservoir.tsv|cut -d' ' -f1)" --net data/champion.bin --exclusions bindings/exact17/policy_cost_v6_exact17_exclusions.txt --exclusions-sha256 "$(sha256sum bindings/exact17/policy_cost_v6_exact17_exclusions.txt|cut -d' ' -f1)" > test-origin-proof.log 2>&1
+            PROOF_RC=$?
+          fi
+          set -e
+          python3 - "$ALLOCATION_RC" "$PROOF_RC" <<'PY'
+          import hashlib, json, os, sys
+          from pathlib import Path
+          allocation_rc,proof_rc=map(int,sys.argv[1:]); rows=[]; inputs=[]
+          for name in ('test-discovery.jsonl','test-reservoir.tsv','test-generation-disposition.json'):
+              path=Path(name); payload=path.read_bytes(); inputs.append({'path':name,'sha256':hashlib.sha256(payload).hexdigest(),'size':len(payload)})
+          for name in ('test-allocation.tsv','test-reservoir-proof.json'):
+              path=Path(name); regular=path.is_file() and not path.is_symlink(); row={'path':name,'regular_file':regular}
+              if regular:
+                  payload=path.read_bytes(); row.update(sha256=hashlib.sha256(payload).hexdigest(),size=len(payload))
+              rows.append(row)
+          complete=allocation_rc==0 and proof_rc==0 and all(row['regular_file'] and row.get('size',0)>0 for row in rows)
+          status='complete_validated_allocation' if complete else ('allocation_rejected' if allocation_rc!=0 else 'origin_proof_rejected')
+          value={'schema':'lc-policy-cost-v6-allocation-disposition-v1','split':'TEST','fixed_root_seed':'202704100301','requested_matches':32768,'github_run_id':int(os.environ['GITHUB_RUN_ID']),'github_run_attempt':int(os.environ['GITHUB_RUN_ATTEMPT']),'head_sha':os.environ['GITHUB_SHA'],'allocation_exit_code':allocation_rc,'origin_proof_exit_code':proof_rc,'validated_allocation_complete':complete,'status':status,'inputs':inputs,'files':rows}
+          Path('test-allocation-disposition.json').write_text(json.dumps(value,indent=2,sort_keys=True,ensure_ascii=True,allow_nan=False)+'\n',encoding='ascii')
+          PY
+          SUMS="$(mktemp)"; find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > "$SUMS"; mv "$SUMS" SHA256SUMS; sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with: {name: policy-cost-v6-test-allocation-attempt, path: transport, if-no-files-found: error, retention-days: 30}
+      - name: Enforce successful TEST allocation after attempt persistence
+        if: always()
+        run: |
+          set -euo pipefail; cd transport; sha256sum -c SHA256SUMS
+          python3 -c 'import json; v=json.load(open("test-allocation-disposition.json")); assert v["status"] == "complete_validated_allocation" and v["validated_allocation_complete"] is True and v["allocation_exit_code"] == 0 and v["origin_proof_exit_code"] == 0'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with: {name: policy-cost-v6-test-discovery, path: transport, if-no-files-found: error, retention-days: 30}
+
+  reservoir_barrier:
+    # No evaluator is reachable until all three fixed, policy-only reservoirs
+    # and their hash-only allocations have been persisted.
+    needs: [train_allocate, select_allocate, test_allocate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-train-discovery, path: barrier/train}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-select-discovery, path: barrier/select}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-test-discovery, path: barrier/test}
+      - run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test '${{ needs.train_allocate.result }}' = success
+          test '${{ needs.select_allocate.result }}' = success
+          test '${{ needs.test_allocate.result }}' = success
+          (cd barrier/train && sha256sum -c SHA256SUMS)
+          (cd barrier/select && sha256sum -c SHA256SUMS)
+          (cd barrier/test && sha256sum -c SHA256SUMS)
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          rows = []
+          for split, directory in (('TRAIN', 'barrier/train'), ('SELECT', 'barrier/select'), ('TEST', 'barrier/test')):
+              root = Path(directory)
+              names = {'TRAIN': ('train-discovery.jsonl','train-reservoir.tsv','train-allocation.tsv','train-reservoir-proof.json'),
+                       'SELECT': ('select-discovery.jsonl','select-reservoir.tsv','select-allocation.tsv','select-reservoir-proof.json'),
+                       'TEST': ('test-discovery.jsonl','test-reservoir.tsv','test-allocation.tsv','test-reservoir-proof.json')}[split]
+              for name in names:
+                  path = root / name
+                  if not path.is_file(): raise SystemExit('missing frozen reservoir member: ' + str(path))
+                  rows.append({'split': split, 'path': name, 'sha256': hashlib.sha256(path.read_bytes()).hexdigest(), 'size': path.stat().st_size})
+          value={'schema':'lc-policy-cost-v6-reservoir-freeze-v1','status':'all_discovery_reservoirs_and_allocations_frozen_before_first_efficacy','files':rows}
+          Path('barrier/reservoir-freeze.json').write_text(json.dumps(value,indent=2,sort_keys=True,ensure_ascii=True,allow_nan=False)+'\n',encoding='ascii')
+          PY
+          (cd barrier && sha256sum reservoir-freeze.json > reservoir-freeze.json.sha256)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with: {name: policy-cost-v6-reservoir-freeze, path: barrier/reservoir-freeze.json*, if-no-files-found: error, retention-days: 30}
+
+  test_evaluate:
+    needs: [select_configuration, reservoir_barrier]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 48
+      matrix:
+        slice: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191]
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-test-discovery, path: transport}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-selection-handoff, path: selection-upstream}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-reservoir-freeze, path: freeze}
+      - run: |
+          set -euo pipefail; (cd transport && sha256sum -c SHA256SUMS); (cd selection-upstream && sha256sum -c SHA256SUMS); (cd freeze && sha256sum -c reservoir-freeze.json.sha256); cp selection-upstream/{calibration.json,calibration-gate.json,policy-cost.lcpc,actor-manifest.json,select-result.json,selection-handoff.json} transport/; cp freeze/reservoir-freeze.json transport/bindings/; cd transport; chmod 0755 bin/arena bin/build_policy_cost bin/policy_cost_dataset; python3 tools/policy_cost_campaign_v6.py verify-reservoir-freeze --manifest bindings/reservoir-freeze.json --root . --split TEST; GATE_CHECK="$(mktemp -d)/calibration-gate.json"; python3 tools/policy_cost_campaign_v6.py calibration-gate --calibration calibration.json --execution bindings/execution.json --output "$GATE_CHECK"; cmp "$GATE_CHECK" calibration-gate.json; test "$(python3 -c 'import json; print(str(json.load(open("calibration-gate.json"))["calibration_passed"]).lower())')" = true; python3 tools/policy_cost_campaign_v6.py handoff-manifest --stage selection_to_test --input calibration.json --input calibration-gate.json --input policy-cost.lcpc --input actor-manifest.json --input select-result.json --output selection-handoff-recomputed.json; cmp selection-handoff-recomputed.json selection-handoff.json; SUMS="$(mktemp)"; find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > "$SUMS"; mv "$SUMS" SHA256SUMS; sha256sum -c SHA256SUMS; test "$GITHUB_RUN_ATTEMPT" = 1; python3 tools/policy_cost_campaign_v6.py verify-runtime --transport .
+          START=$(( ${{ matrix.slice }} * 48 )); mkdir -p test-slices
+          ./bin/policy_cost_dataset evaluate --out "test-slices/${{ matrix.slice }}.jsonl" --manifest test-allocation.tsv --manifest-sha256 "$(sha256sum test-allocation.tsv|cut -d' ' -f1)" --reservoir test-reservoir.tsv --reservoir-sha256 "$(sha256sum test-reservoir.tsv|cut -d' ' -f1)" --actor "$(python3 -c 'import json; print(json.load(open("bindings/execution.json"))["subject"]["neutral_counterfactual_actor"])')" --truth-net data/champion.bin --policy-cost policy-cost.lcpc --maintained-actor "$(python3 -c 'import json; print(json.load(open("bindings/execution.json"))["subject"]["maintained_actor"])')" --allocation-start "$START" --allocation-count 48
+          sha256sum "test-slices/${{ matrix.slice }}.jsonl" | cut -d' ' -f1 > "test-slices/${{ matrix.slice }}.jsonl.sha256"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: policy-cost-v6-test-eval-${{ matrix.slice }}
+          path: transport/test-slices
+          if-no-files-found: error
+          retention-days: 30
+
+  test_once:
+    needs: test_evaluate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    outputs:
+      test_passed: ${{ steps.test_gate.outputs.test_passed }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-test-discovery, path: transport}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-selection, path: selection-upstream}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {pattern: policy-cost-v6-test-eval-*, path: shards, merge-multiple: true}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-reservoir-freeze, path: freeze}
+      - run: |
+          set -euo pipefail; (cd transport && sha256sum -c SHA256SUMS); (cd selection-upstream && sha256sum -c SHA256SUMS); (cd freeze && sha256sum -c reservoir-freeze.json.sha256); cp -a selection-upstream/. transport/; cp freeze/reservoir-freeze.json transport/bindings/; cd transport; chmod 0755 bin/arena bin/build_policy_cost bin/policy_cost_dataset; python3 tools/policy_cost_campaign_v6.py verify-reservoir-freeze --manifest bindings/reservoir-freeze.json --root . --split TEST; GATE_CHECK="$(mktemp -d)/calibration-gate.json"; python3 tools/policy_cost_campaign_v6.py calibration-gate --calibration calibration.json --execution bindings/execution.json --output "$GATE_CHECK"; cmp "$GATE_CHECK" calibration-gate.json; test "$(python3 -c 'import json; print(str(json.load(open("calibration-gate.json"))["calibration_passed"]).lower())')" = true; python3 tools/policy_cost_campaign_v6.py handoff-manifest --stage selection_to_test --input calibration.json --input calibration-gate.json --input policy-cost.lcpc --input actor-manifest.json --input select-result.json --output selection-handoff-recomputed.json; cmp selection-handoff-recomputed.json selection-handoff.json; SUMS="$(mktemp)"; find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > "$SUMS"; mv "$SUMS" SHA256SUMS; sha256sum -c SHA256SUMS; test "$GITHUB_RUN_ATTEMPT" = 1; python3 tools/policy_cost_campaign_v6.py verify-runtime --transport .
+          test ! -e ../python-runtime; mkdir ../python-runtime
+          test "$(find bindings/runtime -maxdepth 1 -type f -name '*.whl' | wc -l)" = 2
+          NUMPY_WHEEL='bindings/runtime/numpy-2.3.5-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl'
+          PYYAML_WHEEL='bindings/runtime/pyyaml-6.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl'
+          python3 -m pip install --disable-pip-version-check --no-index --no-deps --target ../python-runtime "$NUMPY_WHEEL" "$PYYAML_WHEEL"
+          export PYTHONPATH="$PWD/../python-runtime"
+          python3 -c 'import numpy, yaml; assert numpy.__version__ == "2.3.5"; assert yaml.__version__ == "6.0.3"'
+          mapfile -t SLICES < <(find ../shards -type f -name '*.jsonl' -print | sort -V); test "${#SLICES[@]}" = 192
+          mkdir -p evidence/test/raw
+          for SLICE_PATH in "${SLICES[@]}"; do SIDE="$SLICE_PATH.sha256"; test -f "$SIDE"; WANT="$(tr -d '\r\n' < "$SIDE")"; test "${#WANT}" = 64; test "$(sha256sum "$SLICE_PATH" | cut -d' ' -f1)" = "$WANT"; cp "$SLICE_PATH" "$SIDE" evidence/test/raw/; done
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          root=Path('evidence/test/raw'); files=[]
+          for path in sorted(root.glob('*.jsonl'), key=lambda item: int(item.stem)):
+              files.append({'path':path.name,'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),'size':path.stat().st_size})
+          Path('evidence/test/raw-shards.json').write_text(json.dumps({'schema':'lc-policy-cost-v6-raw-evaluation-manifest-v1','stage':'TEST','files':files},indent=2,sort_keys=True,ensure_ascii=True,allow_nan=False)+'\n',encoding='ascii')
+          PY
+          ARGS=(); for SLICE_PATH in "${SLICES[@]}"; do ARGS+=(--input "$SLICE_PATH"); done
+          python3 tools/policy_cost_campaign_v6.py merge-evaluation-slices --stage TEST "${ARGS[@]}" --output test-evaluation.jsonl
+          python3 tools/policy_cost_campaign_v6.py holdout-input --evaluation test-evaluation.jsonl --allocation test-allocation.tsv --stage TEST --execution bindings/execution.json --calibration calibration.json --policy-cost policy-cost.lcpc --actor-manifest actor-manifest.json --selection select-result.json --output test-input.json
+          python3 tools/policy_cost_selection_v6.py test --input test-input.json --selection select-result.json --output test-result.json
+          SUMS="$(mktemp)"; find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > "$SUMS"; mv "$SUMS" SHA256SUMS; sha256sum -c SHA256SUMS
+      - id: test_gate
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          value = json.load(open('transport/test-result.json', encoding='utf-8'))
+          if type(value.get('passed')) is not bool:
+              raise SystemExit('TEST result lacks a boolean pass/fail decision')
+          with open(__import__('os').environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+              output.write('test_passed=' + ('true' if value['passed'] else 'false') + '\n')
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with: {name: policy-cost-v6-test, path: transport, if-no-files-found: error, retention-days: 30}
+
+  safety_shards:
+    needs: test_once
+    if: ${{ needs.test_once.outputs.test_passed == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        orientation: [candidate-first, baseline-first]
+        start: [0, 20, 40, 60, 80, 100, 120, 140, 160, 180]
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-test, path: transport}
+      - name: Produce exactly one immutable safety raw shard
+        run: |
+          set -euo pipefail; test "$GITHUB_RUN_ATTEMPT" = 1; cd transport; chmod 0755 bin/arena bin/build_policy_cost bin/policy_cost_dataset; sha256sum -c SHA256SUMS; python3 tools/policy_cost_campaign_v6.py verify-runtime --transport .
+          CANDIDATE="$(python3 -c 'import json; print(json.load(open("actor-manifest.json"))["candidate_actor"])')"
+          BASELINE="$(python3 -c 'import json; print(json.load(open("actor-manifest.json"))["maintained_actor"])')"
+          mkdir safety
+          if test '${{ matrix.orientation }}' = candidate-first; then
+            ./bin/arena -a "$CANDIDATE" -b "$BASELINE" -n 20 -t 4 -s 202704210101 -r 3 --pair-start '${{ matrix.start }}' --raw-pairs 'safety/raw-candidate-first-${{ matrix.start }}.json' --raw-only --provenance policy-cost-v6-safety
+          else
+            ./bin/arena -a "$BASELINE" -b "$CANDIDATE" -n 20 -t 4 -s 202704210102 -r 3 --pair-start '${{ matrix.start }}' --raw-pairs 'safety/raw-baseline-first-${{ matrix.start }}.json' --raw-only --provenance policy-cost-v6-safety
+          fi
+          RAW_PATH='safety/raw-${{ matrix.orientation }}-${{ matrix.start }}.json'
+          test -f "$RAW_PATH"
+          sha256sum "$RAW_PATH" | cut -d' ' -f1 > "$RAW_PATH.sha256"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: policy-cost-v6-safety-${{ matrix.orientation }}-${{ matrix.start }}
+          path: transport/safety
+          if-no-files-found: error
+          retention-days: 30
+
+  safety_merge:
+    needs: [train_calibrate, test_once, safety_shards]
+    if: ${{ always() && needs.train_calibrate.outputs.calibration_passed == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    outputs:
+      safety_passed: ${{ steps.safety_gate.outputs.safety_passed }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-test, path: transport}
+      - if: ${{ needs.test_once.outputs.test_passed == 'true' }}
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {pattern: policy-cost-v6-safety-*, path: shards, merge-multiple: true}
+      - id: safety_gate
+        env:
+          TEST_PASSED: ${{ needs.test_once.outputs.test_passed }}
+          SHARDS_RESULT: ${{ needs.safety_shards.result }}
+        run: |
+          set -euo pipefail; test "$GITHUB_RUN_ATTEMPT" = 1; cd transport; chmod 0755 bin/arena bin/build_policy_cost bin/policy_cost_dataset; sha256sum -c SHA256SUMS; python3 tools/policy_cost_campaign_v6.py verify-runtime --transport .
+          retain() { printf '%s\n' "$1" > safety-retained-baseline.txt; echo 'safety_passed=false' >> "$GITHUB_OUTPUT"; }
+          seal() { SUMS="$(mktemp)"; find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > "$SUMS"; mv "$SUMS" SHA256SUMS; sha256sum -c SHA256SUMS; }
+          if test "$TEST_PASSED" != true; then retain 'TEST failed; safety and final not run.'; seal; exit 0; fi
+          if test "$SHARDS_RESULT" != success; then
+            mkdir -p evidence/safety/raw
+            find ../shards -type f -name 'raw-*' -exec cp {} evidence/safety/raw/ \; 2>/dev/null || true
+            python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          root=Path('evidence/safety/raw'); files=[]
+          for path in sorted(root.glob('raw-*.json')):
+              files.append({'path':path.name,'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),'size':path.stat().st_size})
+          Path('evidence/safety/raw-shards-incomplete.json').write_text(json.dumps({'schema':'lc-policy-cost-v6-incomplete-raw-shard-manifest-v1','stage':'safety','complete':False,'files':files},indent=2,sort_keys=True,ensure_ascii=True,allow_nan=False)+'\n',encoding='ascii')
+          PY
+            retain 'safety shard matrix incomplete; final not run.'; seal; exit 0
+          fi
+          mapfile -t RAW < <(find ../shards -type f -name 'raw-*.json' -print | sort)
+          if test "${#RAW[@]}" != 20; then
+            mkdir -p evidence/safety/raw
+            find ../shards -type f -name 'raw-*' -exec cp {} evidence/safety/raw/ \; 2>/dev/null || true
+            python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          root=Path('evidence/safety/raw'); files=[]
+          for path in sorted(root.glob('raw-*.json')):
+              files.append({'path':path.name,'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),'size':path.stat().st_size})
+          Path('evidence/safety/raw-shards-incomplete.json').write_text(json.dumps({'schema':'lc-policy-cost-v6-incomplete-raw-shard-manifest-v1','stage':'safety','complete':False,'files':files},indent=2,sort_keys=True,ensure_ascii=True,allow_nan=False)+'\n',encoding='ascii')
+          PY
+            retain 'safety raw shard set is incomplete; final not run.'; seal; exit 0
+          fi
+          CAND=(); BASE=()
+          for START in 0 20 40 60 80 100 120 140 160 180; do
+            C="../shards/raw-candidate-first-$START.json"; B="../shards/raw-baseline-first-$START.json"
+            for SHARD_PATH in "$C" "$B"; do
+              SIDE="$SHARD_PATH.sha256"; test -f "$SHARD_PATH"; test -f "$SIDE"
+              WANT="$(tr -d '\r\n' < "$SIDE")"; test "${#WANT}" = 64
+              test "$(sha256sum "$SHARD_PATH" | cut -d' ' -f1)" = "$WANT"
+            done
+            CAND+=("$C"); BASE+=("$B")
+          done
+          mkdir -p evidence/safety/raw
+          for SHARD_PATH in "${CAND[@]}" "${BASE[@]}"; do cp "$SHARD_PATH" "$SHARD_PATH.sha256" evidence/safety/raw/; done
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          root = Path('evidence/safety/raw')
+          files = []
+          for path in sorted(root.glob('raw-*.json'), key=lambda item: item.name):
+              files.append({'path': path.name, 'sha256': hashlib.sha256(path.read_bytes()).hexdigest(), 'size': path.stat().st_size})
+          value = {'schema': 'lc-policy-cost-v6-raw-shard-manifest-v1', 'stage': 'safety', 'pairs_per_shard': 20, 'files': files}
+          Path('evidence/safety/raw-shards.json').write_text(json.dumps(value, indent=2, sort_keys=True, ensure_ascii=True, allow_nan=False) + '\n', encoding='ascii')
+          PY
+          # merge_arena stores its raw input paths in the block.  Rebuild its
+          # arguments from terminal-stable copies, never the transient shard
+          # download directory reused by the later final barrier.
+          CAND=(); BASE=()
+          for START in 0 20 40 60 80 100 120 140 160 180; do
+            CAND+=("evidence/safety/raw/raw-candidate-first-$START.json")
+            BASE+=("evidence/safety/raw/raw-baseline-first-$START.json")
+          done
+          CANDIDATE="$(python3 -c 'import json; print(json.load(open("actor-manifest.json"))["candidate_actor"])')"
+          BASELINE="$(python3 -c 'import json; print(json.load(open("actor-manifest.json"))["maintained_actor"])')"
+          python3 tools/merge_arena.py block --expect-start 0 --expect-pairs 200 --output safety-candidate-first.json "${CAND[@]}"
+          python3 tools/merge_arena.py block --expect-start 0 --expect-pairs 200 --output safety-baseline-first.json "${BASE[@]}"
+          python3 tools/merge_arena.py reciprocal --first safety-candidate-first.json --second safety-baseline-first.json --gate-z 1.645 --require-positive-margin --output safety-reciprocal.json
+          python3 tools/gate_actor_panel.py --reciprocal safety-reciprocal.json --mode safety --candidate "$CANDIDATE" --baseline "$BASELINE" --provenance policy-cost-v6-safety --pairs-per-orientation 200 --candidate-first-seed 202704210101 --baseline-first-seed 202704210102 --gate-z 1.645 --output safety-gate.json
+          if test "$(python3 -c 'import json; print(str(json.load(open("safety-gate.json"))["passed"]).lower())')" = true; then echo 'safety_passed=true' >> "$GITHUB_OUTPUT"; else retain 'safety failed; final not run.'; fi
+          seal
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with: {name: policy-cost-v6-terminal-base, path: transport, if-no-files-found: error, retention-days: 30}
+
+  final_shards:
+    needs: safety_merge
+    if: ${{ needs.safety_merge.outputs.safety_passed == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 50
+      matrix:
+        orientation: [candidate-first, baseline-first]
+        start: [0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000, 2100, 2200, 2300, 2400]
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-terminal-base, path: transport}
+      - name: Produce exactly one immutable final raw shard
+        run: |
+          set -euo pipefail; test "$GITHUB_RUN_ATTEMPT" = 1; cd transport; chmod 0755 bin/arena bin/build_policy_cost bin/policy_cost_dataset; sha256sum -c SHA256SUMS; python3 tools/policy_cost_campaign_v6.py verify-runtime --transport .
+          CANDIDATE="$(python3 -c 'import json; print(json.load(open("actor-manifest.json"))["candidate_actor"])')"
+          BASELINE="$(python3 -c 'import json; print(json.load(open("actor-manifest.json"))["maintained_actor"])')"
+          mkdir final
+          if test '${{ matrix.orientation }}' = candidate-first; then
+            ./bin/arena -a "$CANDIDATE" -b "$BASELINE" -n 100 -t 4 -s 202704220101 -r 3 --pair-start '${{ matrix.start }}' --raw-pairs 'final/raw-candidate-first-${{ matrix.start }}.json' --raw-only --provenance policy-cost-v6-final
+          else
+            ./bin/arena -a "$BASELINE" -b "$CANDIDATE" -n 100 -t 4 -s 202704220102 -r 3 --pair-start '${{ matrix.start }}' --raw-pairs 'final/raw-baseline-first-${{ matrix.start }}.json' --raw-only --provenance policy-cost-v6-final
+          fi
+          RAW_PATH='final/raw-${{ matrix.orientation }}-${{ matrix.start }}.json'
+          test -f "$RAW_PATH"
+          sha256sum "$RAW_PATH" | cut -d' ' -f1 > "$RAW_PATH.sha256"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: policy-cost-v6-final-${{ matrix.orientation }}-${{ matrix.start }}
+          path: transport/final
+          if-no-files-found: error
+          retention-days: 30
+
+  final_merge:
+    needs: [train_calibrate, safety_merge, final_shards]
+    if: ${{ always() && needs.train_calibrate.outputs.calibration_passed == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-terminal-base, path: transport}
+      - if: ${{ needs.safety_merge.outputs.safety_passed == 'true' }}
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {pattern: policy-cost-v6-final-*, path: shards, merge-multiple: true}
+      - env:
+          SAFETY_PASSED: ${{ needs.safety_merge.outputs.safety_passed }}
+          SHARDS_RESULT: ${{ needs.final_shards.result }}
+        run: |
+          set -euo pipefail; test "$GITHUB_RUN_ATTEMPT" = 1; cd transport; chmod 0755 bin/arena bin/build_policy_cost bin/policy_cost_dataset; sha256sum -c SHA256SUMS; python3 tools/policy_cost_campaign_v6.py verify-runtime --transport .
+          seal() { SUMS="$(mktemp)"; find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > "$SUMS"; mv "$SUMS" SHA256SUMS; sha256sum -c SHA256SUMS; }
+          if test "$SAFETY_PASSED" != true; then printf '%s\n' 'safety failed or was incomplete; final not run.' > final-retained-baseline.txt; seal; exit 0; fi
+          if test "$SHARDS_RESULT" != success; then
+            mkdir -p evidence/final/raw
+            find ../shards -type f -name 'raw-*' -exec cp {} evidence/final/raw/ \; 2>/dev/null || true
+            python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          root=Path('evidence/final/raw'); files=[]
+          for path in sorted(root.glob('raw-*.json')):
+              files.append({'path':path.name,'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),'size':path.stat().st_size})
+          Path('evidence/final/raw-shards-incomplete.json').write_text(json.dumps({'schema':'lc-policy-cost-v6-incomplete-raw-shard-manifest-v1','stage':'final','complete':False,'files':files},indent=2,sort_keys=True,ensure_ascii=True,allow_nan=False)+'\n',encoding='ascii')
+          PY
+            printf '%s\n' 'final shard matrix incomplete; retain baseline.' > final-retained-baseline.txt; seal; exit 0
+          fi
+          mapfile -t RAW < <(find ../shards -type f -name 'raw-*.json' -print | sort)
+          if test "${#RAW[@]}" != 50; then
+            mkdir -p evidence/final/raw
+            find ../shards -type f -name 'raw-*' -exec cp {} evidence/final/raw/ \; 2>/dev/null || true
+            python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          root=Path('evidence/final/raw'); files=[]
+          for path in sorted(root.glob('raw-*.json')):
+              files.append({'path':path.name,'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),'size':path.stat().st_size})
+          Path('evidence/final/raw-shards-incomplete.json').write_text(json.dumps({'schema':'lc-policy-cost-v6-incomplete-raw-shard-manifest-v1','stage':'final','complete':False,'files':files},indent=2,sort_keys=True,ensure_ascii=True,allow_nan=False)+'\n',encoding='ascii')
+          PY
+            printf '%s\n' 'final raw shard set is incomplete; retain baseline.' > final-retained-baseline.txt; seal; exit 0
+          fi
+          CAND=(); BASE=()
+          for START in 0 100 200 300 400 500 600 700 800 900 1000 1100 1200 1300 1400 1500 1600 1700 1800 1900 2000 2100 2200 2300 2400; do
+            C="../shards/raw-candidate-first-$START.json"; B="../shards/raw-baseline-first-$START.json"
+            for SHARD_PATH in "$C" "$B"; do
+              SIDE="$SHARD_PATH.sha256"; test -f "$SHARD_PATH"; test -f "$SIDE"
+              WANT="$(tr -d '\r\n' < "$SIDE")"; test "${#WANT}" = 64
+              test "$(sha256sum "$SHARD_PATH" | cut -d' ' -f1)" = "$WANT"
+            done
+            CAND+=("$C"); BASE+=("$B")
+          done
+          mkdir -p evidence/final/raw
+          for SHARD_PATH in "${CAND[@]}" "${BASE[@]}"; do cp "$SHARD_PATH" "$SHARD_PATH.sha256" evidence/final/raw/; done
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          root = Path('evidence/final/raw')
+          files = []
+          for path in sorted(root.glob('raw-*.json'), key=lambda item: item.name):
+              files.append({'path': path.name, 'sha256': hashlib.sha256(path.read_bytes()).hexdigest(), 'size': path.stat().st_size})
+          value = {'schema': 'lc-policy-cost-v6-raw-shard-manifest-v1', 'stage': 'final', 'pairs_per_shard': 100, 'files': files}
+          Path('evidence/final/raw-shards.json').write_text(json.dumps(value, indent=2, sort_keys=True, ensure_ascii=True, allow_nan=False) + '\n', encoding='ascii')
+          PY
+          CAND=(); BASE=()
+          for START in 0 100 200 300 400 500 600 700 800 900 1000 1100 1200 1300 1400 1500 1600 1700 1800 1900 2000 2100 2200 2300 2400; do
+            CAND+=("evidence/final/raw/raw-candidate-first-$START.json")
+            BASE+=("evidence/final/raw/raw-baseline-first-$START.json")
+          done
+          CANDIDATE="$(python3 -c 'import json; print(json.load(open("actor-manifest.json"))["candidate_actor"])')"; BASELINE="$(python3 -c 'import json; print(json.load(open("actor-manifest.json"))["maintained_actor"])')"
+          python3 tools/merge_arena.py block --expect-start 0 --expect-pairs 2500 --output final-candidate-first.json "${CAND[@]}"
+          python3 tools/merge_arena.py block --expect-start 0 --expect-pairs 2500 --output final-baseline-first.json "${BASE[@]}"
+          python3 tools/merge_arena.py reciprocal --first final-candidate-first.json --second final-baseline-first.json --gate-z 1.645 --require-positive-margin --output final-reciprocal.json
+          python3 tools/gate_actor_panel.py --reciprocal final-reciprocal.json --mode final --candidate "$CANDIDATE" --baseline "$BASELINE" --provenance policy-cost-v6-final --pairs-per-orientation 2500 --candidate-first-seed 202704220101 --baseline-first-seed 202704220102 --gate-z 1.645 --output final-gate.json
+          if test "$(python3 -c 'import json; print(str(json.load(open("final-gate.json"))["passed"]).lower())')" != true; then printf '%s\n' 'final gate failed; retain baseline.' > final-retained-baseline.txt; fi
+          seal
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with: {name: policy-cost-v6-terminal-evidence, path: transport, if-no-files-found: error, retention-days: 30}
+
+  terminal_recommendation:
+    needs: [train_calibrate, final_merge]
+    if: ${{ always() && needs.train_calibrate.outputs.calibration_passed == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-terminal-evidence, path: transport}
+      - run: |
+          set -euo pipefail; test "$GITHUB_RUN_ATTEMPT" = 1; cd transport; chmod 0755 bin/arena bin/build_policy_cost bin/policy_cost_dataset; sha256sum -c SHA256SUMS; python3 tools/policy_cost_campaign_v6.py verify-runtime --transport .
+          test ! -e ../python-runtime; mkdir ../python-runtime
+          test "$(find bindings/runtime -maxdepth 1 -type f -name '*.whl' | wc -l)" = 2
+          NUMPY_WHEEL='bindings/runtime/numpy-2.3.5-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl'
+          PYYAML_WHEEL='bindings/runtime/pyyaml-6.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl'
+          python3 -m pip install --disable-pip-version-check --no-index --no-deps --target ../python-runtime "$NUMPY_WHEEL" "$PYYAML_WHEEL"
+          export PYTHONPATH="$PWD/../python-runtime"
+          python3 -c 'import numpy, yaml; assert numpy.__version__ == "2.3.5"; assert yaml.__version__ == "6.0.3"'
+          ARGS=(--execution bindings/execution.json --selection select-result.json --test test-result.json --actors actor-manifest.json --evidence-root . --output policy-cost-v6-result.json)
+          if test -f safety-gate.json; then ARGS+=(--safety safety-gate.json); fi
+          if test -f final-gate.json; then ARGS+=(--final final-gate.json); fi
+          if ! test -f safety-gate.json && test -f safety-retained-baseline.txt; then
+            ARGS+=(--retained-baseline-reason "$(tr -d '\r\n' < safety-retained-baseline.txt)")
+          elif test -f safety-gate.json && ! test -f final-gate.json && test -f final-retained-baseline.txt && \
+              test "$(python3 -c 'import json; print(str(json.load(open("safety-gate.json"))["passed"]).lower())')" = true; then
+            ARGS+=(--retained-baseline-reason "$(tr -d '\r\n' < final-retained-baseline.txt)")
+          fi
+          python3 tools/policy_cost_campaign_v6.py terminal-result "${ARGS[@]}"
+          SUMS="$(mktemp)"; find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > "$SUMS"; mv "$SUMS" SHA256SUMS; sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with: {name: policy-cost-v6-complete-evidence, path: transport, if-no-files-found: error, retention-days: 30}
+
+  infrastructure_retain:
+    # A failed locked compute stage never permits promotion and must still leave
+    # an authoritative source-free disposition when preflight sealed transport.
+    needs: [preflight, train_discover, train_allocate, select_discover, select_allocate, test_discover, test_allocate, reservoir_barrier, train_evaluate, train_calibrate, select_evaluate, select_configuration, test_evaluate, test_once, safety_merge, final_merge, terminal_recommendation]
+    if: ${{ always() && needs.preflight.result == 'success' && (needs.train_discover.result != 'success' || needs.train_allocate.result != 'success' || needs.select_discover.result != 'success' || needs.select_allocate.result != 'success' || needs.test_discover.result != 'success' || needs.test_allocate.result != 'success' || needs.reservoir_barrier.result != 'success' || needs.train_evaluate.result != 'success' || needs.train_calibrate.result != 'success' || needs.select_evaluate.result != 'success' || needs.select_configuration.result != 'success' || needs.test_evaluate.result != 'success' || needs.test_once.result != 'success' || needs.safety_merge.result != 'success' || needs.final_merge.result != 'success' || needs.terminal_recommendation.result != 'success') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-transport, path: transport}
+      - continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-train-raw-discovery, path: partial/raw-discovery/train}
+      - continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-select-raw-discovery, path: partial/raw-discovery/select}
+      - continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-test-raw-discovery, path: partial/raw-discovery/test}
+      - continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-train-allocation-attempt, path: partial/allocation-attempt/train}
+      - continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-select-allocation-attempt, path: partial/allocation-attempt/select}
+      - continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-test-allocation-attempt, path: partial/allocation-attempt/test}
+      - continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {pattern: policy-cost-v6-train-eval-*, path: partial/train-eval, merge-multiple: true}
+      - continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {pattern: policy-cost-v6-select-eval-*, path: partial/select-eval, merge-multiple: true}
+      - continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {pattern: policy-cost-v6-test-eval-*, path: partial/test-eval, merge-multiple: true}
+      - continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {pattern: policy-cost-v6-safety-*, path: partial/safety, merge-multiple: true}
+      - continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {pattern: policy-cost-v6-final-*, path: partial/final, merge-multiple: true}
+      - continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-calibration, path: partial/calibration}
+      - continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-selection, path: partial/selection}
+      - continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-test, path: partial/test}
+      - continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with: {name: policy-cost-v6-terminal-evidence, path: partial/terminal}
+      - env:
+          TRAIN_DISCOVER: ${{ needs.train_discover.result }}
+          TRAIN_ALLOCATE: ${{ needs.train_allocate.result }}
+          SELECT_DISCOVER: ${{ needs.select_discover.result }}
+          SELECT_ALLOCATE: ${{ needs.select_allocate.result }}
+          TEST_DISCOVER: ${{ needs.test_discover.result }}
+          TEST_ALLOCATE: ${{ needs.test_allocate.result }}
+          RESERVOIR_BARRIER: ${{ needs.reservoir_barrier.result }}
+          TRAIN_EVALUATE: ${{ needs.train_evaluate.result }}
+          TRAIN_CALIBRATE: ${{ needs.train_calibrate.result }}
+          SELECT_EVALUATE: ${{ needs.select_evaluate.result }}
+          SELECT_CONFIGURATION: ${{ needs.select_configuration.result }}
+          TEST_EVALUATE: ${{ needs.test_evaluate.result }}
+          TEST_ONCE: ${{ needs.test_once.result }}
+          SAFETY_MERGE: ${{ needs.safety_merge.result }}
+          FINAL_MERGE: ${{ needs.final_merge.result }}
+          TERMINAL: ${{ needs.terminal_recommendation.result }}
+        run: |
+          set -euo pipefail; test "$GITHUB_RUN_ATTEMPT" = 1; cd transport; chmod 0755 bin/arena bin/build_policy_cost bin/policy_cost_dataset; sha256sum -c SHA256SUMS; python3 tools/policy_cost_campaign_v6.py verify-runtime --transport .
+          mkdir -p evidence/infrastructure-partial
+          if test -d ../partial; then
+            for RAW_DISCOVERY in ../partial/raw-discovery/train ../partial/raw-discovery/select ../partial/raw-discovery/test; do
+              if test -d "$RAW_DISCOVERY" && test -n "$(find "$RAW_DISCOVERY" -type f -print -quit)"; then
+                test -f "$RAW_DISCOVERY/SHA256SUMS"; (cd "$RAW_DISCOVERY" && sha256sum -c SHA256SUMS)
+              fi
+            done
+            for ALLOCATION_ATTEMPT in ../partial/allocation-attempt/train ../partial/allocation-attempt/select ../partial/allocation-attempt/test; do
+              if test -d "$ALLOCATION_ATTEMPT" && test -n "$(find "$ALLOCATION_ATTEMPT" -type f -print -quit)"; then
+                test -f "$ALLOCATION_ATTEMPT/SHA256SUMS"; (cd "$ALLOCATION_ATTEMPT" && sha256sum -c SHA256SUMS)
+              fi
+            done
+            for SEALED in ../partial/calibration ../partial/selection ../partial/test ../partial/terminal; do
+              if test -d "$SEALED" && test -n "$(find "$SEALED" -type f -print -quit)"; then
+                test -f "$SEALED/SHA256SUMS"; (cd "$SEALED" && sha256sum -c SHA256SUMS)
+              fi
+            done
+            for RAW_ROOT in ../partial/train-eval ../partial/select-eval ../partial/test-eval ../partial/safety ../partial/final; do
+              if ! test -d "$RAW_ROOT"; then continue; fi
+              while IFS= read -r -d '' RAW_PATH; do
+                SIDE="$RAW_PATH.sha256"; test -f "$SIDE"
+                WANT="$(tr -d '\r\n' < "$SIDE")"; test "${#WANT}" = 64
+                test "$(sha256sum "$RAW_PATH" | cut -d' ' -f1)" = "$WANT"
+              done < <(find "$RAW_ROOT" -type f \( -name '*.jsonl' -o -name 'raw-*.json' \) -print0)
+            done
+            cp -a ../partial/. evidence/infrastructure-partial/
+          fi
+          # This validator intentionally runs outside the shell conditional:
+          # absent files are permitted, while every downloaded disposition is
+          # tied to this exact run before being classified as retained evidence.
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          expected={'train':('TRAIN','202704100101',65536),'select':('SELECT','202704100201',32768),'test':('TEST','202704100301',32768)}
+          for split,(upper,root_seed,requested) in expected.items():
+              generation=Path('../partial/raw-discovery')/split/f'{split}-generation-disposition.json'
+              if generation.is_file():
+                  value=json.loads(generation.read_text(encoding='ascii'))
+                  assert value['schema']=='lc-policy-cost-v6-discovery-generation-disposition-v1'
+                  assert value['split']==upper and value['github_run_id']==int(os.environ['GITHUB_RUN_ID'])
+                  assert value['github_run_attempt']==1 and value['head_sha']==os.environ['GITHUB_SHA']
+                  assert value['fixed_root_seed']==root_seed and value['requested_matches']==requested
+                  assert value['status'] in {'complete_atomic_generation','producer_failed_or_atomic_pair_incomplete'}
+                  assert len(value['files'])==2
+                  for row in value['files']:
+                      assert isinstance(row['regular_file'],bool)
+                      if row['regular_file']:
+                          assert len(row['sha256'])==64 and row['size']>=0
+                  if value['status']=='complete_atomic_generation':
+                      assert value['atomic_pair_complete'] is True and value['producer_exit_code']==0
+                      assert all(row['regular_file'] and row['size']>0 for row in value['files'])
+                      assert value['footer']['requested_matches']==requested and value['footer']['completed_matches']==requested and value['footer']['cap_hits']==0
+              allocation=Path('../partial/allocation-attempt')/split/f'{split}-allocation-disposition.json'
+              if allocation.is_file():
+                  value=json.loads(allocation.read_text(encoding='ascii'))
+                  assert value['schema']=='lc-policy-cost-v6-allocation-disposition-v1'
+                  assert value['split']==upper and value['github_run_id']==int(os.environ['GITHUB_RUN_ID'])
+                  assert value['github_run_attempt']==1 and value['head_sha']==os.environ['GITHUB_SHA']
+                  assert value['fixed_root_seed']==root_seed and value['requested_matches']==requested
+                  assert value['status'] in {'complete_validated_allocation','allocation_rejected','origin_proof_rejected'}
+                  assert len(value['inputs'])==3 and len(value['files'])==2
+                  assert all(len(row['sha256'])==64 and row['size']>0 for row in value['inputs'])
+                  if value['status']=='complete_validated_allocation':
+                      assert value['validated_allocation_complete'] is True and value['allocation_exit_code']==0 and value['origin_proof_exit_code']==0
+                      assert all(row['regular_file'] and len(row['sha256'])==64 and row['size']>0 for row in value['files'])
+                  elif value['status']=='allocation_rejected':
+                      assert value['validated_allocation_complete'] is False and value['allocation_exit_code']!=0
+                  else:
+                      assert value['validated_allocation_complete'] is False and value['allocation_exit_code']==0 and value['origin_proof_exit_code']!=0
+          PY
+          ARGS=()
+          for NAME in TRAIN_DISCOVER TRAIN_ALLOCATE SELECT_DISCOVER SELECT_ALLOCATE TEST_DISCOVER TEST_ALLOCATE RESERVOIR_BARRIER TRAIN_EVALUATE TRAIN_CALIBRATE SELECT_EVALUATE SELECT_CONFIGURATION TEST_EVALUATE TEST_ONCE SAFETY_MERGE FINAL_MERGE TERMINAL; do
+            VALUE="${!NAME}"
+            if test "$VALUE" != success; then ARGS+=(--stage-status "$(echo "$NAME" | tr '[:upper:]' '[:lower:]'):$VALUE"); fi
+          done
+          if test -f evidence/infrastructure-partial/calibration/calibration.json; then
+            test -f evidence/infrastructure-partial/calibration/calibration-gate.json
+            ARGS+=(--calibration evidence/infrastructure-partial/calibration/calibration.json)
+            ARGS+=(--calibration-gate evidence/infrastructure-partial/calibration/calibration-gate.json)
+          fi
+          python3 tools/policy_cost_campaign_v6.py infrastructure-retain-result --execution bindings/execution.json "${ARGS[@]}" --evidence-root evidence/infrastructure-partial --output policy-cost-v6-infrastructure-retain.json
+          SUMS="$(mktemp)"; find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > "$SUMS"; mv "$SUMS" SHA256SUMS; sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with: {name: policy-cost-v6-infrastructure-retain, path: transport, if-no-files-found: error, retention-days: 30}

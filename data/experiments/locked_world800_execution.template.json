@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "locked_world800_execution",
+  "status": "launch_bound_before_world800_efficacy",
+  "source_parent_commit": "__COMMIT_CONTAINING_WORLD800_WORKFLOW__",
+  "workflow": {
+    "path": ".github/workflows/world800.yml",
+    "sha256": "__SHA256_OF_COMMITTED_WORLD800_WORKFLOW__"
+  },
+  "plan": {
+    "path": "data/experiments/locked_world800_plan.json",
+    "sha256": "3f7d4e8b4be2c58268c9f85ade126a7f15357ab30bf146d71b3c6dc247e74e34"
+  },
+  "authoritative_parent_result": {
+    "path": "data/experiments/role_coherent_result.json",
+    "sha256": "9ae1caa83b9a2ffef715a6c90c3987e386795a00cd92bd19f000f8d2ca1811fb",
+    "promotion_gate_passed": true,
+    "selected_family": "role_coherent_mode4_prefix3"
+  },
+  "source": {
+    "commit": "08f9e1a5218e03c399b257b852efe20b0089c7b0",
+    "tree": "c70405a09b88919b228f96d19d84d83875d4fea4"
+  },
+  "build": {
+    "runner": "ubuntu-24.04",
+    "compiler": "gcc",
+    "cflags": "-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11",
+    "ldflags": "-lm -pthread",
+    "single_evaluator_binary": true
+  },
+  "model": {
+    "path": "data/champion.bin",
+    "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417"
+  },
+  "evidence_tools": {
+    "merge_arena_sha256": "9cad23c9e6550ea36d7721acf8e64144a44058083ad4aeb5bb5613a3a79139fb",
+    "validate_actor_shards_sha256": "bca430a94af64180436c7fb60d29b2e86ec4b3567ab3aabb09984aabee054855"
+  },
+  "actors": {
+    "selection_rule": "role_coherent_parent_pass",
+    "candidate": "rolloutu:data/champion.bin:800:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:800:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+    "baseline": "rolloutu:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1"
+  },
+  "final": {
+    "rounds": 3,
+    "mirrored_deals": true,
+    "threads_per_shard": 4,
+    "pairs_per_orientation": 2500,
+    "shards_per_orientation": 25,
+    "pairs_per_shard": 100,
+    "starts": [0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000, 2100, 2200, 2300, 2400],
+    "candidate_first_seed": "202608221501",
+    "baseline_first_seed": "202608221502",
+    "gate_z": 1.645,
+    "gate": "score-z*SE>0.5; each orientation score>0.5; combined margin>0; zero caps; exact raw validity"
+  },
+  "inspection_rule": "No efficacy parse, merge, gate, or selection occurs until all 50 immutable raw shards, hash sidecars, and timing sidecars have completed and structurally validated.",
+  "results": null
+}

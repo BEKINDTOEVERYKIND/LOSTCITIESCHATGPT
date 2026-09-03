@@ -1,0 +1,219 @@
+{
+  "artifact_kind": "belief_accuracy_development_result",
+  "authoritative": false,
+  "created_utc": "2026-08-29",
+  "decision_use": "architecture, optimizer hyperparameter, and campaign sizing only; forbidden for terminal artifact selection or promotion",
+  "maintained_actor_changed": false,
+  "method": {
+    "checkpoint_initialization": "data/champion.bin",
+    "checkpoint_initialization_sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+    "mode": "belief head only; trunk, policy, value, and interaction parameters frozen",
+    "objective": "exact fixed-cardinality opponent-hand joint NLL",
+    "trajectory_symmetries": 20,
+    "training": {
+      "batch": 2048,
+      "epochs_per_iteration": 2,
+      "games_per_iteration": 15000,
+      "iterations": 3,
+      "learning_rate": 0.0003,
+      "matches": 45000,
+      "rounds_per_match": 3,
+      "scored_states": 13209454,
+      "seed": 202608290101,
+      "weight_decay": 0.00001
+    }
+  },
+  "candidate": {
+    "local_checkpoint_sha256": "782298d4dc0c302fd8a16be33f8dc14d974816db6a125819432bbf2c4ee01e60",
+    "model_fingerprint": "1923814f97d87bdc",
+    "persisted": false,
+    "reason_not_persisted": "development-only checkpoint selected with burned development evidence"
+  },
+  "calibration_development": {
+    "actor": "frozen exact-policy argmax from data/champion.bin",
+    "candidate_alpha_selected": 1.0,
+    "matches": 100,
+    "seed": 202608290202,
+    "baseline_alpha": 1.15
+  },
+  "heldout_development": {
+    "actor": "frozen exact-policy argmax from data/champion.bin",
+    "candidate": {
+      "auc_within_state": 0.679809813062,
+      "brier": 0.160862055998,
+      "nll_per_state": 12.918585522,
+      "top_k_recall": 0.487559221847
+    },
+    "current_state_baseline": {
+      "auc_within_state": 0.665678276786,
+      "brier": 0.163132307671,
+      "nll_per_state": 13.0844231649,
+      "top_k_recall": 0.476745802946
+    },
+    "matches": 1000,
+    "rounds_per_match": 3,
+    "scored_states": 136140,
+    "seed": 202608290203,
+    "uncertain_cards": 4029993
+  },
+  "history_architecture_development": {
+    "authoritative": false,
+    "base_control": "burned 45,000-match strong state-only development head",
+    "benchmark_seed": 202608290507,
+    "heldout": {
+      "all_states": {
+        "base_45k_head": {
+          "brier": 0.159848944299,
+          "nll_per_state": 13.0907356101,
+          "top_k_recall": 0.479629889545
+        },
+        "history": {
+          "brier": 0.159662425317,
+          "nll_per_state": 13.0764334404,
+          "top_k_recall": 0.480774746196
+        }
+      },
+      "matches": 2000,
+      "post_opponent_action": {
+        "base_45k_head": {
+          "brier": 0.160997196933,
+          "nll_per_state": 12.9288839628,
+          "top_k_recall": 0.486907818107
+        },
+        "history": {
+          "brier": 0.160803459865,
+          "nll_per_state": 12.9142667742,
+          "top_k_recall": 0.488078250574
+        }
+      },
+      "root": 202608290509,
+      "scored_states": 278406,
+      "uncertain_cards": 8374238,
+      "jsonl_sha256": "06010e61fc4f5bbb4e3732e48eb20bebce3e34b08dade88659071137b5b87ce6"
+    },
+    "interpretation": "The final action-history architecture improved both proper scores with positive development-cluster bounds versus a strong 45,000-match state head, but the all-state and post-action relative NLL gains were only 0.10925% and 0.11306%. This was not a matched-extra-data control, so it cannot set the frozen TEST effect-size floor.",
+    "model": {
+      "local_checkpoint_sha256": "aca98514e531949d9a5a729386af833c58bdbc01ff45eb2ae81fd501a7c0a0eb",
+      "model_fingerprint": "5fd7a5ca0b637b9d",
+      "persisted": false
+    },
+    "train_matches": 1000,
+    "train_root": 202608290508
+  },
+  "optimizer_hyperparameter_development": {
+    "authoritative": false,
+    "disposition": "all roots, models, optimizer states, and prediction rows are burned development evidence and are forbidden from terminal artifact selection",
+    "reviewed_ply_inputs_used": false,
+    "shared_data": {
+      "exact17_exclusions_sha256": "10034cf8b83aadf24fa0775e4dad2712573e1d84cbf364568ce6136682ac254c",
+      "heldout_jsonl_source_manifest_sha256": "c4352b5aac03bb07953c068b7ab67a43d562c3032202e46e20e350c3c3c6aa5d",
+      "heldout_matches": 2000,
+      "heldout_root": 202608290509,
+      "heldout_scored_states": 278406,
+      "heldout_uncertain_cards": 8374238,
+      "train_jsonl_source_manifest_sha256": "a5e6f745f95a9a29fd309fc01eef13573b9c4cdc290d842a2b4d76f2c727937d",
+      "train_matches": 1000,
+      "train_root": 202608290508,
+      "train_states": 136037
+    },
+    "selection_rule": "Within each separately budgeted development sweep, minimize paired all-state exact-K joint NLL; require post-action NLL and Brier diagnostics to support rather than contradict the choice. The selected 0.00015 state-only rate applies only to the matched 65,536-match continuation that mirrors this sweep. The 262,144-match base fit retains its separately disclosed conservative 0.0001 rate because this short continuation sweep does not validate a long-horizon extrapolation; terminal retention is judged only by untouched TEST.",
+    "history_residual": {
+      "fixed_l2": 0.0000001,
+      "selected_learning_rate": 0.01,
+      "selected_model": {
+        "evaluation_jsonl_sha256": "794d04516a17c04cdf9b5121416c75d8a2da4922ff000f37fd7423fe46da3dfc",
+        "model_fingerprint": "f3a3130eb5c684f9",
+        "model_sha256": "bd60cda0028c745790c2b3df6ce2ba8dbc085a28561b92e746cf11c11b41f3ca"
+      },
+      "sweep": [
+        {"learning_rate": 0.0003, "all_nll": 13.057795302531, "all_brier": 0.159415534981, "post_nll": 12.895218113736, "post_brier": 0.160547015136, "evaluation_jsonl_sha256": "443807299f41266420d914fc97b5e9d2017214b6328d978b1c7e9d7798cf8b0d", "model_sha256": "73629ce9b49b2ff506369de276a80035a41707baac329cfba91ef77a3653855b"},
+        {"learning_rate": 0.001, "all_nll": 13.017206132068, "all_brier": 0.158877235448, "post_nll": 12.853734928374, "post_brier": 0.159987883986, "evaluation_jsonl_sha256": "c3320d8ca55e4ef4e51848f463d2700baaa50d0353a8deb9d8339074b0f2068b", "model_sha256": "2ad246e58e308428ceeb0653d1a6cb7439fd22c54dc3ff734c712a8d83cc7c3c"},
+        {"learning_rate": 0.003, "all_nll": 12.964702559953, "all_brier": 0.158217570183, "post_nll": 12.800074915385, "post_brier": 0.159302690380, "evaluation_jsonl_sha256": "78d745195631e4750b779f95cec72f6b9ac81210d410f78d17ed531997ce9073", "model_sha256": "f8519dcab2df5ae3dd27e3bb3104438edd8dbdb4d8d8c5030513560eaf7befc3"},
+        {"learning_rate": 0.0075, "all_nll": 12.926914844874, "all_brier": 0.157787266097, "post_nll": 12.761454890113, "post_brier": 0.158855733985, "evaluation_jsonl_sha256": "c090ed514e294f2223224bc9828c00de8d7b9cf06a862f961c46759c3ea72808", "model_sha256": "57966516b6c86f2bbdb7941f0940198f51c141bc19065a8b54ae9e17872d42fe"},
+        {"learning_rate": 0.01, "all_nll": 12.922342590656, "all_brier": 0.157755341096, "post_nll": 12.756781927668, "post_brier": 0.158822573521, "evaluation_jsonl_sha256": "794d04516a17c04cdf9b5121416c75d8a2da4922ff000f37fd7423fe46da3dfc", "model_sha256": "bd60cda0028c745790c2b3df6ce2ba8dbc085a28561b92e746cf11c11b41f3ca"},
+        {"learning_rate": 0.015, "all_nll": 12.927976322642, "all_brier": 0.157876925966, "post_nll": 12.762539747933, "post_brier": 0.158948863595, "evaluation_jsonl_sha256": "79dcfc2114c0c845427e2ce509743c3ba60def60527a5fa28f06c5c2290469ce", "model_sha256": "8e718afe6c271ed9ab86f692b447a96ca8024356b47780ee32383c62ecfa7650"},
+        {"learning_rate": 0.02, "all_nll": 12.943699840086, "all_brier": 0.158124076708, "post_nll": 12.778609590732, "post_brier": 0.159205578806, "evaluation_jsonl_sha256": "360d5798c0d036df970be32e84ba29fb465c32d4609b101ff661b50350a449a3", "model_sha256": "38c59528830a5bd1e781d557d3794c840dd57b85fbfee8f42a91119ed19b2789"},
+        {"learning_rate": 0.03, "all_nll": 12.988712381504, "all_brier": 0.158783042902, "post_nll": 12.824613575983, "post_brier": 0.159890046288, "evaluation_jsonl_sha256": "2341bec12ccee48a455f54f2d947db0984ae5fc3d536e51bbc5387c3dc3452be", "model_sha256": "a4959b574de1f14c1e68689159ddaa9b3ad00cb10377926a0e7ae8351cabaf37"},
+        {"learning_rate": 0.1, "all_nll": 13.375850422450, "all_brier": 0.163829456253, "post_nll": 13.220278698732, "post_brier": 0.165131750447, "evaluation_jsonl_sha256": "e8dbfbcbea7946aee3dea753cae310de37f05796ba0c00070383c570ceeb93f3", "model_sha256": "5d3d8499030c3f7a4f1a6921bff0ee8b34ef736664daa8adc3f20cf59cbe8b2b"},
+        {"learning_rate": 0.3, "all_nll": 14.483911190451, "all_brier": 0.175135652283, "post_nll": 14.352745554000, "post_brier": 0.176875484188, "evaluation_jsonl_sha256": "a8092838663e7a21ae5b4a4c69c09ce781aa11068e68ac255e36611414b06e3d", "model_sha256": "9d955a4cb6c8706e86039fbd9a61d9a7a96c0c0c476189698e5e12225217d39a"},
+        {"learning_rate": 1.0, "all_nll": 18.418786653164, "all_brier": 0.200019860205, "post_nll": 18.374290373394, "post_brier": 0.202722684380, "evaluation_jsonl_sha256": "36ffc09f613965cd97ee4b5d92a1d216d991fbe16e9518e8c9e429965569104a", "model_sha256": "dbfce9f51452d094adf5af813259ba16c86d9c36c5a3f21ba052dba977270934"}
+      ]
+    },
+    "matched_state_only_control": {
+      "fixed_l2": 0.0000001,
+      "selected_learning_rate": 0.00015,
+      "selected_model": {
+        "evaluation_jsonl_sha256": "26995351802ab927ce0a2d9fac403e7ce6faaf80efd261f15a37e3705f7e3ee7",
+        "model_fingerprint": "5285f65c4e104d62",
+        "model_sha256": "964fb3a1da8dba770f60f6849f9a80a0b4c1d634c2927f2e830147d2528f420b",
+        "optimizer_state_sha256": "4a9ccd57d758af66e85647716201a5650ce8bd8c52f5ae341c9e501362aefb45"
+      },
+      "sweep": [
+        {"learning_rate": 0.00005, "all_nll": 13.078788540089, "all_brier": 0.159704808481, "post_nll": 12.916673747224, "post_brier": 0.160847483211, "evaluation_jsonl_sha256": "26dbb4ebf81bac37e271523cc6cdd1118bec66e0d28f4129eab8474ff8653534", "model_sha256": "1aed885bf481bcc0f9e8b038d7d52fb426814486353f62c751ea416362a1309e"},
+        {"learning_rate": 0.0001, "all_nll": 13.076182994213, "all_brier": 0.159675739585, "post_nll": 12.914010811733, "post_brier": 0.160817289380, "evaluation_jsonl_sha256": "305ce037a5516462e4b5ee44207b30db6fb9c4cb8b27d145254c46c30b20071a", "model_sha256": "dfe8597c50ae8120a4d7e97d6bcb54d98b59ef3824de71970aa20f268cddab44"},
+        {"learning_rate": 0.00015, "all_nll": 13.074490098005, "all_brier": 0.159653964874, "post_nll": 12.912280627883, "post_brier": 0.160794672011, "evaluation_jsonl_sha256": "26995351802ab927ce0a2d9fac403e7ce6faaf80efd261f15a37e3705f7e3ee7", "model_sha256": "964fb3a1da8dba770f60f6849f9a80a0b4c1d634c2927f2e830147d2528f420b"},
+        {"learning_rate": 0.0003, "all_nll": 13.079138129581, "all_brier": 0.159694242686, "post_nll": 12.917031036755, "post_brier": 0.160836508531, "evaluation_jsonl_sha256": "56c05fd742ddd3359ff89285e0df82ea5f823bbb73468cf679a2816b4a2b378c", "model_sha256": "77121792da2a75fa1a05a20a9db958c08e50ac908fd65d92a5832004a13f2626"},
+        {"learning_rate": 0.001, "all_nll": 13.137426802665, "all_brier": 0.160469662754, "post_nll": 12.976603573038, "post_brier": 0.161641936527, "evaluation_jsonl_sha256": "0741bdb293cda9741e74c902c0ee1d02b42512354418498a4a69f8a9b709cf90", "model_sha256": "c3155ac3352ed33f4eff74292cc1d01ccab6def1d3119fb65d42d65273760f57"}
+      ],
+      "winner_vs_0_0001": {
+        "all_nll_absolute_gain": 0.001692896208,
+        "all_nll_cluster_se": 0.000309942444,
+        "all_nll_one_sided_normal_99_lcb": 0.000971862263,
+        "all_brier_absolute_gain": 0.000021774711,
+        "all_brier_cluster_se": 0.000003986428,
+        "all_brier_one_sided_normal_99_lcb": 0.000012500892,
+        "post_nll_absolute_gain": 0.001730183850,
+        "post_nll_cluster_se": 0.000316767630,
+        "post_nll_one_sided_normal_99_lcb": 0.000993272060,
+        "post_brier_absolute_gain": 0.000022617369,
+        "post_brier_cluster_se": 0.000004140656,
+        "post_brier_one_sided_normal_99_lcb": 0.000012984754
+      }
+    },
+    "selected_history_vs_selected_matched_control": {
+      "all_states": {
+        "brier_absolute_gain": 0.001898623778,
+        "brier_relative_gain": 0.011892117928,
+        "brier_one_sided_normal_99_lcb": 0.001820753066,
+        "joint_nll_absolute_gain_per_state": 0.152147507349,
+        "joint_nll_relative_gain": 0.011636974460,
+        "joint_nll_one_sided_normal_99_lcb": 0.146660829284
+      },
+      "post_opponent_action": {
+        "brier_absolute_gain": 0.001972098490,
+        "brier_relative_gain": 0.012264700476,
+        "brier_one_sided_normal_99_lcb": 0.001891219476,
+        "joint_nll_absolute_gain_per_state": 0.155498700216,
+        "joint_nll_relative_gain": 0.012042698319,
+        "joint_nll_one_sided_normal_99_lcb": 0.149891412117
+      },
+      "inference_note": "Development-only paired source-match-cluster normal bounds; these do not replace the locked simultaneous TEST bootstrap."
+    }
+  },
+  "interpretation": {
+    "brier_absolute_reduction": 0.002270251673,
+    "joint_nll_absolute_reduction_per_state": 0.1658376429,
+    "joint_nll_relative_reduction": 0.012674433,
+    "result": "large clean supervision is a strong control, but cannot establish chronological-action benefit because the current encoder lacks exact action order"
+  },
+  "workflow_interface_smoke": {
+    "authoritative": false,
+    "artifacts_persisted": false,
+    "evaluation_matches": 2,
+    "evaluation_root": 202608290511,
+    "purpose": "development-only end-to-end residual/control/incumbent row-schema smoke after the native interface froze; forbidden for thresholds or selection",
+    "shared_history_control_matches": 100,
+    "shared_history_control_root": 202608290510
+  },
+  "seed_disposition": {
+    "202608290101": "burned_training_development",
+    "202608290102": "burned_unused_rl_evaluation_namespace",
+    "202608290202": "burned_calibration_development",
+    "202608290203": "burned_heldout_development",
+    "202608290507": "burned_final_architecture_throughput_benchmark",
+    "202608290508": "burned_final_architecture_training_development",
+    "202608290509": "burned_final_architecture_heldout_development",
+    "202608290510": "burned_workflow_interface_training_smoke",
+    "202608290511": "burned_workflow_interface_evaluation_smoke"
+  }
+}

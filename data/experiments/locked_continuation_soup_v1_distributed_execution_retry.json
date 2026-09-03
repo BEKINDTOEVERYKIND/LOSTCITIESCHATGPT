@@ -1,0 +1,81 @@
+{
+  "schema_version": 2,
+  "artifact_kind": "locked_continuation_soup_v1_distributed_execution_retry",
+  "status": "retry_bound_before_distributed_actor_efficacy",
+  "source_parent_commit": "d327814c8c06b15debcfc1241cf893ce0dc0ab3a",
+  "prior_failed_launch": {
+    "record_path": "data/experiments/continuation_soup_v1_distributed_launch_failure.json",
+    "record_sha256": "82721eccce23fcc5dcfe43d71df331e7c060a9de853cbf7b2a577a49e1571c13",
+    "workflow_run_id": 32578677717,
+    "actor_shards_started": 0,
+    "efficacy_observed": false
+  },
+  "workflow": {
+    "path": ".github/workflows/continuation-soup-v1.yml",
+    "sha256": "756dfa9bb7c49a5010d21c0e5a602073ca4706d14fe35f99df644456633132f0"
+  },
+  "locked_inputs": {
+    "plan_sha256": "5b34f3cac29f4f2e4a4acb713c8c979450a6a1226cf24ad13d91dd30460fc709",
+    "candidate_execution_sha256": "2cd54b8357c359758c6b42a22677acd16675a345d1a99439e2c358f043417baa",
+    "actor_execution_sha256": "da3dcdaae4f8e3a80b1d6d26874b1935e05b52299274261f6b893b7ec8d7f1ed",
+    "role_result_sha256": "9ae1caa83b9a2ffef715a6c90c3987e386795a00cd92bd19f000f8d2ca1811fb"
+  },
+  "evidence_tools": {
+    "merge_arena_sha256": "9cad23c9e6550ea36d7721acf8e64144a44058083ad4aeb5bb5613a3a79139fb",
+    "gate_actor_panel_sha256": "50ae52c66698d04cd4cc13af35c3d0eaed72e37bd76657dae12aa10f09dcc2ed",
+    "validate_actor_shards_sha256": "bca430a94af64180436c7fb60d29b2e86ec4b3567ab3aabb09984aabee054855"
+  },
+  "transport": {
+    "arena": {
+      "path": "bin/arena",
+      "sha256": "a65f73871e04ed0e21f2bc9920a235cbb5d29950b35bb91df37ae9dcc8801efa",
+      "size_bytes": 362592
+    },
+    "root_model": {
+      "path": "data/champion.bin",
+      "sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+      "size_bytes": 2823748
+    },
+    "candidate_model": {
+      "path": "data/models/continuation_soup_v1.bin",
+      "sha256": "e88c97912165165f200e7e1ebe9705971916c93083fa0049d63aa6eeba1adb8d",
+      "size_bytes": 2823748,
+      "runtime_path": "results/continuation-soup-v1/soup.bin"
+    }
+  },
+  "evaluator": {
+    "source_commit": "bd485857eda329b8df7fc2281f1aea83aac195d4",
+    "binding": "transport and verify the exact predeclared arena, root model, and candidate model; compile nothing on the evaluation runner",
+    "arena_sha256": "a65f73871e04ed0e21f2bc9920a235cbb5d29950b35bb91df37ae9dcc8801efa",
+    "root_sha256": "af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417",
+    "compiler": "gcc (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0",
+    "cflags": "-O3 -march=x86-64-v3 -ffast-math -funroll-loops -Wall -Wextra -std=c11",
+    "threads_per_shard": 4
+  },
+  "actors": {
+    "candidate": "rolloutu2:data/champion.bin:results/continuation-soup-v1/soup.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+    "baseline": "rolloutu2:data/champion.bin:data/champion.bin:512:5:0.02:0:1:14:0:0:0:0:3.5:2:4:20:0:0:20:1:0:512:1:0:0:0:0:0:0:3:1:0:0:0:0:0:0:1",
+    "safety_provenance": "soupv1_actor_plan5b34f3_exec2cd54b_role9ae1ca_sourcebd4858_rootaf2b2c_soupe88c97_arenaa65f73",
+    "final_provenance": "stage=continuation_soup_v1_final;plan=5b34f3cac29f4f2e4a4acb713c8c979450a6a1226cf24ad13d91dd30460fc709;candidate_execution=2cd54b8357c359758c6b42a22677acd16675a345d1a99439e2c358f043417baa;actor_execution=da3dcdaae4f8e3a80b1d6d26874b1935e05b52299274261f6b893b7ec8d7f1ed;role_result=9ae1caa83b9a2ffef715a6c90c3987e386795a00cd92bd19f000f8d2ca1811fb;source=bd485857eda329b8df7fc2281f1aea83aac195d4;arena=a65f73871e04ed0e21f2bc9920a235cbb5d29950b35bb91df37ae9dcc8801efa;root=af2b2c237d21f5ec15acbcba2fde3e45864a6e44af4ddb1ff6f3756fd687f417;soup=e88c97912165165f200e7e1ebe9705971916c93083fa0049d63aa6eeba1adb8d;threads=4"
+  },
+  "safety": {
+    "pairs_per_orientation": 200,
+    "pairs_per_shard": 20,
+    "starts": [0, 20, 40, 60, 80, 100, 120, 140, 160, 180],
+    "candidate_first_seed": "202608240301",
+    "baseline_first_seed": "202608240302",
+    "gate": "score>=0.5; margin>0; each orientation candidate score>=0.475; zero caps; exact validity"
+  },
+  "final": {
+    "execute_if_safety_passes": true,
+    "pairs_per_orientation": 2500,
+    "pairs_per_shard": 100,
+    "starts": [0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000, 2100, 2200, 2300, 2400],
+    "candidate_first_seed": "202608240401",
+    "baseline_first_seed": "202608240402",
+    "gate_z": 1.645,
+    "gate": "score-z*SE>0.5; margin-z*SE>0; each orientation candidate score>0.5; zero caps; exact validity"
+  },
+  "inspection_rule": "No efficacy is read until every immutable shard and sidecar in that panel validates and the reciprocal merge completes.",
+  "results": null
+}

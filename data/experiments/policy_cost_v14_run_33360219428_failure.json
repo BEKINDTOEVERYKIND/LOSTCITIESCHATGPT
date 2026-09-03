@@ -1,0 +1,70 @@
+{
+  "cause": {
+    "classification": "cell_saturated_optional_draw_column_misclassified_as_active",
+    "efficacy_related": false,
+    "mechanism": "The cell-saturated model-adequacy comparator correctly treats search and semantic-core gaps as active for different-core pairs, but v14 also required the conditional-draw column in every different-core cell. Valid pairs may differ in semantic core while sharing the same draw source, making that optional draw-ratio column structurally zero. Calibration therefore raised a design error instead of fitting the estimable supported columns.",
+    "stage": {
+      "error": "CalibrationError: cell-saturated adequacy cell (0, 0, 2, 'different_core') has a zero active column",
+      "job_id": 99493554908,
+      "name": "train_calibrate / Calibrate and seal the pre-SELECT decision"
+    }
+  },
+  "execution_blob": {
+    "git_blob_sha": "52009d6cd9682b74706a4f9ae5db0e2611c30c08",
+    "path": "data/experiments/locked_policy_cost_v14_execution.json",
+    "sha256": "e6710e355562c2d158f0cd3be68d63c085bace65475d7e00e4a86c625f2aba75",
+    "size": 124425,
+    "utf8_json_valid": true
+  },
+  "fixed_seed_execution": {
+    "all_policy_cost_v14_fixed_roots_retired": true,
+    "retired_fixed_root_count": 21,
+    "retry_forbidden": true,
+    "seeds_touched": true
+  },
+  "github_run": {
+    "attempt": 1,
+    "conclusion": "failure",
+    "event": "push",
+    "head_sha": "71b9f5a60e505df70109bb5944c5dfbc49197b02",
+    "head_tree": "4864ce7e634847ff0895908dce98fe30d439bf97",
+    "id": 33360219428,
+    "url": "https://github.com/BEKINDTOEVERYKIND/LOSTCITIESCHATGPT/actions/runs/33360219428"
+  },
+  "immutable_retention": {
+    "artifact_digest": "sha256:3c6d971a1f7e9e8b4723d7ee6840236ee070707d25c79076a867bc3f493699d9",
+    "artifact_id": 9758740085,
+    "artifact_name": "policy-cost-v14-infrastructure-retain",
+    "all_train_evaluation_batches_succeeded": true,
+    "train_evaluation_batch_count": 54
+  },
+  "job_disposition": {
+    "failure": 1,
+    "skipped": 9,
+    "success": 63,
+    "total": 73
+  },
+  "locked_validation_relaxed": false,
+  "maintained_actor_changed": false,
+  "partial_efficacy_inspected": false,
+  "promotion_efficacy_data_observed": false,
+  "schema": "lc-policy-cost-v14-cell-saturated-structural-zero-v1",
+  "search_and_truth_labels_generated": true,
+  "source_parent": {
+    "commit": "87fa6b3fb2cb7442e8ed01426622de2e1bb08d47",
+    "tree": "d0073a0c88db155d472894ce23a151ff51133823"
+  },
+  "status": "complete_terminal_non_promotable",
+  "terminal_boundary": {
+    "calibration_artifact_serialized": false,
+    "select_efficacy_started": false,
+    "test_efficacy_started": false
+  },
+  "untouched_stages": [
+    "SELECT_search_and_truth",
+    "untouched_TEST_search_and_truth",
+    "reciprocal_safety",
+    "final",
+    "promotion"
+  ]
+}
